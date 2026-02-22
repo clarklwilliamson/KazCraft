@@ -1,0 +1,17 @@
+## Interface: 120001
+## Title: KazCraft
+## Notes: Profession queue + AH replacement
+## Author: Kazeric
+## Version: 2.0.0
+## SavedVariables: KazCraftDB
+## X-Flavor: Mainline
+
+Util.lua
+Data.lua
+Core.lua
+ProfessionUI.lua
+AHShop.lua
+AHBrowse.lua
+AHSell.lua
+AHAuctions.lua
+AHUI.lua

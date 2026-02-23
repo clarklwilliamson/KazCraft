@@ -54,6 +54,8 @@ local FILTER_DEFAULTS = {
         [Enum.AuctionHouseFilter.LegendaryQuality] = true,
         [Enum.AuctionHouseFilter.ArtifactQuality] = true,
     },
+    -- Client-side crafting quality tier filter (0 = no tier / non-crafted)
+    craftTiers = { [0] = true, [1] = true, [2] = true, [3] = true },
 }
 
 local filterState = {}
@@ -68,9 +70,13 @@ local function SaveFilterState()
         currentExpansionOnly = filterState.currentExpansionOnly,
         upgradesOnly = filterState.upgradesOnly,
         qualities = {},
+        craftTiers = {},
     }
     for k, v in pairs(filterState.qualities) do
         saved.qualities[k] = v
+    end
+    for k, v in pairs(filterState.craftTiers) do
+        saved.craftTiers[k] = v
     end
     KazCraftDB.ahFilters = saved
 end
@@ -94,6 +100,16 @@ local function LoadFilterState()
                 filterState.qualities[k] = v
             end
         end
+        filterState.craftTiers = {}
+        if saved.craftTiers then
+            for k, v in pairs(saved.craftTiers) do
+                filterState.craftTiers[k] = v
+            end
+        else
+            for k, v in pairs(FILTER_DEFAULTS.craftTiers) do
+                filterState.craftTiers[k] = v
+            end
+        end
     else
         -- First time: use defaults
         filterState.minLevel = FILTER_DEFAULTS.minLevel
@@ -105,6 +121,10 @@ local function LoadFilterState()
         filterState.qualities = {}
         for k, v in pairs(FILTER_DEFAULTS.qualities) do
             filterState.qualities[k] = v
+        end
+        filterState.craftTiers = {}
+        for k, v in pairs(FILTER_DEFAULTS.craftTiers) do
+            filterState.craftTiers[k] = v
         end
     end
 end
@@ -679,6 +699,45 @@ local function CreateFilterPanel(parent)
         end)
         cb:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, yOff)
         cb:SetPoint("RIGHT", panel, "RIGHT", -6, 0)
+        yOff = yOff - 20
+    end
+
+    yOff = yOff - 6
+
+    -- Crafting Quality header
+    local craftHeader = panel:CreateFontString(nil, "OVERLAY")
+    craftHeader:SetFont(ns.FONT, 10, "")
+    craftHeader:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, yOff)
+    craftHeader:SetText("Crafting Quality")
+    craftHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    yOff = yOff - 18
+
+    local craftTierDefs = {
+        { tier = 0, label = "No Tier" },
+        { tier = 1, label = "Tier 1" },
+        { tier = 2, label = "Tier 2" },
+        { tier = 3, label = "Tier 3" },
+    }
+
+    for _, def in ipairs(craftTierDefs) do
+        local cb = CreateFlatCheck(panel, def.label, filterState.craftTiers[def.tier], nil, function(checked)
+            filterState.craftTiers[def.tier] = checked
+            SaveFilterState()
+            AHBrowse:RefreshRows()
+            AHBrowse:UpdateResultStatus()
+        end)
+        cb:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, yOff)
+        cb:SetPoint("RIGHT", panel, "RIGHT", -6, 0)
+        -- Add tier atlas icon next to label for tiers 1-3
+        if def.tier > 0 then
+            local atlas = ns.GetQualityAtlas(def.tier)
+            if atlas then
+                local tierIcon = cb:CreateTexture(nil, "OVERLAY")
+                tierIcon:SetSize(14, 14)
+                tierIcon:SetAtlas(atlas)
+                tierIcon:SetPoint("RIGHT", cb, "RIGHT", -4, 0)
+            end
+        end
         yOff = yOff - 20
     end
 
@@ -1273,12 +1332,44 @@ function AHBrowse:Refresh()
 end
 
 --------------------------------------------------------------------
+-- Crafting tier client-side filter
+--------------------------------------------------------------------
+local function NeedsCraftTierFilter()
+    for k, v in pairs(FILTER_DEFAULTS.craftTiers) do
+        if filterState.craftTiers[k] ~= v then return true end
+    end
+    return false
+end
+
+local function FilterBrowseResults()
+    if not NeedsCraftTierFilter() then return browseResults end
+    local filtered = {}
+    for _, r in ipairs(browseResults) do
+        local tier = ns.GetCraftingQuality(r.itemKey.itemID) or 0
+        if filterState.craftTiers[tier] then
+            table.insert(filtered, r)
+        end
+    end
+    return filtered
+end
+
+--------------------------------------------------------------------
 -- Browse results events
 --------------------------------------------------------------------
+function AHBrowse:UpdateResultStatus()
+    local total = #browseResults
+    if NeedsCraftTierFilter() then
+        local filtered = FilterBrowseResults()
+        self:SetStatus(#filtered .. " / " .. total .. " results")
+    else
+        self:SetStatus(total .. " results")
+    end
+end
+
 function AHBrowse:OnBrowseResultsUpdated()
     browseResults = C_AuctionHouse.GetBrowseResults()
     self:RefreshRows()
-    self:SetStatus(#browseResults .. " results")
+    self:UpdateResultStatus()
 end
 
 function AHBrowse:OnBrowseResultsAdded(addedResults)
@@ -1290,7 +1381,7 @@ function AHBrowse:OnBrowseResultsAdded(addedResults)
         browseResults = C_AuctionHouse.GetBrowseResults()
     end
     self:RefreshRows()
-    self:SetStatus(#browseResults .. " results")
+    self:UpdateResultStatus()
 end
 
 --------------------------------------------------------------------
@@ -1300,7 +1391,8 @@ local pendingItemRequests = {}
 
 function AHBrowse:RefreshRows()
     if not resultContent then return end
-    local count = #browseResults
+    local displayResults = FilterBrowseResults()
+    local count = #displayResults
 
     resultContent:SetHeight(math.max(1, count * ROW_HEIGHT))
     selectedRowIndex = nil
@@ -1315,7 +1407,7 @@ function AHBrowse:RefreshRows()
         end
         if row then
             if i <= count then
-                local r = browseResults[i]
+                local r = displayResults[i]
                 local keyInfo = C_AuctionHouse.GetItemKeyInfo(r.itemKey)
 
                 if keyInfo and keyInfo.itemName then

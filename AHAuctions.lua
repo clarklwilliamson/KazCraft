@@ -90,8 +90,14 @@ local function CreateAuctionRow(parent, index)
         end
     end)
     row:SetScript("OnLeave", function(self)
-        self.bg:SetColorTexture(1, 1, 1, self._defaultBgAlpha)
-        self.leftAccent:Hide()
+        -- Keep highlight if this row is selected
+        if selectedRowIndex and selectedRowIndex == index then
+            self.bg:SetColorTexture(unpack(ns.COLORS.rowHover))
+            self.leftAccent:Show()
+        else
+            self.bg:SetColorTexture(1, 1, 1, self._defaultBgAlpha)
+            self.leftAccent:Hide()
+        end
         GameTooltip:Hide()
     end)
 
@@ -232,9 +238,6 @@ end
 function AHAuctions:Refresh()
     if not scrollContent then return end
 
-    selectedAuctionID = nil
-    selectedRowIndex = nil
-
     if activeSubTab == "auctions" then
         self:RefreshAuctions()
         cancelBtn:Show()
@@ -299,6 +302,9 @@ function AHAuctions:RefreshAuctions()
     if container.countText then
         container.countText:SetText(count .. " auction" .. (count ~= 1 and "s" or ""))
     end
+
+    -- Re-highlight previously selected auction (if it still exists)
+    self:RestoreSelection()
 end
 
 function AHAuctions:RefreshBids()
@@ -352,6 +358,9 @@ function AHAuctions:RefreshBids()
     if container.countText then
         container.countText:SetText(count .. " bid" .. (count ~= 1 and "s" or ""))
     end
+
+    -- Re-highlight previously selected bid (if it still exists)
+    self:RestoreSelection()
 end
 
 --------------------------------------------------------------------
@@ -371,6 +380,23 @@ function AHAuctions:HighlightRow(index)
     end
 end
 
+-- After a refresh, find the previously selected auctionID in the new
+-- row list and re-apply the highlight.  Clears selection if it no
+-- longer exists (e.g. after cancel).
+function AHAuctions:RestoreSelection()
+    if not selectedAuctionID then return end
+    for i, row in ipairs(rows) do
+        if row:IsShown() and row._auctionID == selectedAuctionID then
+            selectedRowIndex = i
+            self:HighlightRow(i)
+            return
+        end
+    end
+    -- Auction no longer in list — clear selection
+    selectedAuctionID = nil
+    selectedRowIndex = nil
+end
+
 --------------------------------------------------------------------
 -- Cancel auction
 --------------------------------------------------------------------
@@ -387,8 +413,8 @@ function AHAuctions:CancelSelected()
     end
 
     C_AuctionHouse.CancelAuction(selectedAuctionID)
-    selectedAuctionID = nil
-    selectedRowIndex = nil
+    -- Don't clear selection here — RestoreSelection will clear it
+    -- after refresh if the auction no longer exists
 end
 
 --------------------------------------------------------------------

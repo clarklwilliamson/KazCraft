@@ -1,7 +1,7 @@
 ## Interface: 120001
 ## Title: KazCraft
 ## Notes: Profession queue + AH replacement
-## Author: Kazeric
+## Author: Kaz (Claude Code) & Logan
 ## Version: 2.0.0
 ## SavedVariables: KazCraftDB
 ## X-Flavor: Mainline

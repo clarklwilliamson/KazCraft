@@ -70,6 +70,7 @@ function handlers.TRADE_SKILL_CLOSE()
 end
 
 function handlers.AUCTION_HOUSE_SHOW()
+    if ns.AHShop then ns.AHShop:OnAHOpen() end
     if ns.AHUI then
         ns.AHUI:Show()
     end

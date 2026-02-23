@@ -25,7 +25,8 @@ local currentMats = {}
 local livePrices = {}
 local pendingSearchItemID = nil
 local selectedItemID = nil -- currently selected material for right panel
-local recentPurchases = {} -- [itemID] = qty bought (cleared on next full refresh after bags update)
+-- Purchased items tracked in KazCraftDB.shopPurchases (survives /reload)
+-- Cleared on fresh AH open (new session = new list)
 
 --------------------------------------------------------------------
 -- Get quality pip markup for an itemID
@@ -378,7 +379,6 @@ end
 function AHShop:Show()
     if not container then return end
     wipe(livePrices)
-    wipe(recentPurchases)
     selectedItemID = nil
     self:Refresh()
     self:ClearListings()
@@ -427,11 +427,14 @@ function AHShop:Refresh()
     if not container then return end
     currentMats = ns.Data:GetMaterialList(activeFilter)
 
-    -- Apply recent purchases (GetItemCount may not reflect them yet)
-    for _, mat in ipairs(currentMats) do
-        if recentPurchases[mat.itemID] then
-            mat.have = mat.have + recentPurchases[mat.itemID]
-            mat.short = math.max(0, mat.need - mat.have)
+    -- Apply tracked purchases (GetItemCount may not reflect them yet)
+    local purchases = KazCraftDB.shopPurchases
+    if purchases then
+        for _, mat in ipairs(currentMats) do
+            if purchases[mat.itemID] then
+                mat.have = mat.have + purchases[mat.itemID]
+                mat.short = math.max(0, mat.need - mat.have)
+            end
         end
     end
 
@@ -671,15 +674,19 @@ function AHShop:OnThrottleReady()
     -- Reserved for future use
 end
 
+-- Called on AUCTION_HOUSE_SHOW — fresh session, clear purchase tracking
+function AHShop:OnAHOpen()
+    KazCraftDB.shopPurchases = {}
+end
+
 
 function AHShop:OnPurchaseSucceeded(itemID, qty)
-    -- Track purchase so Refresh can subtract immediately
+    -- Track purchase in SavedVariables (survives /reload)
     if itemID and qty then
-        recentPurchases[itemID] = (recentPurchases[itemID] or 0) + qty
+        if not KazCraftDB.shopPurchases then KazCraftDB.shopPurchases = {} end
+        KazCraftDB.shopPurchases[itemID] = (KazCraftDB.shopPurchases[itemID] or 0) + qty
     end
-    -- Immediate refresh with purchase data applied
     if self:IsShown() then
         self:Refresh()
     end
-
 end

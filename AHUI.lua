@@ -27,7 +27,7 @@ local TAB_DEFS = {
 }
 
 --------------------------------------------------------------------
--- Blizzard AH frame suppression (Plumber pattern: SetScale)
+-- Blizzard AH frame suppression (SetScale pattern)
 --------------------------------------------------------------------
 local function SuppressBlizzardAH()
     if not AuctionHouseFrame then return end
@@ -390,6 +390,7 @@ function AHUI:Show()
     self:SelectTab("shop")
 
     mainFrame:Show()
+
 end
 
 function AHUI:Hide()

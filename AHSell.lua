@@ -33,6 +33,21 @@ local sellIsCommodity = false
 local pendingPostArgs = nil
 local EnsurePostWarningHooked  -- forward declaration
 
+-- Cached clean values for PostItem — updated by OnTextChanged handlers.
+local cachedUnitPrice = 0
+local cachedQty = 1
+
+-- On retail, PostItem SILENTLY FAILS if the price contains copper.
+-- Prices must be whole silver (multiples of 100 copper), minimum 1s.
+-- Auctionator has the same workaround (NormalizePrice).
+local function NormalizePrice(copper)
+    if copper % 100 ~= 0 then
+        copper = copper + (100 - copper % 100)
+    end
+    if copper < 100 then copper = 100 end
+    return copper
+end
+
 --------------------------------------------------------------------
 -- Listing row factory
 --------------------------------------------------------------------
@@ -213,7 +228,11 @@ function AHSell:Init(contentFrame)
     qtyBox:SetText("1")
     qtyBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     qtyBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    qtyBox:SetScript("OnTextChanged", function() AHSell:UpdateDeposit() end)
+    qtyBox:SetScript("OnTextChanged", function()
+        cachedQty = tonumber(qtyBox:GetText()) or 1
+        if cachedQty < 1 then cachedQty = 1 end
+        AHSell:UpdateDeposit()
+    end)
 
     -- Duration
     local durLabel = leftPanel:CreateFontString(nil, "OVERLAY")
@@ -257,7 +276,10 @@ function AHSell:Init(contentFrame)
         box:SetText("0")
         box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
         box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-        box:SetScript("OnTextChanged", function() AHSell:UpdateDeposit() end)
+        box:SetScript("OnTextChanged", function()
+            AHSell:UpdateCachedPrice()
+            AHSell:UpdateDeposit()
+        end)
 
         local suf = box:CreateFontString(nil, "OVERLAY")
         suf:SetFont(ns.FONT, 10, "")
@@ -286,56 +308,51 @@ function AHSell:Init(contentFrame)
     depositText:SetTextColor(unpack(ns.COLORS.mutedText))
     depositText:SetText("\226\128\148")
 
-    -- Post button — parented to UIParent to preserve hardware event chain.
-    -- Buttons inside our frame hierarchy (HIGH strata + EnableMouse + RegisterForDrag)
-    -- lose the hardware event token required by HasRestrictions APIs like PostItem.
-    -- Post button: parented to UIParent (not our frame hierarchy) and restores
-    -- Blizzard AH scale before calling HasRestrictions API. Both are required
-    -- for PostItem to accept the hardware event.
-    postBtn = CreateFrame("Button", "KazCraftPostButton", UIParent, "UIPanelButtonTemplate")
+    -- Post button
+    postBtn = CreateFrame("Button", "KazCraftPostButton", leftPanel, "UIPanelButtonTemplate")
     postBtn:SetSize(120, 28)
     postBtn:SetPoint("BOTTOM", leftPanel, "BOTTOM", 0, 14)
     postBtn:SetFrameStrata("TOOLTIP")
     postBtn:SetText("Post Item")
+    -- OnClick: ZERO method calls / GetText() / API reads before PostItem.
+    -- Only plain local reads + the PostItem call.  This keeps the hardware
+    -- event execution context completely free of taint.  cachedUnitPrice
+    -- and cachedQty are updated by OnTextChanged handlers (separate context).
     postBtn:SetScript("OnClick", function()
-        -- Exactly like the test button that worked: nothing before PostItem
-        if not sellItemLocation then return end
+        local loc = sellItemLocation
+        if not loc then return end
 
-        local unitPrice = AHSell:GetInputPrice()
-        if unitPrice <= 0 then unitPrice = 100 end
-        local qty = tonumber(qtyBox:GetText()) or 1
-        if qty < 1 then qty = 1 end
-        local duration = DURATIONS[durationIdx].value
+        local price = NormalizePrice(cachedUnitPrice)
+        local qty = cachedQty
+        local dur = DURATIONS[durationIdx].value
+        local isCommodity = sellIsCommodity
 
-        if AuctionHouseFrame then AuctionHouseFrame:SetScale(1) end
-
+        -- Do NOT call AuctionHouseFrame:SetScale() here.
+        -- SetScale(1) on Blizzard's complex AH frame triggers layout/scripts
+        -- that may consume the hardware event token before PostItem gets it.
+        -- The AH session is open on the server regardless of client-side scale.
         local result
-        if sellIsCommodity then
-            result = C_AuctionHouse.PostCommodity(sellItemLocation, duration, qty, unitPrice)
+        if isCommodity then
+            result = C_AuctionHouse.PostCommodity(loc, dur, qty, price)
         else
-            result = C_AuctionHouse.PostItem(sellItemLocation, duration, qty, nil, unitPrice)
+            result = C_AuctionHouse.PostItem(loc, dur, qty, nil, price)
         end
-
-        if AuctionHouseFrame then AuctionHouseFrame:SetScale(0.001) end
-
-        print("|cffc8aa64KC:|r PostItem=>" .. tostring(result)
-            .. " bag=" .. tostring(sellItemLocation:GetBagAndSlot())
-            .. " price=" .. unitPrice .. " qty=" .. qty .. " dur=" .. duration)
 
         if result then
             AHSell:SetStatus("|cff66ff66Posting...|r")
-            if AuctionHouseFrame and AuctionHouseFrame.ItemSellFrame then
-                AuctionHouseFrame.ItemSellFrame:CachePendingPost(
-                    sellItemLocation, duration, qty, nil, unitPrice)
-            end
+            pendingPostArgs = {
+                isCommodity = isCommodity,
+                item = loc, duration = dur,
+                quantity = qty, unitPrice = price, buyout = price,
+            }
             C_Timer.After(5, function()
                 if container and container.statusText
                    and container.statusText:GetText():find("Posting") then
-                    AHSell:SetStatus("|cffff6666Post timed out.|r")
+                    AHSell:SetStatus("|cffff6666Post timed out — try again.|r")
                 end
             end)
         else
-            AHSell:SetStatus("|cffff6666Post failed.|r")
+            AHSell:SetStatus("|cffff6666Post failed — see chat.|r")
         end
     end)
 
@@ -413,34 +430,40 @@ end
 function AHSell:Show()
     if not container then return end
     container:Show()
-    if postBtn then postBtn:Show() end
 end
 
 function AHSell:Hide()
     if container then container:Hide() end
-    if postBtn then postBtn:Hide() end
 end
 
 function AHSell:IsShown()
     return container and container:IsShown()
 end
 
+
 --------------------------------------------------------------------
 -- Accept cursor item (drag & drop or click with item on cursor)
 --------------------------------------------------------------------
 function AHSell:AcceptCursorItem()
-    -- Use C_Cursor.GetCursorItem() — same API Blizzard uses in their sell frame
-    -- Returns an ItemLocation directly (bag + slot), no FindItemInBags needed
+    -- Get cursor item, then create a FRESH ItemLocation from its bag/slot.
+    -- C_Cursor's returned ItemLocation may carry internal metadata that
+    -- taints HasRestrictions calls.  Extracting bag+slot and rebuilding
+    -- guarantees a clean, untainted table — same pattern TSM/Auctionator use.
     local cursorItem = C_Cursor.GetCursorItem()
     if not cursorItem then
-        -- Fallback: try old API
         local infoType = GetCursorInfo()
         if infoType ~= "item" then return end
     end
 
-    local location = cursorItem
+    local location
+    if cursorItem then
+        local bag, slot = cursorItem:GetBagAndSlot()
+        ClearCursor()
+        if bag and slot then
+            location = ItemLocation:CreateFromBagAndSlot(bag, slot)
+        end
+    end
     if not location then
-        -- Old path: GetCursorInfo returned "item" but C_Cursor failed
         local _, itemID = GetCursorInfo()
         ClearCursor()
         location = self:FindItemInBags(itemID)
@@ -448,8 +471,6 @@ function AHSell:AcceptCursorItem()
             self:SetStatus("Item not found in bags.")
             return
         end
-    else
-        ClearCursor()
     end
 
     local itemID = C_Item.GetItemID(location)
@@ -551,6 +572,17 @@ function AHSell:SetInputPrice(copper)
     priceGold:SetText(tostring(g))
     priceSilver:SetText(tostring(s))
     priceCopper:SetText(tostring(c))
+    -- OnTextChanged fires from SetText, which calls UpdateCachedPrice
+end
+
+-- Recalculate cachedUnitPrice from the EditBox values.
+-- Called by OnTextChanged (outside the hardware-event context) so any
+-- taint from GetText() stays isolated from the PostItem OnClick path.
+function AHSell:UpdateCachedPrice()
+    local g = tonumber(priceGold and priceGold:GetText() or "0") or 0
+    local s = tonumber(priceSilver and priceSilver:GetText() or "0") or 0
+    local c = tonumber(priceCopper and priceCopper:GetText() or "0") or 0
+    cachedUnitPrice = (g * 10000) + (s * 100) + c
 end
 
 --------------------------------------------------------------------
@@ -752,7 +784,7 @@ function AHSell:OnCommoditySearchResults(itemID)
     local cheapest = self:RefreshCommodityListings(itemID)
     if cheapest then
         -- Auto-undercut cheapest by 1 copper
-        self:SetInputPrice(math.max(1, cheapest - 1))
+        self:SetInputPrice(cheapest)
         self:UpdateDeposit()
     end
 end
@@ -766,7 +798,7 @@ function AHSell:OnItemSearchResults(itemKey)
     local cheapest = self:RefreshItemListings(sellItemKey)
     if cheapest then
         -- Auto-undercut cheapest by 1 copper
-        self:SetInputPrice(math.max(1, cheapest - 1))
+        self:SetInputPrice(cheapest)
         self:UpdateDeposit()
     end
 end
@@ -800,7 +832,7 @@ EnsurePostWarningHooked = function()
             else
                 C_AuctionHouse.ConfirmPostItem(
                     pendingPostArgs.item, pendingPostArgs.duration,
-                    pendingPostArgs.quantity, nil, pendingPostArgs.buyout)
+                    pendingPostArgs.quantity, pendingPostArgs.buyout, pendingPostArgs.buyout)
             end
             pendingPostArgs = nil
         end

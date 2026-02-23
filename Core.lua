@@ -189,6 +189,11 @@ function handlers.AUCTION_HOUSE_POST_WARNING()
     -- StaticPopup will show; our hooked OnAccept in AHSell handles confirm
 end
 
+-- Post error
+function handlers.AUCTION_HOUSE_POST_ERROR()
+    if ns.AHSell then ns.AHSell:SetStatus("|cffff6666Server rejected post.|r") end
+end
+
 -- Auction canceled → AHAuctions
 function handlers.AUCTION_CANCELED()
     if ns.AHAuctions then ns.AHAuctions:OnAuctionCanceled() end
@@ -233,6 +238,7 @@ frame:RegisterEvent("BIDS_UPDATED")
 frame:RegisterEvent("AUCTION_HOUSE_AUCTION_CREATED")
 frame:RegisterEvent("AUCTION_CANCELED")
 frame:RegisterEvent("AUCTION_HOUSE_POST_WARNING")
+frame:RegisterEvent("AUCTION_HOUSE_POST_ERROR")
 frame:RegisterEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
 frame:RegisterEvent("PLAYER_MONEY")
 

@@ -286,64 +286,57 @@ function AHSell:Init(contentFrame)
     depositText:SetTextColor(unpack(ns.COLORS.mutedText))
     depositText:SetText("\226\128\148")
 
-    -- Post button — calls PostItem/PostCommodity DIRECTLY in OnClick
-    -- to preserve the hardware event chain. No intermediate method calls.
-    postBtn = CreateFrame("Button", "KazCraftPostButton", leftPanel, "UIPanelButtonTemplate")
+    -- Post button — parented to UIParent to preserve hardware event chain.
+    -- Buttons inside our frame hierarchy (HIGH strata + EnableMouse + RegisterForDrag)
+    -- lose the hardware event token required by HasRestrictions APIs like PostItem.
+    -- Post button: parented to UIParent (not our frame hierarchy) and restores
+    -- Blizzard AH scale before calling HasRestrictions API. Both are required
+    -- for PostItem to accept the hardware event.
+    postBtn = CreateFrame("Button", "KazCraftPostButton", UIParent, "UIPanelButtonTemplate")
     postBtn:SetSize(120, 28)
     postBtn:SetPoint("BOTTOM", leftPanel, "BOTTOM", 0, 14)
+    postBtn:SetFrameStrata("TOOLTIP")
     postBtn:SetText("Post Item")
     postBtn:SetScript("OnClick", function()
+        -- Exactly like the test button that worked: nothing before PostItem
         if not sellItemLocation then return end
-        if not ns.AHUI or not ns.AHUI:IsAHOpen() then return end
 
         local unitPrice = AHSell:GetInputPrice()
-        if unitPrice <= 0 then return end
-
+        if unitPrice <= 0 then unitPrice = 100 end
         local qty = tonumber(qtyBox:GetText()) or 1
         if qty < 1 then qty = 1 end
         local duration = DURATIONS[durationIdx].value
 
-        -- Re-find item in case bags shifted
-        local freshLoc = AHSell:FindItemInBags(sellItemID)
-        if freshLoc then sellItemLocation = freshLoc end
+        if AuctionHouseFrame then AuctionHouseFrame:SetScale(1) end
 
-        if not C_Item.DoesItemExist(sellItemLocation) then
-            AHSell:SetStatus("|cffff6666Item no longer in bags.|r")
-            return
-        end
-        if not C_AuctionHouse.IsSellItemValid(sellItemLocation) then
-            AHSell:SetStatus("|cffff6666Item cannot be auctioned.|r")
-            return
-        end
-
-        EnsurePostWarningHooked()
-        pendingPostArgs = {
-            item = sellItemLocation,
-            duration = duration,
-            quantity = qty,
-            unitPrice = unitPrice,
-            buyout = unitPrice,
-            isCommodity = sellIsCommodity,
-        }
-
-        AHSell:SetStatus("Posting...")
-
-        local needsConfirm
+        local result
         if sellIsCommodity then
-            needsConfirm = C_AuctionHouse.PostCommodity(sellItemLocation, duration, qty, unitPrice)
+            result = C_AuctionHouse.PostCommodity(sellItemLocation, duration, qty, unitPrice)
         else
-            needsConfirm = C_AuctionHouse.PostItem(sellItemLocation, duration, qty, nil, unitPrice)
+            result = C_AuctionHouse.PostItem(sellItemLocation, duration, qty, nil, unitPrice)
         end
 
-        -- PostItem/PostCommodity return true if AUCTION_HOUSE_POST_WARNING will fire,
-        -- false if the post went through directly (await AUCTION_HOUSE_AUCTION_CREATED).
-        -- If neither event fires within 5s, something went wrong (taint, server reject, etc.)
-        C_Timer.After(5, function()
-            if container and container.statusText
-               and container.statusText:GetText() == "Posting..." then
-                AHSell:SetStatus("|cffff6666Post timed out — try again.|r")
+        if AuctionHouseFrame then AuctionHouseFrame:SetScale(0.001) end
+
+        print("|cffc8aa64KC:|r PostItem=>" .. tostring(result)
+            .. " bag=" .. tostring(sellItemLocation:GetBagAndSlot())
+            .. " price=" .. unitPrice .. " qty=" .. qty .. " dur=" .. duration)
+
+        if result then
+            AHSell:SetStatus("|cff66ff66Posting...|r")
+            if AuctionHouseFrame and AuctionHouseFrame.ItemSellFrame then
+                AuctionHouseFrame.ItemSellFrame:CachePendingPost(
+                    sellItemLocation, duration, qty, nil, unitPrice)
             end
-        end)
+            C_Timer.After(5, function()
+                if container and container.statusText
+                   and container.statusText:GetText():find("Posting") then
+                    AHSell:SetStatus("|cffff6666Post timed out.|r")
+                end
+            end)
+        else
+            AHSell:SetStatus("|cffff6666Post failed.|r")
+        end
     end)
 
     -- Status text
@@ -408,6 +401,10 @@ function AHSell:Init(contentFrame)
     rightPanel.emptyText:SetPoint("CENTER", rightPanel, "CENTER", 0, 0)
     rightPanel.emptyText:SetText("Drop an item to see listings")
     rightPanel.emptyText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    -- Hook post warning dialog once at init (NOT in OnClick — avoids
+    -- touching Blizzard globals inside the hardware event chain)
+    EnsurePostWarningHooked()
 end
 
 --------------------------------------------------------------------
@@ -416,10 +413,12 @@ end
 function AHSell:Show()
     if not container then return end
     container:Show()
+    if postBtn then postBtn:Show() end
 end
 
 function AHSell:Hide()
     if container then container:Hide() end
+    if postBtn then postBtn:Hide() end
 end
 
 function AHSell:IsShown()
@@ -463,14 +462,8 @@ function AHSell:AcceptCursorItem()
     sellItemID = itemID
     sellItemKey = C_AuctionHouse.GetItemKeyFromItem(location)
 
-    print("|cffc8aa64KazCraft Sell:|r Accepted item " .. itemID
-        .. " at bag=" .. (location:GetBagAndSlot())
-        .. " key=" .. tostring(sellItemKey and sellItemKey.itemID)
-        .. " keyLevel=" .. tostring(sellItemKey and sellItemKey.itemLevel))
-
     -- Check commodity status (0=unknown, 1=item, 2=commodity)
     local status = C_AuctionHouse.GetItemCommodityStatus(location)
-    print("|cffc8aa64KazCraft Sell:|r CommodityStatus=" .. tostring(status))
 
     if status == 0 then
         C_Item.RequestLoadItemDataByID(itemID)
@@ -478,8 +471,6 @@ function AHSell:AcceptCursorItem()
             if sellItemID == itemID and sellItemLocation then
                 local retryStatus = C_AuctionHouse.GetItemCommodityStatus(sellItemLocation)
                 sellIsCommodity = (retryStatus == 2)
-                print("|cffc8aa64KazCraft Sell:|r Retry status=" .. tostring(retryStatus)
-                    .. " isCommodity=" .. tostring(sellIsCommodity))
                 if itemTypeText then
                     itemTypeText:SetText(sellIsCommodity and "Commodity" or "Item")
                 end
@@ -751,15 +742,10 @@ function AHSell:LookupCurrentPrice()
         { sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false },
         { sortOrder = Enum.AuctionHouseSortOrder.Name, reverseSort = false },
     }
-    print("|cffc8aa64KazCraft Sell:|r SendSearchQuery itemID=" .. tostring(sellItemKey.itemID)
-        .. " isCommodity=" .. tostring(sellIsCommodity)
-        .. " throttleReady=" .. tostring(C_AuctionHouse.IsThrottledMessageSystemReady()))
     C_AuctionHouse.SendSearchQuery(sellItemKey, sorts, sellIsCommodity)
 end
 
 function AHSell:OnCommoditySearchResults(itemID)
-    print("|cffc8aa64KazCraft Sell:|r COMMODITY_SEARCH_RESULTS for " .. tostring(itemID)
-        .. " (sellItemID=" .. tostring(sellItemID) .. " isCommodity=" .. tostring(sellIsCommodity) .. ")")
     if not sellItemID or sellItemID ~= itemID then return end
     if not sellIsCommodity then return end
 
@@ -772,8 +758,6 @@ function AHSell:OnCommoditySearchResults(itemID)
 end
 
 function AHSell:OnItemSearchResults(itemKey)
-    print("|cffc8aa64KazCraft Sell:|r ITEM_SEARCH_RESULTS for " .. tostring(itemKey and itemKey.itemID)
-        .. " (sellItemID=" .. tostring(sellItemID) .. " isCommodity=" .. tostring(sellIsCommodity) .. ")")
     if not sellItemID or sellIsCommodity then return end
     if not sellItemKey then return end
     -- Filter: only process results for our sell item

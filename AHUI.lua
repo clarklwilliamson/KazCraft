@@ -227,9 +227,13 @@ local function CreateMainFrame()
             switchingToBlizzard = false
             return
         end
-        RestoreBlizzardAH()
+        -- Close the AH session entirely (don't just restore Blizzard's frame).
+        -- Restore scale so tabs aren't broken next time, then hide Blizzard's
+        -- frame and close the AH connection.
         if ahOpen then
             ahOpen = false
+            RestoreBlizzardAH()
+            if AuctionHouseFrame then AuctionHouseFrame:Hide() end
             C_AuctionHouse.CloseAuctionHouse()
         end
     end)

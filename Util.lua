@@ -282,3 +282,19 @@ function ns.FadeFrame(frame, targetAlpha, duration)
         end
     end)
 end
+
+--------------------------------------------------------------------
+-- Crafting quality helpers
+--------------------------------------------------------------------
+function ns.GetCraftingQuality(itemID)
+    if not itemID then return nil end
+    if C_TradeSkillUI and C_TradeSkillUI.GetItemReagentQualityByItemInfo then
+        return C_TradeSkillUI.GetItemReagentQualityByItemInfo(itemID)
+    end
+    return nil
+end
+
+function ns.GetQualityAtlas(tier)
+    if not tier or tier < 1 or tier > 5 then return nil end
+    return "Professions-Icon-Quality-Tier" .. tier .. "-Small"
+end

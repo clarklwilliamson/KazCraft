@@ -24,7 +24,7 @@ local container
 local leftPanel, rightPanel
 local postArea
 local dropTarget
-local itemIcon, itemNameText
+local itemIcon, itemNameText, itemQualityBadge
 local qtyBox, maxBtn
 local priceGold, priceSilver, priceCopper
 local durationIdx = 3  -- default 48h
@@ -59,6 +59,11 @@ local function NormalizePrice(copper)
     if copper < 100 then copper = 100 end
     return copper
 end
+
+-- Get crafting quality tier (1-5) for an item, nil if non-crafted
+-- Use shared helpers from Util.lua
+local GetCraftingQuality = function(itemID) return ns.GetCraftingQuality(itemID) end
+local GetQualityAtlas = function(tier) return ns.GetQualityAtlas(tier) end
 
 --------------------------------------------------------------------
 -- Duration radio helpers
@@ -114,13 +119,19 @@ local function CreateListingRow(parent, index)
     row.priceText:SetJustifyH("LEFT")
     row.priceText:SetTextColor(unpack(ns.COLORS.goldText))
 
-    -- Available (center-right)
+    -- Qty (center)
     row.qtyText = row:CreateFontString(nil, "OVERLAY")
     row.qtyText:SetFont(ns.FONT, 10, "")
-    row.qtyText:SetPoint("RIGHT", row, "RIGHT", -50, 0)
-    row.qtyText:SetWidth(50)
+    row.qtyText:SetPoint("RIGHT", row, "RIGHT", -90, 0)
+    row.qtyText:SetWidth(40)
     row.qtyText:SetJustifyH("RIGHT")
     row.qtyText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    -- Quality badge (small atlas)
+    row.qualityIcon = row:CreateTexture(nil, "OVERLAY")
+    row.qualityIcon:SetSize(14, 14)
+    row.qualityIcon:SetPoint("RIGHT", row, "RIGHT", -55, 0)
+    row.qualityIcon:Hide()
 
     -- Owned? (far right)
     row.ownerTag = row:CreateFontString(nil, "OVERLAY")
@@ -132,6 +143,7 @@ local function CreateListingRow(parent, index)
     row.ownerTag:Hide()
 
     row._unitPrice = 0
+    row._craftQuality = nil
 
     row:SetScript("OnClick", function(self)
         if self._unitPrice and self._unitPrice > 0 then
@@ -225,10 +237,16 @@ function AHSell:Init(contentFrame)
     itemNameText = postArea:CreateFontString(nil, "OVERLAY")
     itemNameText:SetFont(ns.FONT, 11, "")
     itemNameText:SetPoint("TOPLEFT", dropTarget, "BOTTOMLEFT", 0, -4)
-    itemNameText:SetPoint("RIGHT", postArea, "RIGHT", -8, 0)
+    itemNameText:SetPoint("RIGHT", postArea, "RIGHT", -24, 0)
     itemNameText:SetJustifyH("LEFT")
     itemNameText:SetWordWrap(false)
     itemNameText:SetTextColor(unpack(ns.COLORS.brightText))
+
+    -- Crafting quality badge (next to item name)
+    itemQualityBadge = postArea:CreateTexture(nil, "OVERLAY")
+    itemQualityBadge:SetSize(17, 17)
+    itemQualityBadge:SetPoint("LEFT", itemNameText, "RIGHT", 2, 0)
+    itemQualityBadge:Hide()
 
     -- Quantity row
     local qtyLabel = postArea:CreateFontString(nil, "OVERLAY")
@@ -255,10 +273,17 @@ function AHSell:Init(contentFrame)
     qtyBox:SetScript("OnTextChanged", function()
         cachedQty = tonumber(qtyBox:GetText()) or 1
         if cachedQty < 1 then cachedQty = 1 end
+        AHSell:UpdateDeposit()
     end)
 
     maxBtn = ns.CreateButton(postArea, "Max", 36, 20)
     maxBtn:SetPoint("LEFT", qtyBox, "RIGHT", 4, 0)
+    maxBtn:SetScript("OnClick", function()
+        if sellItemID then
+            local count = C_Item.GetItemCount(sellItemID, false, false, false, false)
+            qtyBox:SetText(tostring(math.min(count, 200)))
+        end
+    end)
 
     -- Duration row (three radio-style toggles)
     local durLabel = postArea:CreateFontString(nil, "OVERLAY")
@@ -288,6 +313,7 @@ function AHSell:Init(contentFrame)
         btn:SetScript("OnClick", function()
             durationIdx = i
             UpdateDurationButtons()
+            AHSell:UpdateDeposit()
         end)
         btn:SetScript("OnEnter", function(self)
             if durationIdx ~= i then
@@ -473,10 +499,21 @@ function AHSell:Init(contentFrame)
 
     local colAvail = rightPanel:CreateFontString(nil, "OVERLAY")
     colAvail:SetFont(ns.FONT, 9, "")
-    colAvail:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", -50, -26)
-    colAvail:SetText("Available")
+    colAvail:SetPoint("RIGHT", rightPanel, "RIGHT", -90, 0)
+    colAvail:SetPoint("TOP", rightPanel, "TOP", 0, -26)
+    colAvail:SetText("Qty")
+    colAvail:SetWidth(40)
     colAvail:SetJustifyH("RIGHT")
     colAvail:SetTextColor(unpack(ns.COLORS.headerText))
+
+    local colQual = rightPanel:CreateFontString(nil, "OVERLAY")
+    colQual:SetFont(ns.FONT, 9, "")
+    colQual:SetPoint("RIGHT", rightPanel, "RIGHT", -50, 0)
+    colQual:SetPoint("TOP", rightPanel, "TOP", 0, -26)
+    colQual:SetText("Qual")
+    colQual:SetWidth(35)
+    colQual:SetJustifyH("CENTER")
+    colQual:SetTextColor(unpack(ns.COLORS.headerText))
 
     local colOwned = rightPanel:CreateFontString(nil, "OVERLAY")
     colOwned:SetFont(ns.FONT, 9, "")
@@ -604,6 +641,12 @@ local function AcquireBagIcon(index)
     btn.countText:SetJustifyH("RIGHT")
     btn.countText:SetTextColor(1, 1, 1)
 
+    -- Crafting quality badge (top-left corner)
+    btn.qualityBadge = btn:CreateTexture(nil, "OVERLAY", nil, 2)
+    btn.qualityBadge:SetSize(14, 14)
+    btn.qualityBadge:SetPoint("TOPLEFT", 1, -1)
+    btn.qualityBadge:Hide()
+
     btn:SetScript("OnEnter", function(self)
         if self._itemLink then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -668,6 +711,7 @@ function AHSell:ScanBags()
                                 bag = bag,
                                 slot = slot,
                                 classID = classID,
+                                craftQuality = GetCraftingQuality(slotInfo.itemID),
                             })
                         end
                     end
@@ -703,6 +747,7 @@ function AHSell:ScanBags()
                     bag = item.bag,
                     slot = item.slot,
                     classID = item.classID,
+                    craftQuality = item.craftQuality,
                 }
                 seen[item.itemID] = entry
                 table.insert(merged, entry)
@@ -756,9 +801,22 @@ function AHSell:LayoutBagGrid(sortedCats)
                 btn.icon:SetTexture(item.texture)
                 btn._itemID = item.itemID
                 btn._itemLink = item.itemLink
+                btn._itemName = item.itemName
                 btn._bag = item.bag
                 btn._slot = item.slot
                 btn._quality = item.quality
+                btn._count = item.count
+                btn._texture = item.texture
+                btn._craftQuality = item.craftQuality
+
+                -- Crafting quality badge
+                local atlas = GetQualityAtlas(item.craftQuality)
+                if atlas then
+                    btn.qualityBadge:SetAtlas(atlas)
+                    btn.qualityBadge:Show()
+                else
+                    btn.qualityBadge:Hide()
+                end
 
                 -- Stack count
                 if item.count > 1 then
@@ -814,7 +872,8 @@ end
 function AHSell:SelectBagItem(btn)
     if not btn or not btn._itemID then return end
 
-    selectedBagItemID = btn._itemID
+    local itemID = btn._itemID
+    selectedBagItemID = itemID
 
     -- Update selection highlight on all icons
     for _, poolBtn in ipairs(bagIconPool) do
@@ -827,10 +886,87 @@ function AHSell:SelectBagItem(btn)
         end
     end
 
-    -- Print selection to chat (Phase 2 — will wire to posting in Phase 3)
-    if btn._itemLink then
-        print("|cffc8aa64KazCraft:|r Selected: " .. btn._itemLink)
+    -- Build a fresh ItemLocation from the bag/slot
+    local location = ItemLocation:CreateFromBagAndSlot(btn._bag, btn._slot)
+    if not C_Item.DoesItemExist(location) then
+        -- Item may have moved — find it by itemID
+        location = self:FindItemInBags(itemID)
+        if not location then
+            self:SetStatus("Item not found in bags.")
+            return
+        end
     end
+
+    -- Store sell state
+    sellItemLocation = location
+    sellItemID = itemID
+    sellItemKey = C_AuctionHouse.GetItemKeyFromItem(location)
+
+    -- Commodity status
+    local commStatus = C_AuctionHouse.GetItemCommodityStatus(location)
+    if commStatus == 0 then
+        C_Item.RequestLoadItemDataByID(itemID)
+        C_Timer.After(0.5, function()
+            if sellItemID == itemID and sellItemLocation then
+                local retry = C_AuctionHouse.GetItemCommodityStatus(sellItemLocation)
+                sellIsCommodity = (retry == 2)
+                self:LookupCurrentPrice()
+            end
+        end)
+        sellIsCommodity = false
+    else
+        sellIsCommodity = (commStatus == 2)
+    end
+
+    -- Update posting area display
+    if itemIcon then
+        itemIcon:SetTexture(btn._texture or 134400)
+        itemIcon:SetAlpha(1)
+    end
+    if dropTarget and dropTarget._selectLabel then
+        dropTarget._selectLabel:Hide()
+    end
+
+    -- Item name with quality color
+    local qualityColor = ITEM_QUALITY_COLORS[btn._quality]
+    if qualityColor and itemNameText then
+        itemNameText:SetText(qualityColor.hex .. (btn._itemName or "?") .. "|r")
+    elseif itemNameText then
+        itemNameText:SetText(btn._itemName or "?")
+    end
+
+    -- Crafting quality badge
+    if itemQualityBadge then
+        local atlas = GetQualityAtlas(btn._craftQuality)
+        if atlas then
+            itemQualityBadge:SetAtlas(atlas)
+            itemQualityBadge:Show()
+        else
+            itemQualityBadge:Hide()
+        end
+    end
+
+    -- Quantity: default 1, max = stack count
+    local stackCount = btn._count or 1
+    if sellIsCommodity then
+        qtyBox:SetText(tostring(stackCount))
+    else
+        qtyBox:SetText("1")
+    end
+
+    -- Clear price (will auto-fill from listings search)
+    if priceGold then priceGold:SetText("0") end
+    if priceSilver then priceSilver:SetText("0") end
+    if priceCopper then priceCopper:SetText("0") end
+
+    -- Enable post button
+    self:UpdatePostButton()
+
+    -- Search for current AH price + update listings
+    self:ClearListings()
+    self:LookupCurrentPrice()
+    self:UpdateDeposit()
+    self:SetStatus("")
 end
 
 function AHSell:RefreshBags()
@@ -905,6 +1041,17 @@ function AHSell:AcceptCursorItem()
         itemNameText:SetText(qualityColor.hex .. (itemName or "?") .. "|r")
     else
         itemNameText:SetText(itemName or "?")
+    end
+
+    -- Crafting quality badge (drag-drop path)
+    if itemQualityBadge then
+        local cqAtlas = GetQualityAtlas(GetCraftingQuality(itemID))
+        if cqAtlas then
+            itemQualityBadge:SetAtlas(cqAtlas)
+            itemQualityBadge:Show()
+        else
+            itemQualityBadge:Hide()
+        end
     end
 
     -- Set quantity to stack count for commodities
@@ -1060,6 +1207,16 @@ function AHSell:RefreshCommodityListings(itemID)
                 row.bg:SetColorTexture(1, 1, 1, row._defaultBgAlpha)
             end
 
+            -- Quality badge (commodity = all same tier from sellItemID)
+            local cq = GetCraftingQuality(itemID)
+            local qa = GetQualityAtlas(cq)
+            if qa and row.qualityIcon then
+                row.qualityIcon:SetAtlas(qa)
+                row.qualityIcon:Show()
+            elseif row.qualityIcon then
+                row.qualityIcon:Hide()
+            end
+
             row:Show()
         else
             row:Hide()
@@ -1120,6 +1277,16 @@ function AHSell:RefreshItemListings(itemKey)
             else
                 row.ownerTag:Hide()
                 row.bg:SetColorTexture(1, 1, 1, row._defaultBgAlpha)
+            end
+
+            -- Quality badge (item search = same itemKey, same quality)
+            local iq = GetCraftingQuality(itemKey and itemKey.itemID)
+            local iqa = GetQualityAtlas(iq)
+            if iqa and row.qualityIcon then
+                row.qualityIcon:SetAtlas(iqa)
+                row.qualityIcon:Show()
+            elseif row.qualityIcon then
+                row.qualityIcon:Hide()
             end
 
             row:Show()
@@ -1239,6 +1406,7 @@ function AHSell:ClearForm()
     sellItemID = nil
     sellItemKey = nil
     sellIsCommodity = false
+    selectedBagItemID = nil
 
     if itemIcon then
         itemIcon:SetTexture(134400)
@@ -1248,6 +1416,7 @@ function AHSell:ClearForm()
         dropTarget._selectLabel:Show()
     end
     if itemNameText then itemNameText:SetText("") end
+    if itemQualityBadge then itemQualityBadge:Hide() end
     if qtyBox then qtyBox:SetText("1") end
     if priceGold then priceGold:SetText("0") end
     if priceSilver then priceSilver:SetText("0") end
@@ -1259,7 +1428,13 @@ function AHSell:ClearForm()
         rightPanel.emptyText:SetText("Select an item to see listings")
         rightPanel.emptyText:Show()
     end
+    -- Clear bag selection highlights
+    for _, poolBtn in ipairs(bagIconPool) do
+        if poolBtn.selectBorder then poolBtn.selectBorder:Hide() end
+    end
     self:SetStatus("")
+    -- Refresh bag grid (item counts changed after posting)
+    self:ScanBags()
 end
 
 function AHSell:SetStatus(text)

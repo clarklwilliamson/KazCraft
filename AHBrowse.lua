@@ -753,10 +753,16 @@ local function CreateResultRow(parent, index)
     row.nameText = row:CreateFontString(nil, "OVERLAY")
     row.nameText:SetFont(ns.FONT, 11, "")
     row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
-    row.nameText:SetPoint("RIGHT", row, "RIGHT", -120, 0)
+    row.nameText:SetPoint("RIGHT", row, "RIGHT", -140, 0)
     row.nameText:SetJustifyH("LEFT")
     row.nameText:SetWordWrap(false)
     row.nameText:SetTextColor(unpack(ns.COLORS.brightText))
+
+    -- Quality icon (crafting tier badge)
+    row.qualityIcon = row:CreateTexture(nil, "OVERLAY")
+    row.qualityIcon:SetSize(14, 14)
+    row.qualityIcon:SetPoint("RIGHT", row, "RIGHT", -126, 0)
+    row.qualityIcon:Hide()
 
     -- iLvl column
     row.ilvlText = row:CreateFontString(nil, "OVERLAY")
@@ -844,7 +850,13 @@ local function CreateDetailOverlay(parent)
     overlay.icon:SetSize(40, 40)
     overlay.icon:SetPoint("CENTER")
 
-    -- Name
+    -- Quality badge (crafting tier)
+    overlay.qualityIcon = overlay:CreateTexture(nil, "OVERLAY")
+    overlay.qualityIcon:SetSize(17, 17)
+    overlay.qualityIcon:SetPoint("LEFT", overlay.icon, "RIGHT", 10, 4)
+    overlay.qualityIcon:Hide()
+
+    -- Name (shifts right when quality badge is visible)
     overlay.nameText = overlay:CreateFontString(nil, "OVERLAY")
     overlay.nameText:SetFont(ns.FONT, 14, "")
     overlay.nameText:SetPoint("LEFT", overlay.icon, "RIGHT", 10, 4)
@@ -1116,6 +1128,15 @@ function AHBrowse:Init(contentFrame)
     CreateSortHeader("iLvl", Enum.AuctionHouseSortOrder.Level, "RIGHT", -76, 40, "RIGHT")
     UpdateSortIndicators()
 
+    -- Qual header (not sortable — client-side crafting quality)
+    local qualLabel = colHeaders:CreateFontString(nil, "OVERLAY")
+    qualLabel:SetFont(ns.FONT, 9, "")
+    qualLabel:SetPoint("RIGHT", colHeaders, "RIGHT", -126, 0)
+    qualLabel:SetWidth(20)
+    qualLabel:SetJustifyH("CENTER")
+    qualLabel:SetText("Qual")
+    qualLabel:SetTextColor(unpack(ns.COLORS.headerText))
+
     -- Available header (not sortable — no server-side sort order for quantity)
     local availLabel = colHeaders:CreateFontString(nil, "OVERLAY")
     availLabel:SetFont(ns.FONT, 9, "")
@@ -1333,12 +1354,23 @@ function AHBrowse:RefreshRows()
                 row.ilvlText:SetText(ilvl > 0 and tostring(ilvl) or "")
                 row.availText:SetText(tostring(r.totalQuantity or 0))
 
+                -- Crafting quality badge
+                local cq = ns.GetCraftingQuality(r.itemKey.itemID)
+                local cqAtlas = ns.GetQualityAtlas(cq)
+                if cqAtlas then
+                    row.qualityIcon:SetAtlas(cqAtlas)
+                    row.qualityIcon:Show()
+                else
+                    row.qualityIcon:Hide()
+                end
+
                 row._browseResult = r
                 row._rowIndex = i
                 row:Show()
             else
                 row._browseResult = nil
                 row._rowIndex = nil
+                row.qualityIcon:Hide()
                 row:Hide()
             end
         end
@@ -1388,6 +1420,18 @@ function AHBrowse:SelectResult(result, rowIndex)
         d.nameText:SetText(qualityColor.hex .. (keyInfo.itemName or "?") .. "|r")
     else
         d.nameText:SetText(keyInfo.itemName or "?")
+    end
+
+    -- Crafting quality badge next to name
+    local cq = ns.GetCraftingQuality(result.itemKey.itemID)
+    local cqAtlas = ns.GetQualityAtlas(cq)
+    if cqAtlas then
+        d.qualityIcon:SetAtlas(cqAtlas)
+        d.qualityIcon:Show()
+        d.nameText:SetPoint("LEFT", d.qualityIcon, "RIGHT", 4, 0)
+    else
+        d.qualityIcon:Hide()
+        d.nameText:SetPoint("LEFT", d.icon, "RIGHT", 10, 4)
     end
 
     d.priceText:SetText(ns.FormatGold(result.minPrice or 0))

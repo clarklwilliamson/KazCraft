@@ -308,12 +308,9 @@ function AHSell:Init(contentFrame)
     depositText:SetTextColor(unpack(ns.COLORS.mutedText))
     depositText:SetText("\226\128\148")
 
-    -- Post button
-    postBtn = CreateFrame("Button", "KazCraftPostButton", leftPanel, "UIPanelButtonTemplate")
-    postBtn:SetSize(120, 28)
+    -- Post button (VP flat style)
+    postBtn = ns.CreateButton(leftPanel, "Post Item", 120, 28)
     postBtn:SetPoint("BOTTOM", leftPanel, "BOTTOM", 0, 14)
-    postBtn:SetFrameStrata("TOOLTIP")
-    postBtn:SetText("Post Item")
     -- OnClick: ZERO method calls / GetText() / API reads before PostItem.
     -- Only plain local reads + the PostItem call.  This keeps the hardware
     -- event execution context completely free of taint.  cachedUnitPrice

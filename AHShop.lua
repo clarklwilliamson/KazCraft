@@ -23,7 +23,6 @@ local rightHeader, rightEmpty
 local activeFilter = nil
 local currentMats = {}
 local livePrices = {}
-local searchQueue = {}
 local pendingSearchItemID = nil
 local selectedItemID = nil -- currently selected material for right panel
 local recentPurchases = {} -- [itemID] = qty bought (cleared on next full refresh after bags update)
@@ -120,12 +119,19 @@ local function CreateMatRow(parent, index)
         GameTooltip:Hide()
     end)
 
-    -- Click to select + search
+    -- Click to select + search + auto-buy (must call StartCommoditiesPurchase from hardware event)
     row:SetScript("OnClick", function()
         if row._itemID then
             selectedItemID = row._itemID
             AHShop:HighlightSelectedRow()
             AHShop:SearchAndShowListings(row._itemID)
+            -- Show confirm dialog immediately from hardware click
+            for _, mat in ipairs(currentMats) do
+                if mat.itemID == row._itemID and mat.short > 0 then
+                    ns.AHUI:ShowConfirmDialog(row._itemID, mat.short)
+                    break
+                end
+            end
         end
     end)
 
@@ -350,19 +356,6 @@ function AHShop:Init(contentFrame)
     footerTotal:SetPoint("LEFT", footer, "LEFT", 8, 0)
     footerTotal:SetTextColor(unpack(ns.COLORS.mutedText))
 
-    -- Search All button
-    local searchAllBtn = ns.CreateButton(footer, "Search All", 80, 22)
-    searchAllBtn:SetPoint("RIGHT", footer, "RIGHT", -6, 0)
-    searchAllBtn:SetScript("OnClick", function()
-        AHShop:SearchAll()
-    end)
-
-    -- Buy All button
-    local buyAllBtn = ns.CreateButton(footer, "Buy All", 60, 22)
-    buyAllBtn:SetPoint("RIGHT", searchAllBtn, "LEFT", -4, 0)
-    buyAllBtn:SetScript("OnClick", function()
-        AHShop:BuyAll()
-    end)
 
     -- Size panels dynamically on show/resize
     local function SizePanels()
@@ -404,7 +397,6 @@ end
 
 function AHShop:Hide()
     if container then container:Hide() end
-    wipe(searchQueue)
 end
 
 function AHShop:IsShown()
@@ -657,6 +649,7 @@ function AHShop:OnCommoditySearchResults(eventItemID)
     end
 
     self:RecalcTotal()
+
 end
 
 function AHShop:RecalcTotal()
@@ -674,75 +667,10 @@ function AHShop:RecalcTotal()
     end
 end
 
---------------------------------------------------------------------
--- Search All — price lookup for every material
---------------------------------------------------------------------
-function AHShop:SearchAll()
-    if not ns.AHUI or not ns.AHUI:IsAHOpen() then
-        print("|cffc8aa64KazCraft:|r Auction House is not open.")
-        return
-    end
-    wipe(searchQueue)
-    for _, mat in ipairs(currentMats) do
-        table.insert(searchQueue, mat.itemID)
-    end
-    self:ProcessSearchQueue()
-end
-
-function AHShop:ProcessSearchQueue()
-    if #searchQueue == 0 then return end
-    if not ns.AHUI or not ns.AHUI:IsAHOpen() then return end
-
-    if not C_AuctionHouse.IsThrottledMessageSystemReady() then
-        return
-    end
-
-    if pendingSearchItemID then
-        C_Timer.After(0.3, function()
-            AHShop:ProcessSearchQueue()
-        end)
-        return
-    end
-
-    local itemID = table.remove(searchQueue, 1)
-
-    -- Auto-select first item so listings show
-    if not selectedItemID then
-        selectedItemID = itemID
-        self:HighlightSelectedRow()
-    end
-
-    self:SearchAndShowListings(itemID)
-
-    if #searchQueue > 0 then
-        C_Timer.After(0.5, function()
-            AHShop:ProcessSearchQueue()
-        end)
-    end
-end
-
 function AHShop:OnThrottleReady()
-    if #searchQueue > 0 then
-        self:ProcessSearchQueue()
-    end
+    -- Reserved for future use
 end
 
---------------------------------------------------------------------
--- Buy All — chain commodity purchases
---------------------------------------------------------------------
-function AHShop:BuyAll()
-    if not ns.AHUI or not ns.AHUI:IsAHOpen() then
-        print("|cffc8aa64KazCraft:|r Auction House is not open.")
-        return
-    end
-    for _, mat in ipairs(currentMats) do
-        if mat.short > 0 and livePrices[mat.itemID] then
-            ns.AHUI:ShowConfirmDialog(mat.itemID, mat.short)
-            return
-        end
-    end
-    print("|cffc8aa64KazCraft:|r Search first to get live prices.")
-end
 
 function AHShop:OnPurchaseSucceeded(itemID, qty)
     -- Track purchase so Refresh can subtract immediately
@@ -753,11 +681,5 @@ function AHShop:OnPurchaseSucceeded(itemID, qty)
     if self:IsShown() then
         self:Refresh()
     end
-    -- Delayed refresh to pick up real bag counts and clear recentPurchases
-    C_Timer.After(3, function()
-        wipe(recentPurchases)
-        if AHShop:IsShown() then
-            AHShop:Refresh()
-        end
-    end)
+
 end

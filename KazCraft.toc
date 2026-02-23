@@ -4,6 +4,7 @@
 ## Author: Kaz (Claude Code) & Logan
 ## Version: 2.0.0
 ## SavedVariables: KazCraftDB
+## OptionalDeps: CraftSim, TradeSkillMaster, TradeSkillMaster_AppHelper
 ## X-Flavor: Mainline
 
 Util.lua

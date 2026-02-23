@@ -1517,6 +1517,7 @@ function AHBrowse:SelectResult(result, rowIndex)
     -- Crafting quality badge next to name
     local cq = ns.GetCraftingQuality(result.itemKey.itemID)
     local cqAtlas = ns.GetQualityAtlas(cq)
+    d.nameText:ClearAllPoints()
     if cqAtlas then
         d.qualityIcon:SetAtlas(cqAtlas)
         d.qualityIcon:Show()
@@ -1525,6 +1526,7 @@ function AHBrowse:SelectResult(result, rowIndex)
         d.qualityIcon:Hide()
         d.nameText:SetPoint("LEFT", d.icon, "RIGHT", 10, 4)
     end
+    d.nameText:SetPoint("RIGHT", d, "RIGHT", -12, 0)
 
     d.priceText:SetText(ns.FormatGold(result.minPrice or 0))
 

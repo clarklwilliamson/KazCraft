@@ -124,7 +124,52 @@ function Data:ClearQueue(charKey)
     KazCraftDB.queues[charKey] = {}
 end
 
+-- Pull CraftSim craft queue materials (soft dependency)
+-- CraftSim uses private namespace — access via CraftSimAPI:GetCraftSim() global
+-- Returns: { [itemID] = totalNeeded }
+local function GetCraftSimMaterials()
+    local mats = {}
+
+    -- CraftSimAPI is the only global CraftSim exposes
+    if not CraftSimAPI then return mats end
+
+    local CS = CraftSimAPI:GetCraftSim()
+    if not CS or not CS.CRAFTQ or not CS.CRAFTQ.craftQueue then return mats end
+
+    local craftQueue = CS.CRAFTQ.craftQueue
+    if not craftQueue.craftQueueItems then return mats end
+
+    for _, cqi in ipairs(craftQueue.craftQueueItems) do
+        local recipeData = cqi.recipeData
+        local amount = cqi.amount or 1
+        if recipeData and recipeData.reagentData and recipeData.reagentData.requiredReagents then
+            for _, reagent in ipairs(recipeData.reagentData.requiredReagents) do
+                if reagent.hasQuality and reagent.items then
+                    -- Quality reagent: each tier has allocated quantity
+                    for _, reagentItem in ipairs(reagent.items) do
+                        if reagentItem.quantity and reagentItem.quantity > 0 then
+                            local ok, itemID = pcall(function() return reagentItem.item:GetItemID() end)
+                            if ok and itemID then
+                                mats[itemID] = (mats[itemID] or 0) + (reagentItem.quantity * amount)
+                            end
+                        end
+                    end
+                elseif reagent.items and reagent.items[1] then
+                    -- No quality tiers — single item, use requiredQuantity
+                    local ok, itemID = pcall(function() return reagent.items[1].item:GetItemID() end)
+                    if ok and itemID then
+                        mats[itemID] = (mats[itemID] or 0) + (reagent.requiredQuantity * amount)
+                    end
+                end
+            end
+        end
+    end
+
+    return mats
+end
+
 -- Aggregate materials needed for a character's queue (or all)
+-- Merges KazCraft queue + CraftSim queue (if loaded)
 -- Returns: { [itemID] = { itemID, itemName, icon, need, have, price, total } }
 function Data:GetMaterialList(charKey)
     local materials = {} -- itemID -> { need = N }
@@ -136,6 +181,7 @@ function Data:GetMaterialList(charKey)
         queues = KazCraftDB.queues
     end
 
+    -- KazCraft's own queue
     for _, queue in pairs(queues) do
         for _, entry in ipairs(queue) do
             local cached = KazCraftDB.recipeCache[entry.recipeID]
@@ -148,6 +194,15 @@ function Data:GetMaterialList(charKey)
                 end
             end
         end
+    end
+
+    -- CraftSim queue (soft dependency — merges if CraftSim is loaded)
+    local csMats = GetCraftSimMaterials()
+    for itemID, qty in pairs(csMats) do
+        if not materials[itemID] then
+            materials[itemID] = { itemID = itemID, need = 0 }
+        end
+        materials[itemID].need = materials[itemID].need + qty
     end
 
     -- Enrich with inventory counts and prices
@@ -206,6 +261,15 @@ function Data:GetQueuedCharacters()
     end
     table.sort(chars)
     return chars
+end
+
+-- Check if CraftSim queue has items
+function Data:HasCraftSimQueue()
+    if not CraftSimAPI then return false end
+    local CS = CraftSimAPI:GetCraftSim()
+    if not CS or not CS.CRAFTQ or not CS.CRAFTQ.craftQueue then return false end
+    local items = CS.CRAFTQ.craftQueue.craftQueueItems
+    return items and #items > 0
 end
 
 -- Decrement queue after successful craft

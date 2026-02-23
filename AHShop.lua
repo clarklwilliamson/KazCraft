@@ -4,28 +4,53 @@ local AHShop = {}
 ns.AHShop = AHShop
 
 local ROW_HEIGHT = 28
-local MAX_ROWS = 16
+local LISTING_ROW_HEIGHT = 24
+local MAX_MAT_ROWS = 20
+local MAX_LISTING_ROWS = 16
+local LEFT_WIDTH_PCT = 0.52 -- left panel width ratio
+
+-- Quality pip size for atlas markup
+local PIP_SIZE = 12
 
 -- State
-local container       -- our content frame (parented to AHUI content area)
+local container
+local leftPanel, rightPanel
 local tabBar
-local matContent
-local matRows = {}
+local matContent, matRows, matScroll
+local listContent, listRows, listScroll
 local footerTotal
-local activeFilter = nil -- nil = all alts, or charKey
+local rightHeader, rightEmpty
+local activeFilter = nil
 local currentMats = {}
 local livePrices = {}
 local searchQueue = {}
 local pendingSearchItemID = nil
+local selectedItemID = nil -- currently selected material for right panel
+local recentPurchases = {} -- [itemID] = qty bought (cleared on next full refresh after bags update)
 
 --------------------------------------------------------------------
--- Row factory
+-- Get quality pip markup for an itemID
+--------------------------------------------------------------------
+local function GetQualityPips(itemID)
+    if not C_TradeSkillUI or not C_TradeSkillUI.GetItemReagentQualityInfo then
+        return ""
+    end
+    local qualityInfo = C_TradeSkillUI.GetItemReagentQualityInfo(itemID)
+    if qualityInfo and qualityInfo.iconSmall then
+        return " " .. CreateAtlasMarkup(qualityInfo.iconSmall, PIP_SIZE, PIP_SIZE)
+    end
+    return ""
+end
+
+--------------------------------------------------------------------
+-- Material row factory (left panel)
 --------------------------------------------------------------------
 local function CreateMatRow(parent, index)
-    local row = CreateFrame("Frame", nil, parent)
+    local row = CreateFrame("Button", nil, parent)
     row:SetHeight(ROW_HEIGHT)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * ROW_HEIGHT)
     row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -(index - 1) * ROW_HEIGHT)
+    row:RegisterForClicks("LeftButtonUp")
     row:Hide()
 
     row.bg = row:CreateTexture(nil, "BACKGROUND")
@@ -50,46 +75,32 @@ local function CreateMatRow(parent, index)
     row.icon:SetSize(22, 22)
     row.icon:SetPoint("LEFT", row, "LEFT", 6, 0)
 
-    -- Name
+    -- Name (with quality pips)
     row.nameText = row:CreateFontString(nil, "OVERLAY")
     row.nameText:SetFont(ns.FONT, 11, "")
     row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-    row.nameText:SetPoint("RIGHT", row, "RIGHT", -230, 0)
+    row.nameText:SetPoint("RIGHT", row, "RIGHT", -130, 0)
     row.nameText:SetJustifyH("LEFT")
     row.nameText:SetWordWrap(false)
     row.nameText:SetTextColor(unpack(ns.COLORS.brightText))
 
-    -- Short qty
+    -- Need qty
     row.shortText = row:CreateFontString(nil, "OVERLAY")
     row.shortText:SetFont(ns.FONT, 11, "")
-    row.shortText:SetPoint("RIGHT", row, "RIGHT", -190, 0)
+    row.shortText:SetPoint("RIGHT", row, "RIGHT", -80, 0)
     row.shortText:SetWidth(36)
     row.shortText:SetJustifyH("RIGHT")
 
     -- AH price
     row.ahPrice = row:CreateFontString(nil, "OVERLAY")
     row.ahPrice:SetFont(ns.FONT, 10, "")
-    row.ahPrice:SetPoint("RIGHT", row, "RIGHT", -118, 0)
+    row.ahPrice:SetPoint("RIGHT", row, "RIGHT", -8, 0)
     row.ahPrice:SetWidth(68)
     row.ahPrice:SetJustifyH("RIGHT")
     row.ahPrice:SetTextColor(unpack(ns.COLORS.mutedText))
 
-    -- Total cost
-    row.totalCost = row:CreateFontString(nil, "OVERLAY")
-    row.totalCost:SetFont(ns.FONT, 10, "")
-    row.totalCost:SetPoint("RIGHT", row, "RIGHT", -50, 0)
-    row.totalCost:SetWidth(68)
-    row.totalCost:SetJustifyH("RIGHT")
-    row.totalCost:SetTextColor(unpack(ns.COLORS.mutedText))
-
-    -- [Search] button
-    row.searchBtn = ns.CreateButton(row, "Search", 48, 20)
-    row.searchBtn:SetPoint("RIGHT", row, "RIGHT", -2, 0)
-
-    -- Hover + tooltip
-    local enterFrame = CreateFrame("Frame", nil, row)
-    enterFrame:SetAllPoints()
-    enterFrame:SetScript("OnEnter", function(self)
+    -- Hover
+    row:SetScript("OnEnter", function(self)
         row.bg:SetColorTexture(unpack(ns.COLORS.rowHover))
         row.leftAccent:Show()
         if row._itemID then
@@ -98,24 +109,100 @@ local function CreateMatRow(parent, index)
             GameTooltip:Show()
         end
     end)
-    enterFrame:SetScript("OnLeave", function()
-        row.bg:SetColorTexture(1, 1, 1, row._defaultBgAlpha)
-        row.leftAccent:Hide()
+    row:SetScript("OnLeave", function()
+        if row._itemID == selectedItemID then
+            row.bg:SetColorTexture(unpack(ns.COLORS.rowSelected or ns.COLORS.rowHover))
+            row.leftAccent:Show()
+        else
+            row.bg:SetColorTexture(1, 1, 1, row._defaultBgAlpha)
+            row.leftAccent:Hide()
+        end
         GameTooltip:Hide()
     end)
-    enterFrame:SetFrameLevel(row:GetFrameLevel())
+
+    -- Click to select + search
+    row:SetScript("OnClick", function()
+        if row._itemID then
+            selectedItemID = row._itemID
+            AHShop:HighlightSelectedRow()
+            AHShop:SearchAndShowListings(row._itemID)
+        end
+    end)
 
     return row
 end
 
 --------------------------------------------------------------------
--- Build UI (called once from AHUI when Shop tab first selected)
+-- Listing row factory (right panel — AH results)
+--------------------------------------------------------------------
+local function CreateListingRow(parent, index)
+    local row = CreateFrame("Button", nil, parent)
+    row:SetHeight(LISTING_ROW_HEIGHT)
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * LISTING_ROW_HEIGHT)
+    row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -(index - 1) * LISTING_ROW_HEIGHT)
+    row:RegisterForClicks("LeftButtonUp")
+    row:Hide()
+
+    row.bg = row:CreateTexture(nil, "BACKGROUND")
+    row.bg:SetAllPoints()
+    row._defaultBgAlpha = (index % 2 == 0) and 0.03 or 0
+    row.bg:SetColorTexture(1, 1, 1, row._defaultBgAlpha)
+
+    row.divider = row:CreateTexture(nil, "ARTWORK", nil, 1)
+    row.divider:SetHeight(1)
+    row.divider:SetPoint("BOTTOMLEFT", 4, 0)
+    row.divider:SetPoint("BOTTOMRIGHT", -4, 0)
+    row.divider:SetColorTexture(unpack(ns.COLORS.rowDivider))
+
+    -- Price
+    row.priceText = row:CreateFontString(nil, "OVERLAY")
+    row.priceText:SetFont(ns.FONT, 11, "")
+    row.priceText:SetPoint("LEFT", row, "LEFT", 8, 0)
+    row.priceText:SetWidth(100)
+    row.priceText:SetJustifyH("LEFT")
+    row.priceText:SetTextColor(unpack(ns.COLORS.goldText))
+
+    -- Quantity available
+    row.qtyText = row:CreateFontString(nil, "OVERLAY")
+    row.qtyText:SetFont(ns.FONT, 11, "")
+    row.qtyText:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+    row.qtyText:SetWidth(60)
+    row.qtyText:SetJustifyH("RIGHT")
+    row.qtyText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    -- Hover
+    row:SetScript("OnEnter", function()
+        row.bg:SetColorTexture(unpack(ns.COLORS.rowHover))
+    end)
+    row:SetScript("OnLeave", function()
+        row.bg:SetColorTexture(1, 1, 1, row._defaultBgAlpha)
+    end)
+
+    -- Click to buy full needed quantity (Blizzard API buys across price tiers)
+    row:SetScript("OnClick", function()
+        if row._itemID and selectedItemID then
+            for _, mat in ipairs(currentMats) do
+                if mat.itemID == selectedItemID and mat.short > 0 then
+                    ns.AHUI:ShowConfirmDialog(selectedItemID, mat.short)
+                    break
+                end
+            end
+        end
+    end)
+
+    return row
+end
+
+--------------------------------------------------------------------
+-- Build UI
 --------------------------------------------------------------------
 function AHShop:Init(contentFrame)
     if container then return end
     container = CreateFrame("Frame", nil, contentFrame)
     container:SetAllPoints()
     container:Hide()
+    matRows = {}
+    listRows = {}
 
     -- Tab bar — alt filter
     local function BuildTabs()
@@ -136,50 +223,119 @@ function AHShop:Init(contentFrame)
     tabBar:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
     tabBar:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, 0)
 
-    -- Column headers
-    local colHeader = CreateFrame("Frame", nil, container)
-    colHeader:SetHeight(18)
-    colHeader:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -30)
-    colHeader:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, -30)
+    -- LEFT PANEL — material list
+    leftPanel = CreateFrame("Frame", nil, container)
+    leftPanel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -28)
+    leftPanel:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 0, 36)
 
-    local function ColLabel(text, point, x, w)
-        local fs = colHeader:CreateFontString(nil, "OVERLAY")
+    -- Column headers (left)
+    local leftColHeader = CreateFrame("Frame", nil, leftPanel)
+    leftColHeader:SetHeight(18)
+    leftColHeader:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 0, 0)
+    leftColHeader:SetPoint("TOPRIGHT", leftPanel, "TOPRIGHT", 0, 0)
+
+    local function LeftColLabel(text, point, x, w)
+        local fs = leftColHeader:CreateFontString(nil, "OVERLAY")
         fs:SetFont(ns.FONT, 9, "")
         fs:SetTextColor(unpack(ns.COLORS.headerText))
         fs:SetText(text)
         if point == "LEFT" then
-            fs:SetPoint("LEFT", colHeader, "LEFT", x, 0)
+            fs:SetPoint("LEFT", leftColHeader, "LEFT", x, 0)
         else
-            fs:SetPoint("RIGHT", colHeader, "RIGHT", x, 0)
+            fs:SetPoint("RIGHT", leftColHeader, "RIGHT", x, 0)
         end
         if w then fs:SetWidth(w) end
         fs:SetJustifyH(point)
     end
 
-    ColLabel("Material", "LEFT", 34)
-    ColLabel("Need", "RIGHT", -190, 36)
-    ColLabel("AH Price", "RIGHT", -118, 68)
-    ColLabel("Total", "RIGHT", -50, 68)
+    LeftColLabel("Material", "LEFT", 34)
+    LeftColLabel("Need", "RIGHT", -80, 36)
+    LeftColLabel("Price", "RIGHT", -8, 68)
 
-    -- Material scroll area
-    local matScroll = CreateFrame("ScrollFrame", nil, container, "UIPanelScrollFrameTemplate")
-    matScroll:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -48)
-    matScroll:SetPoint("TOPRIGHT", container, "TOPRIGHT", -16, -48)
-    matScroll:SetPoint("BOTTOM", container, "BOTTOM", 0, 36)
+    matScroll = CreateFrame("ScrollFrame", nil, leftPanel, "UIPanelScrollFrameTemplate")
+    matScroll:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 0, -18)
+    matScroll:SetPoint("BOTTOMRIGHT", leftPanel, "BOTTOMRIGHT", -16, 0)
 
     matContent = CreateFrame("Frame", nil, matScroll)
     matContent:SetWidth(1)
     matContent:SetHeight(1)
     matScroll:SetScrollChild(matContent)
 
-    -- Update content width after layout
     matScroll:SetScript("OnSizeChanged", function(self)
         matContent:SetWidth(self:GetWidth())
     end)
 
-    for i = 1, MAX_ROWS do
+    for i = 1, MAX_MAT_ROWS do
         matRows[i] = CreateMatRow(matContent, i)
     end
+
+    -- RIGHT PANEL — AH listings
+    rightPanel = CreateFrame("Frame", nil, container)
+    rightPanel:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, -28)
+    rightPanel:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 36)
+
+    -- Vertical divider
+    local divider = container:CreateTexture(nil, "ARTWORK", nil, 2)
+    divider:SetWidth(1)
+    divider:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, 0)
+    divider:SetPoint("BOTTOMLEFT", rightPanel, "BOTTOMLEFT", 0, 0)
+    divider:SetColorTexture(unpack(ns.COLORS.rowDivider))
+
+    -- Right header
+    rightHeader = rightPanel:CreateFontString(nil, "OVERLAY")
+    rightHeader:SetFont(ns.FONT, 10, "")
+    rightHeader:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 8, -2)
+    rightHeader:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", -8, -2)
+    rightHeader:SetJustifyH("LEFT")
+    rightHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    rightHeader:SetText("Click a material to search AH")
+
+    -- Right column labels
+    local rightColHeader = CreateFrame("Frame", nil, rightPanel)
+    rightColHeader:SetHeight(14)
+    rightColHeader:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -16)
+    rightColHeader:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", 0, -16)
+
+    local function RightColLabel(text, point, x, w)
+        local fs = rightColHeader:CreateFontString(nil, "OVERLAY")
+        fs:SetFont(ns.FONT, 9, "")
+        fs:SetTextColor(unpack(ns.COLORS.headerText))
+        fs:SetText(text)
+        if point == "LEFT" then
+            fs:SetPoint("LEFT", rightColHeader, "LEFT", x, 0)
+        else
+            fs:SetPoint("RIGHT", rightColHeader, "RIGHT", x, 0)
+        end
+        if w then fs:SetWidth(w) end
+        fs:SetJustifyH(point)
+    end
+
+    RightColLabel("Unit Price", "LEFT", 8)
+    RightColLabel("Available", "RIGHT", -8, 60)
+
+    listScroll = CreateFrame("ScrollFrame", nil, rightPanel, "UIPanelScrollFrameTemplate")
+    listScroll:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 0, -30)
+    listScroll:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -16, 0)
+
+    listContent = CreateFrame("Frame", nil, listScroll)
+    listContent:SetWidth(1)
+    listContent:SetHeight(1)
+    listScroll:SetScrollChild(listContent)
+
+    listScroll:SetScript("OnSizeChanged", function(self)
+        listContent:SetWidth(self:GetWidth())
+    end)
+
+    for i = 1, MAX_LISTING_ROWS do
+        listRows[i] = CreateListingRow(listContent, i)
+    end
+
+    -- Empty state for right panel
+    rightEmpty = rightPanel:CreateFontString(nil, "OVERLAY")
+    rightEmpty:SetFont(ns.FONT, 11, "")
+    rightEmpty:SetPoint("CENTER", rightPanel, "CENTER", 0, 0)
+    rightEmpty:SetTextColor(unpack(ns.COLORS.mutedText))
+    rightEmpty:SetText("Select a material")
 
     -- Footer
     local footer = CreateFrame("Frame", nil, container, "BackdropTemplate")
@@ -207,6 +363,20 @@ function AHShop:Init(contentFrame)
     buyAllBtn:SetScript("OnClick", function()
         AHShop:BuyAll()
     end)
+
+    -- Size panels dynamically on show/resize
+    local function SizePanels()
+        local w = container:GetWidth()
+        if w and w > 0 then
+            leftPanel:SetWidth(math.floor(w * LEFT_WIDTH_PCT))
+        end
+    end
+
+    rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", 1, 0)
+    rightPanel:SetPoint("BOTTOMLEFT", leftPanel, "BOTTOMRIGHT", 1, 0)
+
+    container:SetScript("OnSizeChanged", SizePanels)
+    container:SetScript("OnShow", SizePanels)
 end
 
 --------------------------------------------------------------------
@@ -215,8 +385,21 @@ end
 function AHShop:Show()
     if not container then return end
     wipe(livePrices)
+    wipe(recentPurchases)
+    selectedItemID = nil
     self:Refresh()
+    self:ClearListings()
     container:Show()
+
+    -- CraftSim queue loads async — retry refresh after a delay if list is empty
+    if #currentMats == 0 then
+        C_Timer.After(1, function()
+            if AHShop:IsShown() then AHShop:Refresh() end
+        end)
+        C_Timer.After(3, function()
+            if AHShop:IsShown() then AHShop:Refresh() end
+        end)
+    end
 end
 
 function AHShop:Hide()
@@ -229,11 +412,36 @@ function AHShop:IsShown()
 end
 
 --------------------------------------------------------------------
--- Refresh display
+-- Highlight selected material row
+--------------------------------------------------------------------
+function AHShop:HighlightSelectedRow()
+    for _, row in ipairs(matRows) do
+        if row:IsShown() then
+            if row._itemID == selectedItemID then
+                row.bg:SetColorTexture(unpack(ns.COLORS.rowSelected or ns.COLORS.rowHover))
+                row.leftAccent:Show()
+            else
+                row.bg:SetColorTexture(1, 1, 1, row._defaultBgAlpha)
+                row.leftAccent:Hide()
+            end
+        end
+    end
+end
+
+--------------------------------------------------------------------
+-- Refresh material list (left panel)
 --------------------------------------------------------------------
 function AHShop:Refresh()
     if not container then return end
     currentMats = ns.Data:GetMaterialList(activeFilter)
+
+    -- Apply recent purchases (GetItemCount may not reflect them yet)
+    for _, mat in ipairs(currentMats) do
+        if recentPurchases[mat.itemID] then
+            mat.have = mat.have + recentPurchases[mat.itemID]
+            mat.short = math.max(0, mat.need - mat.have)
+        end
+    end
 
     -- Filter to only short materials
     local shortMats = {}
@@ -258,7 +466,10 @@ function AHShop:Refresh()
             if i <= #currentMats then
                 local mat = currentMats[i]
                 row.icon:SetTexture(mat.icon)
-                row.nameText:SetText(mat.itemName)
+
+                -- Name with quality pips
+                local pips = GetQualityPips(mat.itemID)
+                row.nameText:SetText(mat.itemName .. pips)
 
                 row.shortText:SetText("x" .. mat.short)
                 row.shortText:SetTextColor(unpack(ns.COLORS.redText))
@@ -272,23 +483,20 @@ function AHShop:Refresh()
                     else
                         row.ahPrice:SetTextColor(unpack(ns.COLORS.mutedText))
                     end
-                    local lineCost = mat.short * unitPrice
-                    row.totalCost:SetText(ns.FormatGold(lineCost))
-                    grandTotal = grandTotal + lineCost
+                    grandTotal = grandTotal + (mat.short * unitPrice)
                 else
                     row.ahPrice:SetText("\226\128\148")
                     row.ahPrice:SetTextColor(unpack(ns.COLORS.mutedText))
-                    row.totalCost:SetText("\226\128\148")
                 end
 
-                -- Wire search button
-                local itemID = mat.itemID
-                row.searchBtn:SetScript("OnClick", function()
-                    AHShop:SearchItem(itemID)
-                end)
-
-                row._itemID = itemID
+                row._itemID = mat.itemID
                 row:Show()
+
+                -- Maintain selection highlight
+                if mat.itemID == selectedItemID then
+                    row.bg:SetColorTexture(unpack(ns.COLORS.rowSelected or ns.COLORS.rowHover))
+                    row.leftAccent:Show()
+                end
             else
                 row:Hide()
             end
@@ -303,7 +511,7 @@ function AHShop:Refresh()
         end
     end
 
-    -- Rebuild alt tabs if character list changed
+    -- Rebuild alt tabs
     if tabBar then
         local tabs = {{ key = "all", label = "All Alts" }}
         local chars = ns.Data:GetQueuedCharacters()
@@ -325,9 +533,78 @@ function AHShop:Refresh()
 end
 
 --------------------------------------------------------------------
--- AH Search — commodity price lookup
+-- Right panel — listings display
 --------------------------------------------------------------------
-function AHShop:SearchItem(itemID)
+function AHShop:ClearListings()
+    for _, row in ipairs(listRows) do
+        row:Hide()
+    end
+    if rightEmpty then rightEmpty:Show() end
+    if rightHeader then rightHeader:SetText("Click a material to search AH") end
+    if listContent then listContent:SetHeight(1) end
+end
+
+function AHShop:ShowListings(itemID)
+    if not itemID then return end
+
+    local numResults = C_AuctionHouse.GetNumCommoditySearchResults(itemID)
+    if not numResults or numResults == 0 then
+        self:ClearListings()
+        if rightHeader then
+            local itemName = C_Item.GetItemNameByID(itemID) or ("Item:" .. itemID)
+            rightHeader:SetText(itemName .. GetQualityPips(itemID) .. "  \226\128\148  No listings")
+        end
+        return
+    end
+
+    if rightEmpty then rightEmpty:Hide() end
+
+    -- Header: item name + quality
+    local itemName = C_Item.GetItemNameByID(itemID) or ("Item:" .. itemID)
+    if rightHeader then
+        rightHeader:SetText(itemName .. GetQualityPips(itemID) .. "  (" .. numResults .. " listings)")
+    end
+
+    -- Aggregate by price (commodities can have multiple at same price)
+    local displayCount = math.min(numResults, MAX_LISTING_ROWS)
+    listContent:SetHeight(math.max(1, displayCount * LISTING_ROW_HEIGHT))
+
+    for i = 1, math.max(displayCount, #listRows) do
+        local row = listRows[i]
+        if not row and i <= displayCount then
+            row = CreateListingRow(listContent, i)
+            listRows[i] = row
+        end
+        if row then
+            if i <= displayCount then
+                local result = C_AuctionHouse.GetCommoditySearchResultInfo(itemID, i)
+                if result then
+                    row.priceText:SetText(ns.FormatGold(result.unitPrice))
+                    row.qtyText:SetText("x" .. result.quantity)
+                    row._itemID = itemID
+                    row._unitPrice = result.unitPrice
+                    row._available = result.quantity
+                    row:Show()
+                else
+                    row:Hide()
+                end
+            else
+                row:Hide()
+            end
+        end
+    end
+
+    -- Store lowest price
+    local firstResult = C_AuctionHouse.GetCommoditySearchResultInfo(itemID, 1)
+    if firstResult and firstResult.unitPrice then
+        livePrices[itemID] = firstResult.unitPrice
+    end
+end
+
+--------------------------------------------------------------------
+-- Search + show listings for selected material
+--------------------------------------------------------------------
+function AHShop:SearchAndShowListings(itemID)
     if not ns.AHUI or not ns.AHUI:IsAHOpen() then
         print("|cffc8aa64KazCraft:|r Auction House is not open.")
         return
@@ -345,6 +622,9 @@ function AHShop:SearchItem(itemID)
     C_AuctionHouse.SendSearchQuery(itemKey, sorts, true)
 end
 
+--------------------------------------------------------------------
+-- AH event handlers
+--------------------------------------------------------------------
 function AHShop:OnCommoditySearchResults(eventItemID)
     local targetItemID = eventItemID or pendingSearchItemID
     if not targetItemID then return end
@@ -358,23 +638,22 @@ function AHShop:OnCommoditySearchResults(eventItemID)
     -- Store live price
     livePrices[targetItemID] = result.unitPrice
 
-    -- Update matching row immediately
+    -- Update matching material row price
     for _, r in ipairs(matRows) do
         if r._itemID == targetItemID and r:IsShown() then
             r.ahPrice:SetText(ns.FormatGold(result.unitPrice))
             r.ahPrice:SetTextColor(unpack(ns.COLORS.goldText))
-            for _, m in ipairs(currentMats) do
-                if m.itemID == targetItemID then
-                    r.totalCost:SetText(ns.FormatGold(m.short * result.unitPrice))
-                    break
-                end
-            end
             break
         end
     end
 
     if pendingSearchItemID == targetItemID then
         pendingSearchItemID = nil
+    end
+
+    -- Show listings in right panel if this is the selected item
+    if targetItemID == selectedItemID then
+        self:ShowListings(targetItemID)
     end
 
     self:RecalcTotal()
@@ -395,6 +674,9 @@ function AHShop:RecalcTotal()
     end
 end
 
+--------------------------------------------------------------------
+-- Search All — price lookup for every material
+--------------------------------------------------------------------
 function AHShop:SearchAll()
     if not ns.AHUI or not ns.AHUI:IsAHOpen() then
         print("|cffc8aa64KazCraft:|r Auction House is not open.")
@@ -412,7 +694,6 @@ function AHShop:ProcessSearchQueue()
     if not ns.AHUI or not ns.AHUI:IsAHOpen() then return end
 
     if not C_AuctionHouse.IsThrottledMessageSystemReady() then
-        -- Will be called again from Core.lua on AUCTION_HOUSE_THROTTLED_SYSTEM_READY
         return
     end
 
@@ -424,7 +705,14 @@ function AHShop:ProcessSearchQueue()
     end
 
     local itemID = table.remove(searchQueue, 1)
-    self:SearchItem(itemID)
+
+    -- Auto-select first item so listings show
+    if not selectedItemID then
+        selectedItemID = itemID
+        self:HighlightSelectedRow()
+    end
+
+    self:SearchAndShowListings(itemID)
 
     if #searchQueue > 0 then
         C_Timer.After(0.5, function()
@@ -440,7 +728,7 @@ function AHShop:OnThrottleReady()
 end
 
 --------------------------------------------------------------------
--- Buy All — chain commodity purchases via AHUI confirm dialog
+-- Buy All — chain commodity purchases
 --------------------------------------------------------------------
 function AHShop:BuyAll()
     if not ns.AHUI or not ns.AHUI:IsAHOpen() then
@@ -456,8 +744,18 @@ function AHShop:BuyAll()
     print("|cffc8aa64KazCraft:|r Search first to get live prices.")
 end
 
-function AHShop:OnPurchaseSucceeded()
-    C_Timer.After(0.5, function()
+function AHShop:OnPurchaseSucceeded(itemID, qty)
+    -- Track purchase so Refresh can subtract immediately
+    if itemID and qty then
+        recentPurchases[itemID] = (recentPurchases[itemID] or 0) + qty
+    end
+    -- Immediate refresh with purchase data applied
+    if self:IsShown() then
+        self:Refresh()
+    end
+    -- Delayed refresh to pick up real bag counts and clear recentPurchases
+    C_Timer.After(3, function()
+        wipe(recentPurchases)
         if AHShop:IsShown() then
             AHShop:Refresh()
         end

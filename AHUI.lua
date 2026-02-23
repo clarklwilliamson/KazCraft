@@ -179,9 +179,12 @@ local function CreateConfirmDialog(parent)
         dialog:Hide()
     end)
 
-    -- On hide: always clean up commodity purchase
+    -- On hide: cancel commodity purchase ONLY if we didn't just succeed
     dialog:SetScript("OnHide", function()
-        C_AuctionHouse.CancelCommoditiesPurchase()
+        if not dialog._purchaseSucceeded then
+            C_AuctionHouse.CancelCommoditiesPurchase()
+        end
+        dialog._purchaseSucceeded = nil
         confirmItemID = nil
         confirmQty = nil
     end)
@@ -525,12 +528,23 @@ end
 
 function AHUI:OnCommodityPurchaseSucceeded()
     if confirmDialog and confirmDialog:IsShown() then
-        confirmDialog:Hide()
+        -- Flag so OnHide doesn't call CancelCommoditiesPurchase
+        confirmDialog._purchaseSucceeded = true
+        confirmDialog.statusText:SetText("|cff4dff4dPurchase complete!|r")
+        confirmDialog.buyBtn:Disable()
+        PlaySound(SOUNDKIT.LOOT_WINDOW_COIN_SOUND)
+        -- Brief delay before hiding — let server finish delivery to bags
+        C_Timer.After(0.3, function()
+            if confirmDialog:IsShown() then
+                confirmDialog:Hide()
+            end
+        end)
     end
 
-    -- Notify Shop tab
+    -- Notify Shop tab with what was purchased
+    local purchasedItemID, purchasedQty = confirmItemID, confirmQty
     if ns.AHShop and ns.AHShop.OnPurchaseSucceeded then
-        ns.AHShop:OnPurchaseSucceeded()
+        ns.AHShop:OnPurchaseSucceeded(purchasedItemID, purchasedQty)
     end
 end
 

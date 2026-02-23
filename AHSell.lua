@@ -13,19 +13,31 @@ local DURATIONS = {
 local LIST_ROW_HEIGHT = 22
 local MAX_LIST_ROWS = 12
 
+local BACKDROP_FLAT = {
+    bgFile = "Interface\\BUTTONS\\WHITE8X8",
+    edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+    edgeSize = 1,
+}
+
 -- State
 local container
 local leftPanel, rightPanel
+local postArea
 local dropTarget
-local itemIcon, itemNameText, itemTypeText
-local qtyBox, priceGold, priceSilver, priceCopper
-local durationIdx = 2  -- default 24h
-local durationBtn
+local itemIcon, itemNameText
+local qtyBox, maxBtn
+local priceGold, priceSilver, priceCopper
+local durationIdx = 3  -- default 48h
+local durationBtns = {}
 local depositText
 local postBtn
 local listingRows = {}
 local listingContent, listingScroll
 local listingHeader
+local bagScroll, bagContent, bagPlaceholder
+local bagIconPool = {}       -- reusable icon buttons
+local bagHeaderPool = {}     -- reusable category header FontStrings
+local selectedBagItemID = nil  -- currently highlighted bag icon
 local sellItemLocation = nil
 local sellItemID = nil
 local sellItemKey = nil
@@ -49,6 +61,37 @@ local function NormalizePrice(copper)
 end
 
 --------------------------------------------------------------------
+-- Duration radio helpers
+--------------------------------------------------------------------
+local function UpdateDurationButtons()
+    for i, btn in ipairs(durationBtns) do
+        if i == durationIdx then
+            btn.label:SetTextColor(unpack(ns.COLORS.tabActive))
+            btn:SetBackdropBorderColor(unpack(ns.COLORS.accent))
+        else
+            btn.label:SetTextColor(unpack(ns.COLORS.mutedText))
+            btn:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+        end
+    end
+end
+
+--------------------------------------------------------------------
+-- Post button enable/disable
+--------------------------------------------------------------------
+function AHSell:UpdatePostButton()
+    if not postBtn then return end
+    if sellItemLocation then
+        postBtn:Enable()
+        postBtn:SetAlpha(1)
+        postBtn.label:SetTextColor(unpack(ns.COLORS.btnDefault))
+    else
+        postBtn:Disable()
+        postBtn:SetAlpha(0.4)
+        postBtn.label:SetTextColor(unpack(ns.COLORS.mutedText))
+    end
+end
+
+--------------------------------------------------------------------
 -- Listing row factory
 --------------------------------------------------------------------
 local function CreateListingRow(parent, index)
@@ -63,23 +106,28 @@ local function CreateListingRow(parent, index)
     row._defaultBgAlpha = (index % 2 == 0) and 0.03 or 0
     row.bg:SetColorTexture(1, 1, 1, row._defaultBgAlpha)
 
+    -- Buyout price (left)
     row.priceText = row:CreateFontString(nil, "OVERLAY")
     row.priceText:SetFont(ns.FONT, 10, "")
-    row.priceText:SetPoint("LEFT", row, "LEFT", 4, 0)
-    row.priceText:SetWidth(120)
+    row.priceText:SetPoint("LEFT", row, "LEFT", 6, 0)
+    row.priceText:SetWidth(140)
     row.priceText:SetJustifyH("LEFT")
     row.priceText:SetTextColor(unpack(ns.COLORS.goldText))
 
+    -- Available (center-right)
     row.qtyText = row:CreateFontString(nil, "OVERLAY")
     row.qtyText:SetFont(ns.FONT, 10, "")
-    row.qtyText:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-    row.qtyText:SetWidth(60)
+    row.qtyText:SetPoint("RIGHT", row, "RIGHT", -50, 0)
+    row.qtyText:SetWidth(50)
     row.qtyText:SetJustifyH("RIGHT")
     row.qtyText:SetTextColor(unpack(ns.COLORS.mutedText))
 
+    -- Owned? (far right)
     row.ownerTag = row:CreateFontString(nil, "OVERLAY")
     row.ownerTag:SetFont(ns.FONT, 9, "")
-    row.ownerTag:SetPoint("RIGHT", row.qtyText, "LEFT", -4, 0)
+    row.ownerTag:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+    row.ownerTag:SetWidth(40)
+    row.ownerTag:SetJustifyH("RIGHT")
     row.ownerTag:SetTextColor(unpack(ns.COLORS.greenText))
     row.ownerTag:Hide()
 
@@ -87,8 +135,7 @@ local function CreateListingRow(parent, index)
 
     row:SetScript("OnClick", function(self)
         if self._unitPrice and self._unitPrice > 0 then
-            local undercut = math.max(1, self._unitPrice - 1)
-            AHSell:SetInputPrice(undercut)
+            AHSell:SetInputPrice(self._unitPrice)
             AHSell:UpdateDeposit()
         end
     end)
@@ -117,30 +164,29 @@ function AHSell:Init(contentFrame)
     container:SetAllPoints()
     container:Hide()
 
-    -- Left panel (post controls) — ~35% width
+    ----------------------------------------------------------------
+    -- Left panel (fixed 220px)
+    ----------------------------------------------------------------
     leftPanel = CreateFrame("Frame", nil, container)
     leftPanel:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
     leftPanel:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 0, 0)
-    leftPanel:SetPoint("RIGHT", container, "LEFT", 250, 0)
 
-    -- Right panel (listings) — ~65% width, with gap
-    rightPanel = CreateFrame("Frame", nil, container, "BackdropTemplate")
-    rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", 8, 0)
-    rightPanel:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
-    rightPanel:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    rightPanel:SetBackdropColor(unpack(ns.COLORS.panelBg))
-    rightPanel:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+    ----------------------------------------------------------------
+    -- Posting area (top section, own backdrop)
+    ----------------------------------------------------------------
+    postArea = CreateFrame("Frame", nil, leftPanel, "BackdropTemplate")
+    postArea:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 4, -4)
+    postArea:SetPoint("TOPRIGHT", leftPanel, "TOPRIGHT", -4, -4)
+    postArea:SetHeight(220)
+    postArea:SetBackdrop(BACKDROP_FLAT)
+    postArea:SetBackdropColor(15/255, 15/255, 15/255, 0.5)
+    postArea:SetBackdropBorderColor(70/255, 65/255, 55/255, 1)
 
-    -- === LEFT PANEL: Post controls ===
-
-    -- Drop target area
-    dropTarget = CreateFrame("Button", nil, leftPanel)
-    dropTarget:SetSize(48, 48)
-    dropTarget:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 10, -10)
+    -- Item slot (32x32)
+    dropTarget = CreateFrame("Button", nil, postArea)
+    dropTarget:SetSize(32, 32)
+    dropTarget:SetPoint("TOPLEFT", postArea, "TOPLEFT", 10, -10)
+    dropTarget:RegisterForClicks("LeftButtonUp")
 
     local dropBg = dropTarget:CreateTexture(nil, "BACKGROUND")
     dropBg:SetAllPoints()
@@ -148,10 +194,7 @@ function AHSell:Init(contentFrame)
 
     local dropBorder = CreateFrame("Frame", nil, dropTarget, "BackdropTemplate")
     dropBorder:SetAllPoints()
-    dropBorder:SetBackdrop({
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
+    dropBorder:SetBackdrop({ edgeFile = "Interface\\BUTTONS\\WHITE8X8", edgeSize = 1 })
     dropBorder:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
 
     itemIcon = dropTarget:CreateTexture(nil, "ARTWORK")
@@ -159,6 +202,16 @@ function AHSell:Init(contentFrame)
     itemIcon:SetTexture(134400)
     itemIcon:SetAlpha(0.3)
 
+    -- "Select item" label (beside icon, shown when empty)
+    local selectLabel = postArea:CreateFontString(nil, "OVERLAY")
+    selectLabel:SetFont(ns.FONT, 11, "")
+    selectLabel:SetPoint("LEFT", dropTarget, "RIGHT", 8, 0)
+    selectLabel:SetText("Select item")
+    selectLabel:SetTextColor(unpack(ns.COLORS.mutedText))
+    dropTarget._selectLabel = selectLabel
+
+    dropTarget:SetScript("OnClick", function() AHSell:AcceptCursorItem() end)
+    dropTarget:SetScript("OnReceiveDrag", function() AHSell:AcceptCursorItem() end)
     dropTarget:SetScript("OnEnter", function(self)
         if sellItemID then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -168,58 +221,29 @@ function AHSell:Init(contentFrame)
     end)
     dropTarget:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local dropLabel = dropTarget:CreateFontString(nil, "OVERLAY")
-    dropLabel:SetFont(ns.FONT, 9, "")
-    dropLabel:SetPoint("CENTER")
-    dropLabel:SetText("Drop\nItem")
-    dropLabel:SetTextColor(unpack(ns.COLORS.mutedText))
-    dropLabel:SetJustifyH("CENTER")
-    dropTarget._dropLabel = dropLabel
-
-    dropTarget:SetScript("OnClick", function() AHSell:AcceptCursorItem() end)
-    dropTarget:SetScript("OnReceiveDrag", function() AHSell:AcceptCursorItem() end)
-    dropTarget:RegisterForClicks("LeftButtonUp")
-
-    -- Item name + type
-    itemNameText = leftPanel:CreateFontString(nil, "OVERLAY")
-    itemNameText:SetFont(ns.FONT, 13, "")
-    itemNameText:SetPoint("TOPLEFT", dropTarget, "TOPRIGHT", 8, -2)
-    itemNameText:SetPoint("RIGHT", leftPanel, "RIGHT", -4, 0)
+    -- Item name (below icon)
+    itemNameText = postArea:CreateFontString(nil, "OVERLAY")
+    itemNameText:SetFont(ns.FONT, 11, "")
+    itemNameText:SetPoint("TOPLEFT", dropTarget, "BOTTOMLEFT", 0, -4)
+    itemNameText:SetPoint("RIGHT", postArea, "RIGHT", -8, 0)
     itemNameText:SetJustifyH("LEFT")
     itemNameText:SetWordWrap(false)
     itemNameText:SetTextColor(unpack(ns.COLORS.brightText))
-    itemNameText:SetText("No item selected")
 
-    itemTypeText = leftPanel:CreateFontString(nil, "OVERLAY")
-    itemTypeText:SetFont(ns.FONT, 10, "")
-    itemTypeText:SetPoint("TOPLEFT", itemNameText, "BOTTOMLEFT", 0, -2)
-    itemTypeText:SetTextColor(unpack(ns.COLORS.mutedText))
-
-    -- Separator
-    local sep1 = leftPanel:CreateTexture(nil, "ARTWORK")
-    sep1:SetHeight(1)
-    sep1:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 6, -68)
-    sep1:SetPoint("TOPRIGHT", leftPanel, "TOPRIGHT", -6, -68)
-    sep1:SetColorTexture(unpack(ns.COLORS.rowDivider))
-
-    -- Quantity
-    local qtyLabel = leftPanel:CreateFontString(nil, "OVERLAY")
+    -- Quantity row
+    local qtyLabel = postArea:CreateFontString(nil, "OVERLAY")
     qtyLabel:SetFont(ns.FONT, 10, "")
-    qtyLabel:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 10, -78)
+    qtyLabel:SetPoint("TOPLEFT", itemNameText, "BOTTOMLEFT", 0, -10)
     qtyLabel:SetText("Quantity:")
     qtyLabel:SetTextColor(unpack(ns.COLORS.headerText))
 
-    qtyBox = CreateFrame("EditBox", nil, leftPanel, "BackdropTemplate")
-    qtyBox:SetSize(60, 22)
+    qtyBox = CreateFrame("EditBox", nil, postArea, "BackdropTemplate")
+    qtyBox:SetSize(50, 20)
     qtyBox:SetPoint("LEFT", qtyLabel, "RIGHT", 6, 0)
-    qtyBox:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
+    qtyBox:SetBackdrop(BACKDROP_FLAT)
     qtyBox:SetBackdropColor(unpack(ns.COLORS.searchBg))
     qtyBox:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
-    qtyBox:SetFont(ns.FONT, 11, "")
+    qtyBox:SetFont(ns.FONT, 10, "")
     qtyBox:SetTextColor(unpack(ns.COLORS.brightText))
     qtyBox:SetJustifyH("CENTER")
     qtyBox:SetAutoFocus(false)
@@ -231,43 +255,70 @@ function AHSell:Init(contentFrame)
     qtyBox:SetScript("OnTextChanged", function()
         cachedQty = tonumber(qtyBox:GetText()) or 1
         if cachedQty < 1 then cachedQty = 1 end
-        AHSell:UpdateDeposit()
     end)
 
-    -- Duration
-    local durLabel = leftPanel:CreateFontString(nil, "OVERLAY")
+    maxBtn = ns.CreateButton(postArea, "Max", 36, 20)
+    maxBtn:SetPoint("LEFT", qtyBox, "RIGHT", 4, 0)
+
+    -- Duration row (three radio-style toggles)
+    local durLabel = postArea:CreateFontString(nil, "OVERLAY")
     durLabel:SetFont(ns.FONT, 10, "")
-    durLabel:SetPoint("TOPLEFT", qtyLabel, "BOTTOMLEFT", 0, -12)
+    durLabel:SetPoint("TOPLEFT", qtyLabel, "BOTTOMLEFT", 0, -8)
     durLabel:SetText("Duration:")
     durLabel:SetTextColor(unpack(ns.COLORS.headerText))
 
-    durationBtn = ns.CreateButton(leftPanel, DURATIONS[durationIdx].label, 48, 22)
-    durationBtn:SetPoint("LEFT", durLabel, "RIGHT", 6, 0)
-    durationBtn:SetScript("OnClick", function()
-        durationIdx = (durationIdx % #DURATIONS) + 1
-        durationBtn.label:SetText(DURATIONS[durationIdx].label)
-        AHSell:UpdateDeposit()
-    end)
+    for i, dur in ipairs(DURATIONS) do
+        local btn = CreateFrame("Button", nil, postArea, "BackdropTemplate")
+        btn:SetSize(36, 20)
+        btn:SetBackdrop(BACKDROP_FLAT)
+        btn:SetBackdropColor(20/255, 20/255, 20/255, 0.6)
+        btn:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
 
-    -- Price per unit
-    local priceLabel = leftPanel:CreateFontString(nil, "OVERLAY")
+        btn.label = btn:CreateFontString(nil, "OVERLAY")
+        btn.label:SetFont(ns.FONT, 10, "")
+        btn.label:SetPoint("CENTER")
+        btn.label:SetText(dur.label)
+
+        if i == 1 then
+            btn:SetPoint("LEFT", durLabel, "RIGHT", 6, 0)
+        else
+            btn:SetPoint("LEFT", durationBtns[i - 1], "RIGHT", 4, 0)
+        end
+
+        btn:SetScript("OnClick", function()
+            durationIdx = i
+            UpdateDurationButtons()
+        end)
+        btn:SetScript("OnEnter", function(self)
+            if durationIdx ~= i then
+                self.label:SetTextColor(unpack(ns.COLORS.tabHover))
+            end
+        end)
+        btn:SetScript("OnLeave", function(self)
+            if durationIdx ~= i then
+                self.label:SetTextColor(unpack(ns.COLORS.mutedText))
+            end
+        end)
+
+        durationBtns[i] = btn
+    end
+    UpdateDurationButtons()
+
+    -- Price row
+    local priceLabel = postArea:CreateFontString(nil, "OVERLAY")
     priceLabel:SetFont(ns.FONT, 10, "")
-    priceLabel:SetPoint("TOPLEFT", durLabel, "BOTTOMLEFT", 0, -12)
-    priceLabel:SetText("Price per unit:")
+    priceLabel:SetPoint("TOPLEFT", durLabel, "BOTTOMLEFT", 0, -8)
+    priceLabel:SetText("Price:")
     priceLabel:SetTextColor(unpack(ns.COLORS.headerText))
 
-    local function MakePriceBox(parent, anchor, w, suffix)
-        local box = CreateFrame("EditBox", nil, parent, "BackdropTemplate")
-        box:SetSize(w, 22)
+    local function MakePriceBox(anchor, w, suffix)
+        local box = CreateFrame("EditBox", nil, postArea, "BackdropTemplate")
+        box:SetSize(w, 20)
         box:SetPoint("LEFT", anchor, "RIGHT", 4, 0)
-        box:SetBackdrop({
-            bgFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeSize = 1,
-        })
+        box:SetBackdrop(BACKDROP_FLAT)
         box:SetBackdropColor(unpack(ns.COLORS.searchBg))
         box:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
-        box:SetFont(ns.FONT, 11, "")
+        box:SetFont(ns.FONT, 10, "")
         box:SetTextColor(unpack(ns.COLORS.brightText))
         box:SetJustifyH("RIGHT")
         box:SetAutoFocus(false)
@@ -278,7 +329,6 @@ function AHSell:Init(contentFrame)
         box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
         box:SetScript("OnTextChanged", function()
             AHSell:UpdateCachedPrice()
-            AHSell:UpdateDeposit()
         end)
 
         local suf = box:CreateFontString(nil, "OVERLAY")
@@ -291,26 +341,30 @@ function AHSell:Init(contentFrame)
         return box
     end
 
-    priceGold = MakePriceBox(leftPanel, priceLabel, 60, "|cffffd700g|r")
-    priceSilver = MakePriceBox(leftPanel, priceGold._suffix, 32, "|cffc7c7cfs|r")
-    priceCopper = MakePriceBox(leftPanel, priceSilver._suffix, 32, "|cffeda55fc|r")
+    priceGold = MakePriceBox(priceLabel, 50, "|cffffd700g|r")
+    priceSilver = MakePriceBox(priceGold._suffix, 28, "|cffc7c7cfs|r")
+    priceCopper = MakePriceBox(priceSilver._suffix, 28, "|cffeda55fc|r")
 
-    -- Deposit
-    local depLabel = leftPanel:CreateFontString(nil, "OVERLAY")
+    -- Deposit row
+    local depLabel = postArea:CreateFontString(nil, "OVERLAY")
     depLabel:SetFont(ns.FONT, 10, "")
-    depLabel:SetPoint("TOPLEFT", priceLabel, "BOTTOMLEFT", 0, -12)
+    depLabel:SetPoint("TOPLEFT", priceLabel, "BOTTOMLEFT", 0, -8)
     depLabel:SetText("Deposit:")
     depLabel:SetTextColor(unpack(ns.COLORS.headerText))
 
-    depositText = leftPanel:CreateFontString(nil, "OVERLAY")
-    depositText:SetFont(ns.FONT, 11, "")
+    depositText = postArea:CreateFontString(nil, "OVERLAY")
+    depositText:SetFont(ns.FONT, 10, "")
     depositText:SetPoint("LEFT", depLabel, "RIGHT", 6, 0)
     depositText:SetTextColor(unpack(ns.COLORS.mutedText))
     depositText:SetText("\226\128\148")
 
-    -- Post button (VP flat style)
-    postBtn = ns.CreateButton(leftPanel, "Post Item", 120, 28)
-    postBtn:SetPoint("BOTTOM", leftPanel, "BOTTOM", 0, 14)
+    -- Post button (full width, bottom of posting area)
+    postBtn = ns.CreateButton(postArea, "Post Item", 0, 26)
+    postBtn:SetPoint("BOTTOMLEFT", postArea, "BOTTOMLEFT", 8, 8)
+    postBtn:SetPoint("BOTTOMRIGHT", postArea, "BOTTOMRIGHT", -8, 8)
+    postBtn:Disable()
+    postBtn:SetAlpha(0.4)
+
     -- OnClick: ZERO method calls / GetText() / API reads before PostItem.
     -- Only plain local reads + the PostItem call.  This keeps the hardware
     -- event execution context completely free of taint.  cachedUnitPrice
@@ -324,10 +378,6 @@ function AHSell:Init(contentFrame)
         local dur = DURATIONS[durationIdx].value
         local isCommodity = sellIsCommodity
 
-        -- Do NOT call AuctionHouseFrame:SetScale() here.
-        -- SetScale(1) on Blizzard's complex AH frame triggers layout/scripts
-        -- that may consume the hardware event token before PostItem gets it.
-        -- The AH session is open on the server regardless of client-side scale.
         local result
         if isCommodity then
             result = C_AuctionHouse.PostCommodity(loc, dur, qty, price)
@@ -353,48 +403,100 @@ function AHSell:Init(contentFrame)
         end
     end)
 
-    -- Status text
-    container.statusText = leftPanel:CreateFontString(nil, "OVERLAY")
-    container.statusText:SetFont(ns.FONT, 10, "")
-    container.statusText:SetPoint("BOTTOM", postBtn, "TOP", 0, 6)
-    container.statusText:SetPoint("LEFT", leftPanel, "LEFT", 10, 0)
-    container.statusText:SetPoint("RIGHT", leftPanel, "RIGHT", -4, 0)
+    -- Status text (above post button)
+    container.statusText = postArea:CreateFontString(nil, "OVERLAY")
+    container.statusText:SetFont(ns.FONT, 9, "")
+    container.statusText:SetPoint("BOTTOM", postBtn, "TOP", 0, 4)
+    container.statusText:SetPoint("LEFT", postArea, "LEFT", 8, 0)
+    container.statusText:SetPoint("RIGHT", postArea, "RIGHT", -8, 0)
     container.statusText:SetJustifyH("CENTER")
     container.statusText:SetTextColor(unpack(ns.COLORS.greenText))
 
-    -- === RIGHT PANEL: Current listings ===
+    ----------------------------------------------------------------
+    -- Divider (between posting area and bag area)
+    ----------------------------------------------------------------
+    local divider = leftPanel:CreateTexture(nil, "ARTWORK")
+    divider:SetHeight(1)
+    divider:SetPoint("TOPLEFT", postArea, "BOTTOMLEFT", 0, -6)
+    divider:SetPoint("TOPRIGHT", postArea, "BOTTOMRIGHT", 0, -6)
+    divider:SetColorTexture(70/255, 65/255, 55/255, 1)
 
+    ----------------------------------------------------------------
+    -- Bag area (scrollable, fills remaining space)
+    ----------------------------------------------------------------
+    bagScroll = CreateFrame("ScrollFrame", nil, leftPanel, "UIPanelScrollFrameTemplate")
+    bagScroll:SetPoint("TOPLEFT", divider, "BOTTOMLEFT", 0, -4)
+    bagScroll:SetPoint("BOTTOMRIGHT", leftPanel, "BOTTOMRIGHT", -16, 4)
+
+    bagContent = CreateFrame("Frame", nil, bagScroll)
+    bagContent:SetWidth(1)
+    bagContent:SetHeight(1)
+    bagScroll:SetScrollChild(bagContent)
+
+    bagScroll:SetScript("OnSizeChanged", function(self)
+        bagContent:SetWidth(self:GetWidth())
+    end)
+
+    bagPlaceholder = bagScroll:CreateFontString(nil, "OVERLAY")
+    bagPlaceholder:SetFont(ns.FONT, 10, "")
+    bagPlaceholder:SetPoint("TOP", bagScroll, "TOP", 0, -20)
+    bagPlaceholder:SetText("Items will appear here")
+    bagPlaceholder:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    ----------------------------------------------------------------
+    -- Right panel (current listings)
+    ----------------------------------------------------------------
+    rightPanel = CreateFrame("Frame", nil, container, "BackdropTemplate")
+    rightPanel:SetWidth(360)
+    rightPanel:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, 0)
+    rightPanel:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
+
+    -- Left panel fills remaining space
+    leftPanel:SetPoint("RIGHT", rightPanel, "LEFT", -4, 0)
+    rightPanel:SetBackdrop(BACKDROP_FLAT)
+    rightPanel:SetBackdropColor(unpack(ns.COLORS.panelBg))
+    rightPanel:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+
+    -- Header
     listingHeader = rightPanel:CreateFontString(nil, "OVERLAY")
-    listingHeader:SetFont(ns.FONT, 10, "")
-    listingHeader:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 8, -6)
+    listingHeader:SetFont(ns.FONT, 11, "")
+    listingHeader:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 8, -8)
     listingHeader:SetText("Current Listings")
     listingHeader:SetTextColor(unpack(ns.COLORS.headerText))
 
-    -- Column labels
-    local colPrice = rightPanel:CreateFontString(nil, "OVERLAY")
-    colPrice:SetFont(ns.FONT, 9, "")
-    colPrice:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 8, -22)
-    colPrice:SetText("Price")
-    colPrice:SetTextColor(unpack(ns.COLORS.headerText))
+    -- Column headers
+    local colBuyout = rightPanel:CreateFontString(nil, "OVERLAY")
+    colBuyout:SetFont(ns.FONT, 9, "")
+    colBuyout:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 8, -26)
+    colBuyout:SetText("Buyout")
+    colBuyout:SetTextColor(unpack(ns.COLORS.headerText))
 
-    local colQty = rightPanel:CreateFontString(nil, "OVERLAY")
-    colQty:SetFont(ns.FONT, 9, "")
-    colQty:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", -8, -22)
-    colQty:SetText("Available")
-    colQty:SetJustifyH("RIGHT")
-    colQty:SetTextColor(unpack(ns.COLORS.headerText))
+    local colAvail = rightPanel:CreateFontString(nil, "OVERLAY")
+    colAvail:SetFont(ns.FONT, 9, "")
+    colAvail:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", -50, -26)
+    colAvail:SetText("Available")
+    colAvail:SetJustifyH("RIGHT")
+    colAvail:SetTextColor(unpack(ns.COLORS.headerText))
 
-    -- Separator under header
+    local colOwned = rightPanel:CreateFontString(nil, "OVERLAY")
+    colOwned:SetFont(ns.FONT, 9, "")
+    colOwned:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", -6, -26)
+    colOwned:SetWidth(40)
+    colOwned:SetText("Owned?")
+    colOwned:SetJustifyH("RIGHT")
+    colOwned:SetTextColor(unpack(ns.COLORS.headerText))
+
+    -- Separator under columns
     local listSep = rightPanel:CreateTexture(nil, "ARTWORK")
     listSep:SetHeight(1)
-    listSep:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 4, -34)
-    listSep:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", -4, -34)
+    listSep:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 4, -38)
+    listSep:SetPoint("TOPRIGHT", rightPanel, "TOPRIGHT", -4, -38)
     listSep:SetColorTexture(unpack(ns.COLORS.rowDivider))
 
-    -- Scrollable listing area
+    -- Listing scroll area
     listingScroll = CreateFrame("ScrollFrame", nil, rightPanel, "UIPanelScrollFrameTemplate")
-    listingScroll:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 6, -36)
-    listingScroll:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -18, 1)
+    listingScroll:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 4, -40)
+    listingScroll:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -20, 4)
 
     listingContent = CreateFrame("Frame", nil, listingScroll)
     listingContent:SetWidth(1)
@@ -411,13 +513,12 @@ function AHSell:Init(contentFrame)
 
     -- Empty state text
     rightPanel.emptyText = rightPanel:CreateFontString(nil, "OVERLAY")
-    rightPanel.emptyText:SetFont(ns.FONT, 10, "")
+    rightPanel.emptyText:SetFont(ns.FONT, 11, "")
     rightPanel.emptyText:SetPoint("CENTER", rightPanel, "CENTER", 0, 0)
-    rightPanel.emptyText:SetText("Drop an item to see listings")
+    rightPanel.emptyText:SetText("Select an item to see listings")
     rightPanel.emptyText:SetTextColor(unpack(ns.COLORS.mutedText))
 
-    -- Hook post warning dialog once at init (NOT in OnClick — avoids
-    -- touching Blizzard globals inside the hardware event chain)
+    -- Hook post warning dialog once at init
     EnsurePostWarningHooked()
 end
 
@@ -427,6 +528,7 @@ end
 function AHSell:Show()
     if not container then return end
     container:Show()
+    self:ScanBags()
 end
 
 function AHSell:Hide()
@@ -437,15 +539,310 @@ function AHSell:IsShown()
     return container and container:IsShown()
 end
 
+--------------------------------------------------------------------
+-- Bag scanning & icon grid
+--------------------------------------------------------------------
+local BAG_ICON_SIZE = 48
+local BAG_ICON_GAP = 2
+local CATEGORY_HEADER_HEIGHT = 18
+local CATEGORY_GAP = 6
+
+-- Category display order (classID → sort priority)
+local CATEGORY_ORDER = {
+    [0]  = 1,   -- Consumable
+    [7]  = 2,   -- Tradeskill (Trade Goods)
+    [9]  = 3,   -- Recipe
+    [3]  = 4,   -- Gem
+    [8]  = 5,   -- Item Enhancement
+    [2]  = 6,   -- Weapon
+    [4]  = 7,   -- Armor
+    [17] = 8,   -- Profession
+    [1]  = 9,   -- Container
+    [16] = 10,  -- Glyph
+    [18] = 11,  -- Housing
+    [15] = 12,  -- Miscellaneous
+    [12] = 13,  -- Quest (unlikely to be auctionable but just in case)
+}
+
+local function GetCategorySort(classID)
+    return CATEGORY_ORDER[classID] or 99
+end
+
+-- Create or reuse an icon button from the pool
+local function AcquireBagIcon(index)
+    if bagIconPool[index] then return bagIconPool[index] end
+
+    local btn = CreateFrame("Button", nil, bagContent)
+    btn:SetSize(BAG_ICON_SIZE, BAG_ICON_SIZE)
+    btn:RegisterForClicks("LeftButtonUp")
+
+    btn.icon = btn:CreateTexture(nil, "ARTWORK")
+    btn.icon:SetPoint("TOPLEFT", 1, -1)
+    btn.icon:SetPoint("BOTTOMRIGHT", -1, 1)
+
+    btn.border = btn:CreateTexture(nil, "OVERLAY")
+    btn.border:SetAllPoints()
+    btn.border:SetColorTexture(0, 0, 0, 0)
+
+    -- Quality border (drawn as 4 edge textures for clean look)
+    btn.qualBorder = CreateFrame("Frame", nil, btn, "BackdropTemplate")
+    btn.qualBorder:SetAllPoints()
+    btn.qualBorder:SetBackdrop({ edgeFile = "Interface\\BUTTONS\\WHITE8X8", edgeSize = 1 })
+    btn.qualBorder:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+
+    -- Selection highlight border
+    btn.selectBorder = CreateFrame("Frame", nil, btn, "BackdropTemplate")
+    btn.selectBorder:SetPoint("TOPLEFT", -1, 1)
+    btn.selectBorder:SetPoint("BOTTOMRIGHT", 1, -1)
+    btn.selectBorder:SetBackdrop({ edgeFile = "Interface\\BUTTONS\\WHITE8X8", edgeSize = 2 })
+    btn.selectBorder:SetBackdropBorderColor(unpack(ns.COLORS.accent))
+    btn.selectBorder:Hide()
+
+    btn.countText = btn:CreateFontString(nil, "OVERLAY")
+    btn.countText:SetFont(ns.FONT, 9, "OUTLINE")
+    btn.countText:SetPoint("BOTTOMRIGHT", -2, 2)
+    btn.countText:SetJustifyH("RIGHT")
+    btn.countText:SetTextColor(1, 1, 1)
+
+    btn:SetScript("OnEnter", function(self)
+        if self._itemLink then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetHyperlink(self._itemLink)
+            GameTooltip:Show()
+        end
+    end)
+    btn:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+
+    btn:SetScript("OnClick", function(self)
+        if self._itemID then
+            AHSell:SelectBagItem(self)
+        end
+    end)
+
+    bagIconPool[index] = btn
+    return btn
+end
+
+-- Create or reuse a category header
+local function AcquireBagHeader(index)
+    if bagHeaderPool[index] then return bagHeaderPool[index] end
+
+    local fs = bagContent:CreateFontString(nil, "OVERLAY")
+    fs:SetFont(ns.FONT, 11, "")
+    fs:SetJustifyH("LEFT")
+    fs:SetTextColor(160/255, 150/255, 130/255)
+
+    bagHeaderPool[index] = fs
+    return fs
+end
+
+function AHSell:ScanBags()
+    if not bagContent then return end
+
+    -- Gather auctionable items grouped by classID
+    local categories = {}  -- classID → { items }
+
+    for bag = 0, 4 do
+        for slot = 1, C_Container.GetContainerNumSlots(bag) do
+            local location = ItemLocation:CreateFromBagAndSlot(bag, slot)
+            if C_Item.DoesItemExist(location) then
+                -- IsSellItemValid is the single best check (handles bound, quest, etc.)
+                local auctionable = C_AuctionHouse.IsSellItemValid(location, false)
+                if auctionable then
+                    local slotInfo = C_Container.GetContainerItemInfo(bag, slot)
+                    if slotInfo then
+                        local itemName, itemLink, quality, _, _, _, _, _, _, texture, _, classID = C_Item.GetItemInfo(slotInfo.itemID)
+                        if itemName and classID then
+                            if not categories[classID] then
+                                categories[classID] = {}
+                            end
+                            table.insert(categories[classID], {
+                                itemID = slotInfo.itemID,
+                                itemName = itemName,
+                                itemLink = itemLink or slotInfo.hyperlink,
+                                quality = quality or 1,
+                                texture = texture or slotInfo.iconFileID or 134400,
+                                count = slotInfo.stackCount or 1,
+                                bag = bag,
+                                slot = slot,
+                                classID = classID,
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Sort categories by display order
+    local sortedCats = {}
+    for classID, items in pairs(categories) do
+        table.insert(sortedCats, { classID = classID, items = items })
+    end
+    table.sort(sortedCats, function(a, b)
+        return GetCategorySort(a.classID) < GetCategorySort(b.classID)
+    end)
+
+    -- Deduplicate items within each category (aggregate stacks by itemID)
+    for _, cat in ipairs(sortedCats) do
+        local merged = {}
+        local seen = {}
+        for _, item in ipairs(cat.items) do
+            if seen[item.itemID] then
+                seen[item.itemID].count = seen[item.itemID].count + item.count
+            else
+                local entry = {
+                    itemID = item.itemID,
+                    itemName = item.itemName,
+                    itemLink = item.itemLink,
+                    quality = item.quality,
+                    texture = item.texture,
+                    count = item.count,
+                    bag = item.bag,
+                    slot = item.slot,
+                    classID = item.classID,
+                }
+                seen[item.itemID] = entry
+                table.insert(merged, entry)
+            end
+        end
+        -- Sort by name within category
+        table.sort(merged, function(a, b) return (a.itemName or "") < (b.itemName or "") end)
+        cat.items = merged
+    end
+
+    self:LayoutBagGrid(sortedCats)
+end
+
+function AHSell:LayoutBagGrid(sortedCats)
+    if not bagContent then return end
+
+    -- Get available width for icon wrapping
+    local panelWidth = bagScroll:GetWidth()
+    if panelWidth < 10 then panelWidth = 200 end
+    local iconsPerRow = math.floor((panelWidth + BAG_ICON_GAP) / (BAG_ICON_SIZE + BAG_ICON_GAP))
+    if iconsPerRow < 1 then iconsPerRow = 1 end
+
+    -- Hide all pooled elements first
+    for _, btn in ipairs(bagIconPool) do btn:Hide() end
+    for _, fs in ipairs(bagHeaderPool) do fs:Hide() end
+
+    local iconIdx = 0
+    local headerIdx = 0
+    local yOffset = 0
+    local totalItems = 0
+
+    for _, cat in ipairs(sortedCats) do
+        if #cat.items > 0 then
+            totalItems = totalItems + #cat.items
+
+            -- Category header
+            headerIdx = headerIdx + 1
+            local header = AcquireBagHeader(headerIdx)
+            local catName = C_Item.GetItemClassInfo(cat.classID) or ("Class " .. cat.classID)
+            header:SetText(catName)
+            header:ClearAllPoints()
+            header:SetPoint("TOPLEFT", bagContent, "TOPLEFT", 4, -yOffset)
+            header:Show()
+            yOffset = yOffset + CATEGORY_HEADER_HEIGHT
+
+            -- Icon grid
+            for i, item in ipairs(cat.items) do
+                iconIdx = iconIdx + 1
+                local btn = AcquireBagIcon(iconIdx)
+
+                btn.icon:SetTexture(item.texture)
+                btn._itemID = item.itemID
+                btn._itemLink = item.itemLink
+                btn._bag = item.bag
+                btn._slot = item.slot
+                btn._quality = item.quality
+
+                -- Stack count
+                if item.count > 1 then
+                    btn.countText:SetText(item.count)
+                    btn.countText:Show()
+                else
+                    btn.countText:Hide()
+                end
+
+                -- Quality border color
+                local qColor = ITEM_QUALITY_COLORS[item.quality]
+                if qColor then
+                    btn.qualBorder:SetBackdropBorderColor(qColor.r, qColor.g, qColor.b, 0.8)
+                else
+                    btn.qualBorder:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+                end
+
+                -- Selection highlight
+                if selectedBagItemID and selectedBagItemID == item.itemID then
+                    btn.selectBorder:Show()
+                else
+                    btn.selectBorder:Hide()
+                end
+
+                -- Position in grid
+                local col = (i - 1) % iconsPerRow
+                local row = math.floor((i - 1) / iconsPerRow)
+                btn:ClearAllPoints()
+                btn:SetPoint("TOPLEFT", bagContent, "TOPLEFT",
+                    4 + col * (BAG_ICON_SIZE + BAG_ICON_GAP),
+                    -(yOffset + row * (BAG_ICON_SIZE + BAG_ICON_GAP)))
+                btn:Show()
+            end
+
+            local numRows = math.ceil(#cat.items / iconsPerRow)
+            yOffset = yOffset + numRows * (BAG_ICON_SIZE + BAG_ICON_GAP) + CATEGORY_GAP
+        end
+    end
+
+    bagContent:SetHeight(math.max(1, yOffset))
+
+    -- Show/hide placeholder
+    if bagPlaceholder then
+        if totalItems == 0 then
+            bagPlaceholder:SetText("No auctionable items")
+            bagPlaceholder:Show()
+        else
+            bagPlaceholder:Hide()
+        end
+    end
+end
+
+function AHSell:SelectBagItem(btn)
+    if not btn or not btn._itemID then return end
+
+    selectedBagItemID = btn._itemID
+
+    -- Update selection highlight on all icons
+    for _, poolBtn in ipairs(bagIconPool) do
+        if poolBtn:IsShown() then
+            if poolBtn._itemID == selectedBagItemID then
+                poolBtn.selectBorder:Show()
+            else
+                poolBtn.selectBorder:Hide()
+            end
+        end
+    end
+
+    -- Print selection to chat (Phase 2 — will wire to posting in Phase 3)
+    if btn._itemLink then
+        print("|cffc8aa64KazCraft:|r Selected: " .. btn._itemLink)
+    end
+end
+
+function AHSell:RefreshBags()
+    if self:IsShown() then
+        self:ScanBags()
+    end
+end
 
 --------------------------------------------------------------------
 -- Accept cursor item (drag & drop or click with item on cursor)
 --------------------------------------------------------------------
 function AHSell:AcceptCursorItem()
-    -- Get cursor item, then create a FRESH ItemLocation from its bag/slot.
-    -- C_Cursor's returned ItemLocation may carry internal metadata that
-    -- taints HasRestrictions calls.  Extracting bag+slot and rebuilding
-    -- guarantees a clean, untainted table — same pattern TSM/Auctionator use.
     local cursorItem = C_Cursor.GetCursorItem()
     if not cursorItem then
         local infoType = GetCursorInfo()
@@ -489,9 +886,6 @@ function AHSell:AcceptCursorItem()
             if sellItemID == itemID and sellItemLocation then
                 local retryStatus = C_AuctionHouse.GetItemCommodityStatus(sellItemLocation)
                 sellIsCommodity = (retryStatus == 2)
-                if itemTypeText then
-                    itemTypeText:SetText(sellIsCommodity and "Commodity" or "Item")
-                end
                 self:LookupCurrentPrice()
             end
         end)
@@ -504,7 +898,7 @@ function AHSell:AcceptCursorItem()
     local itemName, _, itemQuality, _, _, _, _, _, _, itemTexture, vendorPrice = C_Item.GetItemInfo(itemID)
     itemIcon:SetTexture(itemTexture or 134400)
     itemIcon:SetAlpha(1)
-    dropTarget._dropLabel:Hide()
+    if dropTarget._selectLabel then dropTarget._selectLabel:Hide() end
 
     local qualityColor = ITEM_QUALITY_COLORS[itemQuality]
     if qualityColor then
@@ -512,8 +906,6 @@ function AHSell:AcceptCursorItem()
     else
         itemNameText:SetText(itemName or "?")
     end
-
-    itemTypeText:SetText(sellIsCommodity and "Commodity" or "Item")
 
     -- Set quantity to stack count for commodities
     if sellIsCommodity then
@@ -527,6 +919,9 @@ function AHSell:AcceptCursorItem()
     if vendorPrice and vendorPrice > 0 then
         self:SetInputPrice(vendorPrice)
     end
+
+    -- Enable post button
+    self:UpdatePostButton()
 
     -- Clear old listings and search for current AH price
     self:ClearListings()
@@ -548,11 +943,9 @@ function AHSell:FindItemInBags(targetItemID)
 end
 
 --------------------------------------------------------------------
--- Get price from input boxes (in copper)
+-- Get / Set price from input boxes (in copper)
 --------------------------------------------------------------------
 function AHSell:GetInputPrice()
-    -- tonumber() strips secret taint from values that may have
-    -- originated from C_AuctionHouse API returns
     local g = tonumber(priceGold:GetText()) or 0
     local s = tonumber(priceSilver:GetText()) or 0
     local c = tonumber(priceCopper:GetText()) or 0
@@ -561,7 +954,6 @@ end
 
 function AHSell:SetInputPrice(copper)
     if not copper or copper <= 0 then return end
-    -- tonumber + tostring to strip any secret taint from AH price data
     copper = tonumber(tostring(copper)) or 0
     local g = math.floor(copper / 10000)
     local s = math.floor((copper % 10000) / 100)
@@ -569,12 +961,8 @@ function AHSell:SetInputPrice(copper)
     priceGold:SetText(tostring(g))
     priceSilver:SetText(tostring(s))
     priceCopper:SetText(tostring(c))
-    -- OnTextChanged fires from SetText, which calls UpdateCachedPrice
 end
 
--- Recalculate cachedUnitPrice from the EditBox values.
--- Called by OnTextChanged (outside the hardware-event context) so any
--- taint from GetText() stays isolated from the PostItem OnClick path.
 function AHSell:UpdateCachedPrice()
     local g = tonumber(priceGold and priceGold:GetText() or "0") or 0
     local s = tonumber(priceSilver and priceSilver:GetText() or "0") or 0
@@ -623,6 +1011,7 @@ function AHSell:ClearListings()
     end
     if rightPanel and rightPanel.emptyText then
         rightPanel.emptyText:SetText("Searching...")
+        rightPanel.emptyText:Show()
     end
 end
 
@@ -640,7 +1029,7 @@ function AHSell:RefreshCommodityListings(itemID)
         rightPanel.emptyText:Hide()
     end
 
-    local count = math.min(numResults, 50) -- cap at 50 display rows
+    local count = math.min(numResults, 50)
     listingContent:SetHeight(math.max(1, count * LIST_ROW_HEIGHT))
 
     local cheapestPrice = nil
@@ -662,9 +1051,8 @@ function AHSell:RefreshCommodityListings(itemID)
                 cheapestPrice = row._unitPrice
             end
 
-            -- Highlight your own listings
             if info.numOwnerItems and info.numOwnerItems > 0 then
-                row.ownerTag:SetText("you")
+                row.ownerTag:SetText("You")
                 row.ownerTag:Show()
                 row.bg:SetColorTexture(0.15, 0.25, 0.15, 0.3)
             else
@@ -678,7 +1066,6 @@ function AHSell:RefreshCommodityListings(itemID)
         end
     end
 
-    -- Hide excess rows
     for i = count + 1, #listingRows do
         listingRows[i]:Hide()
     end
@@ -726,9 +1113,8 @@ function AHSell:RefreshItemListings(itemKey)
                 cheapestPrice = row._unitPrice
             end
 
-            -- Highlight your own listings
             if info.containsOwnerItem then
-                row.ownerTag:SetText("you")
+                row.ownerTag:SetText("You")
                 row.ownerTag:Show()
                 row.bg:SetColorTexture(0.15, 0.25, 0.15, 0.3)
             else
@@ -780,7 +1166,6 @@ function AHSell:OnCommoditySearchResults(itemID)
 
     local cheapest = self:RefreshCommodityListings(itemID)
     if cheapest then
-        -- Auto-undercut cheapest by 1 copper
         self:SetInputPrice(cheapest)
         self:UpdateDeposit()
     end
@@ -789,22 +1174,18 @@ end
 function AHSell:OnItemSearchResults(itemKey)
     if not sellItemID or sellIsCommodity then return end
     if not sellItemKey then return end
-    -- Filter: only process results for our sell item
     if itemKey and itemKey.itemID ~= sellItemKey.itemID then return end
 
     local cheapest = self:RefreshItemListings(sellItemKey)
     if cheapest then
-        -- Auto-undercut cheapest by 1 copper
         self:SetInputPrice(cheapest)
         self:UpdateDeposit()
     end
 end
 
 --------------------------------------------------------------------
--- Post auction
+-- Post warning hook
 --------------------------------------------------------------------
-
--- Hook Blizzard's post warning dialog so our cached args are used
 EnsurePostWarningHooked = function()
     local dlg = StaticPopupDialogs["AUCTION_HOUSE_POST_WARNING"]
     if not dlg then
@@ -840,11 +1221,9 @@ EnsurePostWarningHooked = function()
     end
 end
 
--- Posting logic is now inline in the Post button's OnClick handler above.
--- This stub exists so external callers don't error.
-function AHSell:PostItem()
-end
-
+--------------------------------------------------------------------
+-- Events
+--------------------------------------------------------------------
 function AHSell:OnAuctionCreated()
     self:SetStatus("|cff66ff66Auction posted!|r")
     pendingPostArgs = nil
@@ -865,19 +1244,19 @@ function AHSell:ClearForm()
         itemIcon:SetTexture(134400)
         itemIcon:SetAlpha(0.3)
     end
-    if dropTarget and dropTarget._dropLabel then
-        dropTarget._dropLabel:Show()
+    if dropTarget and dropTarget._selectLabel then
+        dropTarget._selectLabel:Show()
     end
-    if itemNameText then itemNameText:SetText("No item selected") end
-    if itemTypeText then itemTypeText:SetText("") end
+    if itemNameText then itemNameText:SetText("") end
     if qtyBox then qtyBox:SetText("1") end
     if priceGold then priceGold:SetText("0") end
     if priceSilver then priceSilver:SetText("0") end
     if priceCopper then priceCopper:SetText("0") end
     if depositText then depositText:SetText("\226\128\148") end
+    self:UpdatePostButton()
     self:ClearListings()
     if rightPanel and rightPanel.emptyText then
-        rightPanel.emptyText:SetText("Drop an item to see listings")
+        rightPanel.emptyText:SetText("Select an item to see listings")
         rightPanel.emptyText:Show()
     end
     self:SetStatus("")

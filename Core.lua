@@ -88,6 +88,9 @@ function handlers.BAG_UPDATE_DELAYED()
     if ns.AHUI and ns.AHUI:IsShown() then
         ns.AHUI:Refresh()
     end
+    if ns.AHSell and ns.AHSell:IsShown() then
+        ns.AHSell:RefreshBags()
+    end
 end
 
 function handlers.TRADE_SKILL_ITEM_CRAFTED_RESULT()

@@ -69,6 +69,7 @@ local function BuildDisplayList()
                     categories[curCat] = {
                         name = catInfo and catInfo.name or ("Category " .. curCat),
                         parentCategoryID = catInfo and catInfo.parentCategoryID,
+                        uiOrder = catInfo and catInfo.uiOrder or 0,
                         recipes = {},
                         subcats = {},
                         hasRecipes = false,
@@ -81,6 +82,7 @@ local function BuildDisplayList()
                         categories[parentID] = {
                             name = pInfo and pInfo.name or ("Category " .. parentID),
                             parentCategoryID = pInfo and pInfo.parentCategoryID,
+                            uiOrder = pInfo and pInfo.uiOrder or 0,
                             recipes = {},
                             subcats = {},
                             hasRecipes = false,
@@ -131,7 +133,9 @@ local function BuildDisplayList()
             -- Subcategories first
             -- Sort by name
             table.sort(cat.subcats, function(a, b)
-                return (categories[a] and categories[a].name or "") < (categories[b] and categories[b].name or "")
+                local oa = categories[a] and categories[a].uiOrder or 0
+                local ob = categories[b] and categories[b].uiOrder or 0
+                return oa < ob
             end)
             for _, subID in ipairs(cat.subcats) do
                 Flatten(subID, depth + 1)
@@ -170,7 +174,9 @@ local function BuildDisplayList()
         table.insert(sortedRoots, catID)
     end
     table.sort(sortedRoots, function(a, b)
-        return (categories[a] and categories[a].name or "") < (categories[b] and categories[b].name or "")
+        local oa = categories[a] and categories[a].uiOrder or 0
+        local ob = categories[b] and categories[b].uiOrder or 0
+        return oa < ob
     end)
 
     for _, catID in ipairs(sortedRoots) do

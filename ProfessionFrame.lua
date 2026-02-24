@@ -48,10 +48,12 @@ local function SuppressBlizzardProf()
     ProfessionsFrame:ClearAllPoints()
     ProfessionsFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 2000, -2000)
     ProfessionsFrame:SetAlpha(0)
+    ProfessionsFrame:EnableMouse(false)
 end
 
 local function RestoreBlizzardProf()
     if not ProfessionsFrame then return end
+    ProfessionsFrame:EnableMouse(true)
     ProfessionsFrame:SetAlpha(1)
     ProfessionsFrame:ClearAllPoints()
     if blizzPointSaved then
@@ -330,10 +332,10 @@ local function CreateMainFrame()
         -- Close the profession entirely
         if profOpen then
             profOpen = false
+            -- Restore Blizzard frame to clean state before closing
+            RestoreBlizzardProf()
             -- CloseTradeSkill triggers Blizzard OnHide which hides ProfessionsFrame
-            -- (still offscreen). Then clear our saved state so next open is clean.
             C_TradeSkillUI.CloseTradeSkill()
-            blizzPointSaved = nil
         end
     end)
 

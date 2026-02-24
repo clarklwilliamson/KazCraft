@@ -91,6 +91,13 @@ local function UpdateTopBar()
     local pct = maxSkillLevel > 0 and (skillLevel / maxSkillLevel) or 0
     topBar.skillBar:SetWidth(math.max(1, pct * 120))
 
+    -- Expansion dropdown text
+    local expansionName = profInfo.expansionName or ""
+    if expansionName ~= "" and topBar.expBtnText then
+        topBar.expBtnText:SetText(expansionName)
+        topBar.expBtn:SetWidth(topBar.expBtnText:GetStringWidth() + topBar.expBtnArrow:GetStringWidth() + 8)
+    end
+
     -- Knowledge points
     local skillLineID = profInfo.professionID
     if skillLineID and C_ProfSpecs and C_ProfSpecs.GetCurrencyInfoForSkillLine then
@@ -137,10 +144,38 @@ local function CreateTopBar(parent)
     topBar.skillBar:SetColorTexture(unpack(ns.COLORS.accent))
     topBar.skillBar:SetWidth(1)
 
+    -- Expansion dropdown button (clickable text)
+    topBar.expBtn = CreateFrame("Button", nil, parent)
+    topBar.expBtn:SetHeight(20)
+    topBar.expBtn:SetPoint("LEFT", topBar.skillBarBg, "RIGHT", 12, 0)
+
+    topBar.expBtnText = topBar.expBtn:CreateFontString(nil, "OVERLAY")
+    topBar.expBtnText:SetFont(ns.FONT, 11, "")
+    topBar.expBtnText:SetPoint("LEFT", topBar.expBtn, "LEFT", 0, 0)
+    topBar.expBtnText:SetTextColor(unpack(ns.COLORS.tabInactive))
+
+    topBar.expBtnArrow = topBar.expBtn:CreateFontString(nil, "OVERLAY")
+    topBar.expBtnArrow:SetFont(ns.FONT, 9, "")
+    topBar.expBtnArrow:SetPoint("LEFT", topBar.expBtnText, "RIGHT", 4, 0)
+    topBar.expBtnArrow:SetText("v")
+    topBar.expBtnArrow:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    topBar.expBtn:SetScript("OnEnter", function()
+        topBar.expBtnText:SetTextColor(unpack(ns.COLORS.tabHover))
+        topBar.expBtnArrow:SetTextColor(unpack(ns.COLORS.tabHover))
+    end)
+    topBar.expBtn:SetScript("OnLeave", function()
+        topBar.expBtnText:SetTextColor(unpack(ns.COLORS.tabInactive))
+        topBar.expBtnArrow:SetTextColor(unpack(ns.COLORS.mutedText))
+    end)
+    topBar.expBtn:SetScript("OnClick", function(self)
+        ProfFrame:ToggleExpansionMenu(self)
+    end)
+
     -- KP text
     topBar.kpText = parent:CreateFontString(nil, "OVERLAY")
     topBar.kpText:SetFont(ns.FONT, 11, "")
-    topBar.kpText:SetPoint("LEFT", topBar.skillBarBg, "RIGHT", 12, 0)
+    topBar.kpText:SetPoint("LEFT", topBar.expBtn, "RIGHT", 12, 0)
     topBar.kpText:SetTextColor(unpack(ns.COLORS.goldText))
 
     -- Separator under top bar
@@ -403,6 +438,7 @@ end
 
 function ProfFrame:Hide()
     profOpen = false
+    if expansionMenu then expansionMenu:Hide() end
     if mainFrame and mainFrame:IsShown() then
         mainFrame:Hide()
     end
@@ -454,6 +490,98 @@ function ProfFrame:UpdateFooter()
     else
         footer.costText:SetText("")
     end
+end
+
+--------------------------------------------------------------------
+-- Expansion tier dropdown
+--------------------------------------------------------------------
+local expansionMenu
+
+function ProfFrame:ToggleExpansionMenu(anchorBtn)
+    if expansionMenu and expansionMenu:IsShown() then
+        expansionMenu:Hide()
+        return
+    end
+
+    local childInfos = C_TradeSkillUI.GetChildProfessionInfos()
+    if not childInfos or #childInfos == 0 then return end
+
+    local currentInfo = C_TradeSkillUI.GetChildProfessionInfo()
+    local currentID = currentInfo and currentInfo.professionID
+
+    if not expansionMenu then
+        expansionMenu = CreateFrame("Frame", nil, mainFrame, "BackdropTemplate")
+        expansionMenu:SetBackdrop({
+            bgFile = "Interface\\BUTTONS\\WHITE8X8",
+            edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+            edgeSize = 1,
+        })
+        expansionMenu:SetBackdropColor(20/255, 20/255, 20/255, 0.98)
+        expansionMenu:SetBackdropBorderColor(unpack(ns.COLORS.accent))
+        expansionMenu:SetFrameStrata("DIALOG")
+        expansionMenu:SetFrameLevel(300)
+        expansionMenu:EnableMouse(true)
+    end
+
+    -- Clear old children
+    for _, child in pairs({expansionMenu:GetChildren()}) do
+        child:Hide()
+        child:SetParent(nil)
+    end
+
+    local ROW_H = 22
+    local menuWidth = 220
+    local y = -4
+
+    for _, info in ipairs(childInfos) do
+        local row = CreateFrame("Button", nil, expansionMenu)
+        row:SetHeight(ROW_H)
+        row:SetPoint("TOPLEFT", expansionMenu, "TOPLEFT", 4, y)
+        row:SetPoint("TOPRIGHT", expansionMenu, "TOPRIGHT", -4, y)
+
+        -- Selection indicator
+        local isSelected = (info.professionID == currentID)
+
+        local indicator = row:CreateFontString(nil, "OVERLAY")
+        indicator:SetFont(ns.FONT, 11, "")
+        indicator:SetPoint("LEFT", row, "LEFT", 2, 0)
+        indicator:SetText(isSelected and "|cffffd700o|r" or "  ")
+
+        local nameStr = row:CreateFontString(nil, "OVERLAY")
+        nameStr:SetFont(ns.FONT, 11, "")
+        nameStr:SetPoint("LEFT", indicator, "RIGHT", 4, 0)
+        nameStr:SetText(info.expansionName or "?")
+        nameStr:SetTextColor(unpack(isSelected and ns.COLORS.brightText or ns.COLORS.mutedText))
+
+        local skillStr = row:CreateFontString(nil, "OVERLAY")
+        skillStr:SetFont(ns.FONT, 11, "")
+        skillStr:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        skillStr:SetText((info.skillLevel or 0) .. "/" .. (info.maxSkillLevel or 0))
+        skillStr:SetTextColor(unpack(ns.COLORS.mutedText))
+
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        row.bg:SetColorTexture(1, 1, 1, 0)
+
+        row:SetScript("OnEnter", function(self)
+            self.bg:SetColorTexture(unpack(ns.COLORS.rowHover))
+        end)
+        row:SetScript("OnLeave", function(self)
+            self.bg:SetColorTexture(1, 1, 1, 0)
+        end)
+        row:SetScript("OnClick", function()
+            expansionMenu:Hide()
+            C_TradeSkillUI.SetProfessionChildSkillLineID(info.professionID)
+            -- TRADE_SKILL_DATA_SOURCE_CHANGED will fire and update everything
+        end)
+
+        y = y - ROW_H
+    end
+
+    expansionMenu:SetSize(menuWidth, math.abs(y) + 4)
+    expansionMenu:ClearAllPoints()
+    expansionMenu:SetPoint("TOPLEFT", anchorBtn, "BOTTOMLEFT", 0, -2)
+    expansionMenu:Show()
 end
 
 --------------------------------------------------------------------

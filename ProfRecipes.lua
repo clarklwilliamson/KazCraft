@@ -41,125 +41,72 @@ local isCrafting = false
 --------------------------------------------------------------------
 -- Category tree → flat display list
 --------------------------------------------------------------------
-local function BuildDisplayList()
-    wipe(displayList)
-
-    local recipeIDs = C_TradeSkillUI.GetFilteredRecipeIDs()
-    if not recipeIDs or #recipeIDs == 0 then return end
-
-    -- Get current child profession ID to filter recipes to this expansion only
-    local childProfInfo = C_TradeSkillUI.GetChildProfessionInfo()
-    local childProfID = childProfInfo and childProfInfo.professionID
-
-    -- Build category hierarchy
-    -- categoryID → { name, parentCategoryID, recipes = {}, subcats = {} }
+local function BuildCategoryTree(recipeIDs, childProfID, learnedFilter)
+    -- Build category hierarchy for recipes matching learnedFilter
+    -- learnedFilter: true = learned only, false = unlearned only, nil = all
     local categories = {}
     local rootCats = {}
+    local hasAny = false
 
     for _, recipeID in ipairs(recipeIDs) do
         local info = C_TradeSkillUI.GetRecipeInfo(recipeID)
-        -- Filter to current expansion skill line (same as Blizzard)
         if info and (not childProfID or C_TradeSkillUI.IsRecipeInSkillLine(recipeID, childProfID)) then
-            local catID = info.categoryID
-            -- Ensure category chain exists
-            local curCat = catID
-            while curCat and curCat > 0 do
-                if not categories[curCat] then
-                    local catInfo = C_TradeSkillUI.GetCategoryInfo(curCat)
-                    categories[curCat] = {
-                        name = catInfo and catInfo.name or ("Category " .. curCat),
-                        parentCategoryID = catInfo and catInfo.parentCategoryID,
-                        uiOrder = catInfo and catInfo.uiOrder or 0,
-                        recipes = {},
-                        subcats = {},
-                        hasRecipes = false,
-                    }
-                end
-                local parentID = categories[curCat].parentCategoryID
-                if parentID and parentID > 0 then
-                    if not categories[parentID] then
-                        local pInfo = C_TradeSkillUI.GetCategoryInfo(parentID)
-                        categories[parentID] = {
-                            name = pInfo and pInfo.name or ("Category " .. parentID),
-                            parentCategoryID = pInfo and pInfo.parentCategoryID,
-                            uiOrder = pInfo and pInfo.uiOrder or 0,
+            if learnedFilter == nil or info.learned == learnedFilter then
+                hasAny = true
+                local catID = info.categoryID
+                local curCat = catID
+                while curCat and curCat > 0 do
+                    if not categories[curCat] then
+                        local catInfo = C_TradeSkillUI.GetCategoryInfo(curCat)
+                        categories[curCat] = {
+                            name = catInfo and catInfo.name or ("Category " .. curCat),
+                            parentCategoryID = catInfo and catInfo.parentCategoryID,
+                            uiOrder = catInfo and catInfo.uiOrder or 0,
                             recipes = {},
                             subcats = {},
-                            hasRecipes = false,
                         }
                     end
-                    -- Register as subcat (avoid dupes)
-                    local found = false
-                    for _, sc in ipairs(categories[parentID].subcats) do
-                        if sc == curCat then found = true; break end
+                    local parentID = categories[curCat].parentCategoryID
+                    if parentID and parentID > 0 then
+                        if not categories[parentID] then
+                            local pInfo = C_TradeSkillUI.GetCategoryInfo(parentID)
+                            categories[parentID] = {
+                                name = pInfo and pInfo.name or ("Category " .. parentID),
+                                parentCategoryID = pInfo and pInfo.parentCategoryID,
+                                uiOrder = pInfo and pInfo.uiOrder or 0,
+                                recipes = {},
+                                subcats = {},
+                            }
+                        end
+                        local found = false
+                        for _, sc in ipairs(categories[parentID].subcats) do
+                            if sc == curCat then found = true; break end
+                        end
+                        if not found then
+                            table.insert(categories[parentID].subcats, curCat)
+                        end
+                    else
+                        rootCats[curCat] = true
                     end
-                    if not found then
-                        table.insert(categories[parentID].subcats, curCat)
-                    end
-                else
-                    -- Root category
-                    rootCats[curCat] = true
+                    curCat = parentID
                 end
-                curCat = parentID
-            end
 
-            -- Add recipe to its direct category
-            if categories[catID] then
-                table.insert(categories[catID].recipes, { recipeID = recipeID, info = info })
-                categories[catID].hasRecipes = true
+                if categories[catID] then
+                    table.insert(categories[catID].recipes, { recipeID = recipeID, info = info })
+                end
             end
         end
     end
 
-    -- Get collapse state
-    local collapses = KazCraftDB.profCollapses or {}
+    return categories, rootCats, hasAny
+end
 
-    -- Recursive flatten
-    local function Flatten(catID, depth)
-        local cat = categories[catID]
-        if not cat then return end
-
-        local isCollapsed = collapses[catID] or false
-
-        table.insert(displayList, {
-            type = "category",
-            catID = catID,
-            name = cat.name,
-            depth = depth,
-            collapsed = isCollapsed,
-        })
-
-        if not isCollapsed then
-            -- Subcategories first
-            -- Sort by name
-            table.sort(cat.subcats, function(a, b)
-                local oa = categories[a] and categories[a].uiOrder or 0
-                local ob = categories[b] and categories[b].uiOrder or 0
-                return oa < ob
-            end)
-            for _, subID in ipairs(cat.subcats) do
-                Flatten(subID, depth + 1)
-            end
-
-            -- Then recipes
-            for _, r in ipairs(cat.recipes) do
-                table.insert(displayList, {
-                    type = "recipe",
-                    recipeID = r.recipeID,
-                    info = r.info,
-                    depth = depth + 1,
-                })
-            end
-        end
-    end
-
-    -- Strip root wrapper categories (expansion-level wrappers with no direct
-    -- recipes). Promote their children as new roots. Blizzard does the same.
+local function FlattenTree(categories, rootCats, outList, collapses)
+    -- Strip root wrapper categories
     local effectiveRoots = {}
     for catID in pairs(rootCats) do
         local cat = categories[catID]
         if cat and #cat.recipes == 0 and #cat.subcats > 0 then
-            -- Wrapper — promote subcategories
             for _, subID in ipairs(cat.subcats) do
                 effectiveRoots[subID] = true
             end
@@ -168,7 +115,6 @@ local function BuildDisplayList()
         end
     end
 
-    -- Sort root categories by name
     local sortedRoots = {}
     for catID in pairs(effectiveRoots) do
         table.insert(sortedRoots, catID)
@@ -179,8 +125,77 @@ local function BuildDisplayList()
         return oa < ob
     end)
 
+    local function Flatten(catID, depth)
+        local cat = categories[catID]
+        if not cat then return end
+
+        local isCollapsed = collapses[catID] or false
+
+        table.insert(outList, {
+            type = "category",
+            catID = catID,
+            name = cat.name,
+            depth = depth,
+            collapsed = isCollapsed,
+        })
+
+        if not isCollapsed then
+            table.sort(cat.subcats, function(a, b)
+                local oa = categories[a] and categories[a].uiOrder or 0
+                local ob = categories[b] and categories[b].uiOrder or 0
+                return oa < ob
+            end)
+            for _, subID in ipairs(cat.subcats) do
+                Flatten(subID, depth + 1)
+            end
+
+            for _, r in ipairs(cat.recipes) do
+                table.insert(outList, {
+                    type = "recipe",
+                    recipeID = r.recipeID,
+                    info = r.info,
+                    depth = depth + 1,
+                })
+            end
+        end
+    end
+
     for _, catID in ipairs(sortedRoots) do
         Flatten(catID, 0)
+    end
+end
+
+local function BuildDisplayList()
+    wipe(displayList)
+
+    local recipeIDs = C_TradeSkillUI.GetFilteredRecipeIDs()
+    if not recipeIDs or #recipeIDs == 0 then return end
+
+    local childProfInfo = C_TradeSkillUI.GetChildProfessionInfo()
+    local childProfID = childProfInfo and childProfInfo.professionID
+    local collapses = KazCraftDB.profCollapses or {}
+
+    local showLearned = C_TradeSkillUI.GetShowLearned()
+    local showUnlearned = C_TradeSkillUI.GetShowUnlearned()
+
+    if showLearned and showUnlearned then
+        -- Both visible — learned first, separator, then unlearned
+        local lCats, lRoots, hasLearned = BuildCategoryTree(recipeIDs, childProfID, true)
+        local uCats, uRoots, hasUnlearned = BuildCategoryTree(recipeIDs, childProfID, false)
+
+        if hasLearned then
+            FlattenTree(lCats, lRoots, displayList, collapses)
+        end
+        if hasLearned and hasUnlearned then
+            table.insert(displayList, { type = "separator", text = "Unlearned" })
+        end
+        if hasUnlearned then
+            FlattenTree(uCats, uRoots, displayList, collapses)
+        end
+    else
+        -- Only one group shown — no separator needed
+        local cats, roots = BuildCategoryTree(recipeIDs, childProfID, nil)
+        FlattenTree(cats, roots, displayList, collapses)
     end
 end
 
@@ -247,16 +262,17 @@ local function CreateRecipeRow(parent, index)
     row.nameText:SetJustifyH("LEFT")
     row.nameText:SetWordWrap(false)
 
-    -- Count (craftable)
+    -- Count (craftable) — left of icon
     row.countText = row:CreateFontString(nil, "OVERLAY")
     row.countText:SetFont(ns.FONT, 10, "")
-    row.countText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     row.countText:SetTextColor(unpack(ns.COLORS.mutedText))
+    row.countText:SetJustifyH("RIGHT")
+    row.countText:SetWidth(20)
 
     -- Favorite star
     row.favText = row:CreateFontString(nil, "OVERLAY")
     row.favText:SetFont(ns.FONT, 10, "")
-    row.favText:SetPoint("RIGHT", row.countText, "LEFT", -4, 0)
+    row.favText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     row.favText:SetText("|cffffd700*|r")
     row.favText:Hide()
 
@@ -281,6 +297,27 @@ end
 local function UpdateRecipeRow(row, entry, index)
     if not entry then
         row:Hide()
+        return
+    end
+
+    if entry.type == "separator" then
+        -- Divider line with label
+        row:Show()
+        row.icon:Hide()
+        row.arrow:Hide()
+        row.countText:Hide()
+        row.favText:Hide()
+        row._selected = false
+        row.leftAccent:Hide()
+        row.bg:SetColorTexture(1, 1, 1, 0)
+        row.nameText:Show()
+        row.nameText:ClearAllPoints()
+        row.nameText:SetPoint("LEFT", row, "LEFT", 6, 0)
+        row.nameText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        row.nameText:SetText("|cff888888--- " .. (entry.text or "") .. " ---|r")
+        row.nameText:SetFont(ns.FONT, 10, "")
+        row.nameText:SetTextColor(unpack(ns.COLORS.mutedText))
+        row:SetScript("OnClick", nil)
         return
     end
 
@@ -318,28 +355,36 @@ local function UpdateRecipeRow(row, entry, index)
         local info = entry.info
         row.arrow:Hide()
 
+        -- Craftable count (left of icon)
+        local craftable = info and info.numAvailable or 0
+        row.countText:ClearAllPoints()
+        row.countText:SetPoint("LEFT", row, "LEFT", 4 + indent, 0)
+        if craftable > 0 then
+            row.countText:SetText(craftable)
+            row.countText:SetTextColor(unpack(ns.COLORS.greenText))
+            row.countText:Show()
+        else
+            row.countText:SetText("")
+            row.countText:Hide()
+        end
+
         row.icon:Show()
         row.icon:ClearAllPoints()
-        row.icon:SetPoint("LEFT", row, "LEFT", 4 + indent, 0)
+        if craftable > 0 then
+            row.icon:SetPoint("LEFT", row.countText, "RIGHT", 2, 0)
+        else
+            row.icon:SetPoint("LEFT", row, "LEFT", 4 + indent, 0)
+        end
         row.icon:SetTexture(info and info.icon or 134400)
 
         row.nameText:Show()
         row.nameText:ClearAllPoints()
         row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
-        row.nameText:SetPoint("RIGHT", row.countText, "LEFT", -24, 0)
+        row.nameText:SetPoint("RIGHT", row, "RIGHT", -20, 0)
         row.nameText:SetText(info and info.name or ("Recipe " .. entry.recipeID))
         row.nameText:SetFont(ns.FONT, 11, "")
         local color = GetDifficultyColor(info)
         row.nameText:SetTextColor(color[1], color[2], color[3])
-
-        -- Craftable count
-        local craftable = info and info.numAvailable or 0
-        if craftable > 0 then
-            row.countText:SetText("[" .. craftable .. "]")
-            row.countText:SetTextColor(unpack(ns.COLORS.greenText))
-        else
-            row.countText:SetText("")
-        end
 
         -- Favorite
         if info and info.favorite then
@@ -451,6 +496,7 @@ local function CreateLeftPanel(parent)
     recipeContent = CreateFrame("Frame", nil, leftPanel)
     recipeContent:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 0, -34)
     recipeContent:SetPoint("BOTTOMRIGHT", leftPanel, "BOTTOMRIGHT", 0, 0)
+    recipeContent:SetClipsChildren(true)
     recipeContent:EnableMouseWheel(true)
     recipeContent:SetScript("OnMouseWheel", OnRecipeScroll)
 
@@ -461,9 +507,181 @@ local function CreateLeftPanel(parent)
 end
 
 --------------------------------------------------------------------
--- Filter dropdown menu
+-- Filter dropdown menu (scrollable, with Sources & Slots submenus)
 --------------------------------------------------------------------
 local filterMenu
+local filterRows = {}
+local filterScrollOffset = 0
+local filterDisplayList = {}
+local sourcesExpanded = false
+local slotsExpanded = false
+local FILTER_ROW_HEIGHT = 22
+local MAX_FILTER_ROWS = 16
+
+-- Source type names (matches BATTLE_PET_SOURCE_N globals)
+local SOURCE_NAMES = {
+    [1] = "Drop",
+    [2] = "Quest",
+    [3] = "Vendor",
+    [4] = "Profession",
+    [5] = "Wild Pet",
+    [6] = "Achievement",
+    [7] = "World Event",
+    [8] = "Promotion",
+    [9] = "TCG",
+    [10] = "Pet Store",
+    [11] = "Discovery",
+    [12] = "Trading Post",
+}
+
+local function BuildFilterDisplayList()
+    filterDisplayList = {}
+    -- Top-level checkboxes
+    table.insert(filterDisplayList, { type = "check", text = "Show Learned",
+        getter = function() return C_TradeSkillUI.GetShowLearned() end,
+        setter = function(v) C_TradeSkillUI.SetShowLearned(v) end })
+    table.insert(filterDisplayList, { type = "check", text = "Show Unlearned",
+        getter = function() return C_TradeSkillUI.GetShowUnlearned() end,
+        setter = function(v) C_TradeSkillUI.SetShowUnlearned(v) end })
+    table.insert(filterDisplayList, { type = "check", text = "Has Skill Up",
+        getter = function() return C_TradeSkillUI.GetOnlyShowSkillUpRecipes() end,
+        setter = function(v) C_TradeSkillUI.SetOnlyShowSkillUpRecipes(v) end })
+    table.insert(filterDisplayList, { type = "check", text = "First Craft",
+        getter = function() return C_TradeSkillUI.GetOnlyShowFirstCraftRecipes() end,
+        setter = function(v) C_TradeSkillUI.SetOnlyShowFirstCraftRecipes(v) end })
+    table.insert(filterDisplayList, { type = "check", text = "Have Materials",
+        getter = function() return C_TradeSkillUI.GetOnlyShowMakeableRecipes() end,
+        setter = function(v) C_TradeSkillUI.SetOnlyShowMakeableRecipes(v) end })
+
+    -- Sources header
+    table.insert(filterDisplayList, { type = "header", text = "Sources", expanded = sourcesExpanded,
+        toggle = function() sourcesExpanded = not sourcesExpanded end })
+    if sourcesExpanded then
+        for sourceIdx = 1, 12 do
+            local name = SOURCE_NAMES[sourceIdx]
+            if name and C_TradeSkillUI.IsAnyRecipeFromSource(sourceIdx) then
+                table.insert(filterDisplayList, { type = "check", text = name, indent = true,
+                    getter = function() return not C_TradeSkillUI.IsRecipeSourceTypeFiltered(sourceIdx) end,
+                    setter = function(v) C_TradeSkillUI.SetRecipeSourceTypeFilter(sourceIdx, not v) end })
+            end
+        end
+    end
+
+    -- Slots header
+    local slotCount = C_TradeSkillUI.GetAllFilterableInventorySlotsCount() or 0
+    if slotCount > 0 then
+        table.insert(filterDisplayList, { type = "header", text = "Slots", expanded = slotsExpanded,
+            toggle = function() slotsExpanded = not slotsExpanded end })
+        if slotsExpanded then
+            for slotIdx = 1, slotCount do
+                local name = C_TradeSkillUI.GetFilterableInventorySlotName(slotIdx)
+                if name and name ~= "" then
+                    table.insert(filterDisplayList, { type = "check", text = name, indent = true,
+                        getter = function() return not C_TradeSkillUI.IsInventorySlotFiltered(slotIdx) end,
+                        setter = function(v) C_TradeSkillUI.SetInventorySlotFilter(slotIdx, not v) end })
+                end
+            end
+        end
+    end
+end
+
+local function CreateFilterRow(parent, index)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetHeight(FILTER_ROW_HEIGHT)
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * FILTER_ROW_HEIGHT)
+    row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -(index - 1) * FILTER_ROW_HEIGHT)
+
+    row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+    row.check:SetSize(20, 20)
+    row.check:SetPoint("LEFT", row, "LEFT", 6, 0)
+
+    row.arrow = row:CreateFontString(nil, "OVERLAY")
+    row.arrow:SetFont(ns.FONT, 10, "")
+    row.arrow:SetPoint("LEFT", row, "LEFT", 6, 0)
+    row.arrow:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    row.label = row:CreateFontString(nil, "OVERLAY")
+    row.label:SetFont(ns.FONT, 11, "")
+    row.label:SetTextColor(unpack(ns.COLORS.brightText))
+
+    -- Full-row clickable button (for headers AND checkboxes)
+    row.hitBtn = CreateFrame("Button", nil, row)
+    row.hitBtn:SetAllPoints()
+    row.hitBtn:Hide()
+    row.hitBtn:RegisterForClicks("LeftButtonUp")
+
+    return row
+end
+
+local function UpdateFilterRow(row, entry)
+    if not entry then
+        row:Hide()
+        return
+    end
+    row:Show()
+
+    -- Reset all elements
+    row.check:Hide()
+    row.arrow:Hide()
+    row.label:SetText("")
+    row.hitBtn:Hide()
+    row.hitBtn:SetScript("OnClick", nil)
+
+    if entry.type == "header" then
+        row.arrow:Show()
+        row.arrow:SetText(entry.expanded and "v" or ">")
+        row.label:ClearAllPoints()
+        row.label:SetPoint("LEFT", row.arrow, "RIGHT", 4, 0)
+        row.label:SetText(entry.text)
+        row.label:SetFont(ns.FONT, 11, "")
+        row.label:SetTextColor(unpack(ns.COLORS.headerText))
+        row.hitBtn:Show()
+        row.hitBtn:SetScript("OnClick", function()
+            entry.toggle()
+            BuildFilterDisplayList()
+            ProfRecipes:RefreshFilterMenu()
+        end)
+    else
+        row.check:Show()
+        row.check:ClearAllPoints()
+        row.check:SetPoint("LEFT", row, "LEFT", entry.indent and 20 or 6, 0)
+        row.check:SetChecked(entry.getter())
+        row.check:SetScript("OnClick", function(self)
+            entry.setter(self:GetChecked())
+        end)
+        row.label:ClearAllPoints()
+        row.label:SetPoint("LEFT", row.check, "RIGHT", 2, 0)
+        row.label:SetText(entry.text)
+        row.label:SetFont(ns.FONT, 11, "")
+        row.label:SetTextColor(unpack(ns.COLORS.brightText))
+        -- Full row click toggles the checkbox
+        row.hitBtn:Show()
+        row.hitBtn:SetScript("OnClick", function()
+            local newVal = not entry.getter()
+            entry.setter(newVal)
+            row.check:SetChecked(newVal)
+        end)
+    end
+end
+
+function ProfRecipes:RefreshFilterMenu()
+    local visCount = math.min(#filterDisplayList, MAX_FILTER_ROWS)
+    local menuHeight = visCount * FILTER_ROW_HEIGHT + 8
+    filterMenu:SetSize(190, menuHeight)
+
+    filterScrollOffset = math.max(0, math.min(filterScrollOffset, #filterDisplayList - MAX_FILTER_ROWS))
+    for i = 1, MAX_FILTER_ROWS do
+        local entry = filterDisplayList[i + filterScrollOffset]
+        if not filterRows[i] then
+            filterRows[i] = CreateFilterRow(filterMenu, i)
+        end
+        UpdateFilterRow(filterRows[i], entry)
+    end
+    for i = MAX_FILTER_ROWS + 1, #filterRows do
+        filterRows[i]:Hide()
+    end
+end
+
 function ProfRecipes:ToggleFilterMenu(anchorBtn)
     if filterMenu and filterMenu:IsShown() then
         filterMenu:Hide()
@@ -472,7 +690,6 @@ function ProfRecipes:ToggleFilterMenu(anchorBtn)
 
     if not filterMenu then
         filterMenu = CreateFrame("Frame", nil, leftPanel, "BackdropTemplate")
-        filterMenu:SetSize(180, 100)
         filterMenu:SetBackdrop({
             bgFile = "Interface\\BUTTONS\\WHITE8X8",
             edgeFile = "Interface\\BUTTONS\\WHITE8X8",
@@ -481,38 +698,18 @@ function ProfRecipes:ToggleFilterMenu(anchorBtn)
         filterMenu:SetBackdropColor(20/255, 20/255, 20/255, 0.98)
         filterMenu:SetBackdropBorderColor(unpack(ns.COLORS.accent))
         filterMenu:SetFrameStrata("DIALOG")
+        filterMenu:SetClipsChildren(true)
         filterMenu:EnableMouse(true)
-
-        local function CreateFilterCheck(parent, text, y, getter, setter)
-            local check = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-            check:SetSize(22, 22)
-            check:SetPoint("TOPLEFT", parent, "TOPLEFT", 6, y)
-            check:SetChecked(getter())
-            check:SetScript("OnClick", function(self)
-                setter(self:GetChecked())
-            end)
-
-            local label = parent:CreateFontString(nil, "OVERLAY")
-            label:SetFont(ns.FONT, 11, "")
-            label:SetPoint("LEFT", check, "RIGHT", 2, 0)
-            label:SetText(text)
-            label:SetTextColor(unpack(ns.COLORS.brightText))
-
-            return check
-        end
-
-        CreateFilterCheck(filterMenu, "Have Materials", -6,
-            function() return C_TradeSkillUI.GetOnlyShowMakeableRecipes() end,
-            function(v) C_TradeSkillUI.SetOnlyShowMakeableRecipes(v) end)
-
-        CreateFilterCheck(filterMenu, "Skill Up", -30,
-            function() return C_TradeSkillUI.GetOnlyShowSkillUpRecipes() end,
-            function(v) C_TradeSkillUI.SetOnlyShowSkillUpRecipes(v) end)
-
-        CreateFilterCheck(filterMenu, "First Craft", -54,
-            function() return C_TradeSkillUI.GetOnlyShowFirstCraftRecipes() end,
-            function(v) C_TradeSkillUI.SetOnlyShowFirstCraftRecipes(v) end)
+        filterMenu:EnableMouseWheel(true)
+        filterMenu:SetScript("OnMouseWheel", function(self, delta)
+            filterScrollOffset = math.max(0, math.min(filterScrollOffset - delta, math.max(0, #filterDisplayList - MAX_FILTER_ROWS)))
+            ProfRecipes:RefreshFilterMenu()
+        end)
     end
+
+    filterScrollOffset = 0
+    BuildFilterDisplayList()
+    ProfRecipes:RefreshFilterMenu()
 
     filterMenu:ClearAllPoints()
     filterMenu:SetPoint("TOPRIGHT", anchorBtn, "BOTTOMRIGHT", 0, -2)
@@ -535,18 +732,18 @@ local function CreateReagentRow(parent, index)
     row.icon:SetSize(20, 20)
     row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
 
+    row.countText = row:CreateFontString(nil, "OVERLAY")
+    row.countText:SetFont(ns.FONT, 11, "")
+    row.countText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+    row.countText:SetJustifyH("LEFT")
+
     row.nameText = row:CreateFontString(nil, "OVERLAY")
     row.nameText:SetFont(ns.FONT, 11, "")
-    row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-    row.nameText:SetPoint("RIGHT", row, "RIGHT", -80, 0)
+    row.nameText:SetPoint("LEFT", row.countText, "RIGHT", 4, 0)
+    row.nameText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     row.nameText:SetJustifyH("LEFT")
     row.nameText:SetWordWrap(false)
     row.nameText:SetTextColor(unpack(ns.COLORS.brightText))
-
-    row.countText = row:CreateFontString(nil, "OVERLAY")
-    row.countText:SetFont(ns.FONT, 11, "")
-    row.countText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
-    row.countText:SetJustifyH("RIGHT")
 
     row.checkText = nil  -- merged into countText
 
@@ -699,6 +896,37 @@ local function CreateRightPanel(parent)
     detail.concText:SetFont(ns.FONT, 11, "")
     detail.concText:SetTextColor(unpack(ns.COLORS.mutedText))
 
+    -- Recipe source info box (unlearned / next rank)
+    detail.sourceFrame = CreateFrame("Frame", nil, detailFrame, "BackdropTemplate")
+    detail.sourceFrame:SetPoint("LEFT", detailFrame, "LEFT", 8, 0)
+    detail.sourceFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+    detail.sourceFrame:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeSize = 1,
+    })
+    detail.sourceFrame:SetBackdropColor(40/255, 35/255, 20/255, 0.9)
+    detail.sourceFrame:SetBackdropBorderColor(0.6, 0.5, 0.2, 0.6)
+    detail.sourceFrame:Hide()
+
+    detail.sourceIcon = detail.sourceFrame:CreateTexture(nil, "ARTWORK")
+    detail.sourceIcon:SetSize(16, 16)
+    detail.sourceIcon:SetPoint("LEFT", detail.sourceFrame, "LEFT", 6, 0)
+    detail.sourceIcon:SetTexture("Interface\\common\\help-i")
+
+    detail.sourceLabel = detail.sourceFrame:CreateFontString(nil, "OVERLAY")
+    detail.sourceLabel:SetFont(ns.FONT, 10, "")
+    detail.sourceLabel:SetPoint("TOPLEFT", detail.sourceIcon, "TOPRIGHT", 4, 0)
+    detail.sourceLabel:SetTextColor(1, 0.82, 0)
+
+    detail.sourceText = detail.sourceFrame:CreateFontString(nil, "OVERLAY")
+    detail.sourceText:SetFont(ns.FONT, 11, "")
+    detail.sourceText:SetPoint("TOPLEFT", detail.sourceLabel, "BOTTOMLEFT", 0, -2)
+    detail.sourceText:SetPoint("RIGHT", detail.sourceFrame, "RIGHT", -6, 0)
+    detail.sourceText:SetJustifyH("LEFT")
+    detail.sourceText:SetWordWrap(true)
+    detail.sourceText:SetTextColor(unpack(ns.COLORS.brightText))
+
     -- Craft controls
     detail.controlFrame = CreateFrame("Frame", nil, detailFrame)
     detail.controlFrame:SetHeight(60)
@@ -706,10 +934,16 @@ local function CreateRightPanel(parent)
     detail.controlFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
     -- anchored dynamically
 
-    -- Best Quality checkbox
+    -- Best Quality checkbox (reads from global setting)
     detail.bestQualCheck = CreateFrame("CheckButton", nil, detail.controlFrame, "UICheckButtonTemplate")
     detail.bestQualCheck:SetSize(22, 22)
     detail.bestQualCheck:SetPoint("TOPLEFT", detail.controlFrame, "TOPLEFT", 0, 0)
+    detail.bestQualCheck:SetChecked(KazCraftDB and KazCraftDB.settings and KazCraftDB.settings.useBestQuality)
+    detail.bestQualCheck:SetScript("OnClick", function(self)
+        if KazCraftDB and KazCraftDB.settings then
+            KazCraftDB.settings.useBestQuality = self:GetChecked() and true or false
+        end
+    end)
 
     detail.bestQualLabel = detail.controlFrame:CreateFontString(nil, "OVERLAY")
     detail.bestQualLabel:SetFont(ns.FONT, 11, "")
@@ -853,6 +1087,7 @@ function ProfRecipes:RefreshDetail()
         detail.qualityText:Hide()
         detail.skillText:Hide()
         detail.concText:Hide()
+        detail.sourceFrame:Hide()
         detail.controlFrame:Hide()
         detail.queueHeader:Hide()
         detail.queueFrame:Hide()
@@ -862,6 +1097,11 @@ function ProfRecipes:RefreshDetail()
 
     detail.emptyText:Hide()
     detail.favBtn:Show()
+
+    -- Sync Best Quality checkbox with global setting
+    if KazCraftDB and KazCraftDB.settings then
+        detail.bestQualCheck:SetChecked(KazCraftDB.settings.useBestQuality)
+    end
 
     local info = C_TradeSkillUI.GetRecipeInfo(selectedRecipeID)
     if not info then return end
@@ -996,11 +1236,37 @@ function ProfRecipes:RefreshDetail()
         detail.concText:Hide()
     end
 
+    -- Recipe source info (unlearned or next rank)
+    local sourceText, sourceLabel
+    if not info.learned then
+        sourceText = C_TradeSkillUI.GetRecipeSourceText(selectedRecipeID)
+        sourceLabel = "Recipe Unlearned"
+    elseif info.nextRecipeID then
+        sourceText = C_TradeSkillUI.GetRecipeSourceText(info.nextRecipeID)
+        sourceLabel = "Next Rank"
+    end
+
+    local lastAnchor = detail.concText:IsShown() and detail.concText or
+                       (detail.skillText:IsShown() and detail.skillText or detail.qualityText)
+
+    if sourceText then
+        detail.sourceLabel:SetText(sourceLabel)
+        detail.sourceText:SetText(sourceText)
+        detail.sourceFrame:ClearAllPoints()
+        detail.sourceFrame:SetPoint("TOPLEFT", lastAnchor, "BOTTOMLEFT", -8, -8)
+        detail.sourceFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+        -- Size height to fit text
+        local textHeight = detail.sourceText:GetStringHeight() or 14
+        detail.sourceFrame:SetHeight(textHeight + detail.sourceLabel:GetStringHeight() + 16)
+        detail.sourceFrame:Show()
+        lastAnchor = detail.sourceFrame
+    else
+        detail.sourceFrame:Hide()
+    end
+
     -- Craft controls
     detail.controlFrame:ClearAllPoints()
-    local controlAnchor = detail.concText:IsShown() and detail.concText or
-                          (detail.skillText:IsShown() and detail.skillText or detail.qualityText)
-    detail.controlFrame:SetPoint("TOPLEFT", controlAnchor, "BOTTOMLEFT", 0, -12)
+    detail.controlFrame:SetPoint("TOPLEFT", lastAnchor, "BOTTOMLEFT", lastAnchor == detail.sourceFrame and 8 or 0, -12)
     detail.controlFrame:Show()
 
     -- Craft All label

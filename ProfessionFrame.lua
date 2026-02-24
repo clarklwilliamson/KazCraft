@@ -572,7 +572,13 @@ function ProfFrame:ToggleExpansionMenu(anchorBtn)
         row:SetScript("OnClick", function()
             expansionMenu:Hide()
             C_TradeSkillUI.SetProfessionChildSkillLineID(info.professionID)
-            -- TRADE_SKILL_DATA_SOURCE_CHANGED will fire and update everything
+            -- Immediate refresh so UI feels instant (event also fires later)
+            C_Timer.After(0.05, function()
+                if ProfFrame:IsShown() then
+                    UpdateTopBar()
+                    ProfFrame:RefreshRecipeList()
+                end
+            end)
         end)
 
         y = y - ROW_H

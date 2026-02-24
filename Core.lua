@@ -16,6 +16,9 @@ local DB_DEFAULTS = {
     ahPosition = {},
     profSize = nil,
     profCollapses = {},
+    settings = {
+        useBestQuality = true,
+    },
 }
 
 local function InitDB()
@@ -364,3 +367,4 @@ SlashCmdList["KAZCRAFT"] = function(msg)
         print("|cffc8aa64KazCraft:|r Unknown command. /kc help for usage.")
     end
 end
+KAZ_COMMANDS["craft"] = { handler = SlashCmdList["KAZCRAFT"], alias = "/kc", desc = "Profession + AH" }

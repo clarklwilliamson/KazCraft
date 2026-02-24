@@ -47,6 +47,10 @@ local function BuildDisplayList()
     local recipeIDs = C_TradeSkillUI.GetFilteredRecipeIDs()
     if not recipeIDs or #recipeIDs == 0 then return end
 
+    -- Get current child profession ID to filter recipes to this expansion only
+    local childProfInfo = C_TradeSkillUI.GetChildProfessionInfo()
+    local childProfID = childProfInfo and childProfInfo.professionID
+
     -- Build category hierarchy
     -- categoryID → { name, parentCategoryID, recipes = {}, subcats = {} }
     local categories = {}
@@ -54,7 +58,8 @@ local function BuildDisplayList()
 
     for _, recipeID in ipairs(recipeIDs) do
         local info = C_TradeSkillUI.GetRecipeInfo(recipeID)
-        if info then
+        -- Filter to current expansion skill line (same as Blizzard)
+        if info and (not childProfID or C_TradeSkillUI.IsRecipeInSkillLine(recipeID, childProfID)) then
             local catID = info.categoryID
             -- Ensure category chain exists
             local curCat = catID

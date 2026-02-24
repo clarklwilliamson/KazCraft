@@ -19,6 +19,7 @@ local DB_DEFAULTS = {
     settings = {
         useBestQuality = true,
     },
+    lastRecipeID = nil,
 }
 
 local function InitDB()

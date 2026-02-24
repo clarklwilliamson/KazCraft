@@ -406,6 +406,7 @@ local function UpdateRecipeRow(row, entry, index)
 
         row:SetScript("OnClick", function()
             selectedRecipeID = entry.recipeID
+            if KazCraftDB then KazCraftDB.lastRecipeID = selectedRecipeID end
             ProfRecipes:RefreshRows()
             ProfRecipes:RefreshDetail()
         end)
@@ -814,15 +815,10 @@ local function CreateRightPanel(parent)
     rightPanel:SetBackdropColor(unpack(ns.COLORS.panelBg))
     rightPanel:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
 
-    -- Scrollable detail content
-    local scroll = CreateFrame("ScrollFrame", nil, rightPanel, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 4, -4)
-    scroll:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -22, 4)
-
-    detailFrame = CreateFrame("Frame", nil, scroll)
-    detailFrame:SetWidth(scroll:GetWidth() or 500)
-    detailFrame:SetHeight(800)
-    scroll:SetScrollChild(detailFrame)
+    -- Detail content (direct child, no scroll)
+    detailFrame = CreateFrame("Frame", nil, rightPanel)
+    detailFrame:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 4, -4)
+    detailFrame:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -4, 4)
 
     -- Recipe name
     detail.nameText = detailFrame:CreateFontString(nil, "OVERLAY")
@@ -927,12 +923,11 @@ local function CreateRightPanel(parent)
     detail.sourceText:SetWordWrap(true)
     detail.sourceText:SetTextColor(unpack(ns.COLORS.brightText))
 
-    -- Craft controls
-    detail.controlFrame = CreateFrame("Frame", nil, detailFrame)
+    -- Craft controls — pinned to bottom of right panel
+    detail.controlFrame = CreateFrame("Frame", nil, rightPanel)
     detail.controlFrame:SetHeight(60)
-    detail.controlFrame:SetPoint("LEFT", detailFrame, "LEFT", 8, 0)
-    detail.controlFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
-    -- anchored dynamically
+    detail.controlFrame:SetPoint("BOTTOMLEFT", rightPanel, "BOTTOMLEFT", 12, 8)
+    detail.controlFrame:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -12, 8)
 
     -- Best Quality checkbox (reads from global setting)
     detail.bestQualCheck = CreateFrame("CheckButton", nil, detail.controlFrame, "UICheckButtonTemplate")
@@ -955,6 +950,9 @@ local function CreateRightPanel(parent)
     detail.concCheck = CreateFrame("CheckButton", nil, detail.controlFrame, "UICheckButtonTemplate")
     detail.concCheck:SetSize(22, 22)
     detail.concCheck:SetPoint("LEFT", detail.bestQualLabel, "RIGHT", 16, 0)
+    detail.concCheck:SetScript("OnClick", function()
+        ProfRecipes:RefreshDetail()
+    end)
 
     detail.concLabel = detail.controlFrame:CreateFontString(nil, "OVERLAY")
     detail.concLabel:SetFont(ns.FONT, 11, "")
@@ -991,8 +989,9 @@ local function CreateRightPanel(parent)
         if not selectedRecipeID or isCrafting then return end
         local qty = tonumber(detail.qtyBox:GetText()) or 1
         if qty < 1 then qty = 1 end
+        local applyConc = detail.concCheck:GetChecked() and true or false
         ns.lastCraftedRecipeID = nil -- don't decrement queue for manual crafts
-        C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty)
+        C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty, {}, nil, nil, applyConc)
     end)
 
     -- Craft All button
@@ -1003,8 +1002,9 @@ local function CreateRightPanel(parent)
         local info = C_TradeSkillUI.GetRecipeInfo(selectedRecipeID)
         local count = info and info.numAvailable or 0
         if count > 0 then
+            local applyConc = detail.concCheck:GetChecked() and true or false
             ns.lastCraftedRecipeID = nil
-            C_TradeSkillUI.CraftRecipe(selectedRecipeID, count)
+            C_TradeSkillUI.CraftRecipe(selectedRecipeID, count, {}, nil, nil, applyConc)
         end
     end)
 
@@ -1025,15 +1025,15 @@ local function CreateRightPanel(parent)
         if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
     end)
 
-    -- ── Queue ──
-    detail.queueHeader = detailFrame:CreateFontString(nil, "OVERLAY")
+    -- ── Queue (above craft controls) ──
+    detail.queueHeader = rightPanel:CreateFontString(nil, "OVERLAY")
     detail.queueHeader:SetFont(ns.FONT, 10, "")
     detail.queueHeader:SetTextColor(unpack(ns.COLORS.headerText))
     -- anchored dynamically
 
-    detail.queueFrame = CreateFrame("Frame", nil, detailFrame)
-    detail.queueFrame:SetPoint("LEFT", detailFrame, "LEFT", 8, 0)
-    detail.queueFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+    detail.queueFrame = CreateFrame("Frame", nil, rightPanel)
+    detail.queueFrame:SetPoint("LEFT", rightPanel, "LEFT", 12, 0)
+    detail.queueFrame:SetPoint("RIGHT", rightPanel, "RIGHT", -12, 0)
     detail.queueFrame:SetHeight(MAX_QUEUE_ROWS * QUEUE_ROW_HEIGHT)
     -- anchored dynamically
 
@@ -1223,11 +1223,33 @@ function ProfRecipes:RefreshDetail()
         detail.skillText:SetPoint("TOPLEFT", detail.qualityText, "BOTTOMLEFT", 0, -4)
         detail.skillText:Show()
 
-        -- Concentration cost
-        if opInfo.concentrationCost and opInfo.concentrationCost > 0 then
-            detail.concText:SetText("Concentration cost: " .. opInfo.concentrationCost)
+        -- Concentration info
+        local concCurrID = opInfo.concentrationCurrencyID or 0
+        local concCost = opInfo.concentrationCost or 0
+        if concCurrID ~= 0 then
+            local currInfo = C_CurrencyInfo.GetCurrencyInfo(concCurrID)
+            local current = currInfo and currInfo.quantity or 0
+            local maxConc = currInfo and currInfo.maxQuantity or 0
+            local concStr = "Concentration: " .. current .. "/" .. maxConc
+            if concCost > 0 then
+                concStr = concStr .. "  (cost: " .. concCost .. ")"
+            end
+            detail.concText:SetText(concStr)
+
+            -- Enable/disable concentration checkbox
+            if concCost > 0 and current >= concCost then
+                detail.concCheck:Enable()
+                detail.concLabel:SetTextColor(unpack(ns.COLORS.brightText))
+            else
+                detail.concCheck:SetChecked(false)
+                detail.concCheck:Disable()
+                detail.concLabel:SetTextColor(unpack(ns.COLORS.mutedText))
+            end
         else
             detail.concText:SetText("")
+            detail.concCheck:SetChecked(false)
+            detail.concCheck:Disable()
+            detail.concLabel:SetTextColor(unpack(ns.COLORS.mutedText))
         end
         detail.concText:ClearAllPoints()
         detail.concText:SetPoint("TOPLEFT", detail.skillText, "BOTTOMLEFT", 0, -4)
@@ -1239,6 +1261,9 @@ function ProfRecipes:RefreshDetail()
         detail.qualityText:Show()
         detail.skillText:Hide()
         detail.concText:Hide()
+        detail.concCheck:SetChecked(false)
+        detail.concCheck:Disable()
+        detail.concLabel:SetTextColor(unpack(ns.COLORS.mutedText))
     end
 
     -- Recipe source info (unlearned or next rank)
@@ -1272,9 +1297,7 @@ function ProfRecipes:RefreshDetail()
         detail.sourceFrame:Hide()
     end
 
-    -- Craft controls
-    detail.controlFrame:ClearAllPoints()
-    detail.controlFrame:SetPoint("TOPLEFT", lastAnchor, "BOTTOMLEFT", lastAnchor == detail.sourceFrame and 8 or 0, -12)
+    -- Craft controls (pinned to bottom, just show/hide)
     detail.controlFrame:Show()
 
     -- Craft All label
@@ -1308,15 +1331,15 @@ function ProfRecipes:RefreshQueue()
     local queue = ns.Data:GetCharacterQueue()
     local count = #queue
 
-    -- Anchor queue header below controls
+    -- Anchor queue above craft controls
     detail.queueHeader:ClearAllPoints()
-    detail.queueHeader:SetPoint("TOPLEFT", detail.controlFrame, "BOTTOMLEFT", 0, -12)
-    detail.queueHeader:SetText("── Queue (" .. count .. ") ──")
+    detail.queueHeader:SetPoint("BOTTOMLEFT", detail.controlFrame, "TOPLEFT", 0, math.min(count, MAX_QUEUE_ROWS) * QUEUE_ROW_HEIGHT + 16)
+    detail.queueHeader:SetText("QUEUE (" .. count .. ")")
     detail.queueHeader:Show()
 
     detail.queueFrame:ClearAllPoints()
     detail.queueFrame:SetPoint("TOPLEFT", detail.queueHeader, "BOTTOMLEFT", 0, -4)
-    detail.queueFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+    detail.queueFrame:SetPoint("RIGHT", rightPanel, "RIGHT", -12, 0)
     detail.queueFrame:SetHeight(math.max(1, math.min(count, MAX_QUEUE_ROWS) * QUEUE_ROW_HEIGHT))
     detail.queueFrame:Show()
 
@@ -1379,9 +1402,24 @@ end
 
 function ProfRecipes:Show()
     if not initialized then return end
+    -- Restore last selected recipe
+    if not selectedRecipeID and KazCraftDB and KazCraftDB.lastRecipeID then
+        selectedRecipeID = KazCraftDB.lastRecipeID
+    end
     leftPanel:Show()
     rightPanel:Show()
     self:RefreshRecipeList(true)
+    -- Scroll to selected recipe if possible
+    if selectedRecipeID then
+        for i, entry in ipairs(displayList) do
+            if entry.type == "recipe" and entry.recipeID == selectedRecipeID then
+                scrollOffset = math.max(0, i - 5)
+                scrollOffset = math.min(scrollOffset, math.max(0, #displayList - MAX_VISIBLE_ROWS))
+                self:RefreshRows()
+                break
+            end
+        end
+    end
     self:RefreshDetail()
 end
 
@@ -1394,6 +1432,10 @@ end
 
 function ProfRecipes:IsShown()
     return initialized and leftPanel and leftPanel:IsShown()
+end
+
+function ProfRecipes.GetConcentrationChecked()
+    return detail.concCheck and detail.concCheck:GetChecked() and true or false
 end
 
 function ProfRecipes:Refresh()

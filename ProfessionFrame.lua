@@ -111,6 +111,30 @@ local function UpdateTopBar()
     else
         topBar.kpText:Hide()
     end
+
+    -- Concentration
+    topBar.concText:ClearAllPoints()
+    if topBar.kpText:IsShown() then
+        topBar.concText:SetPoint("LEFT", topBar.kpText, "RIGHT", 12, 0)
+    else
+        topBar.concText:SetPoint("LEFT", topBar.expBtn, "RIGHT", 12, 0)
+    end
+    if skillLineID and C_TradeSkillUI.GetConcentrationCurrencyID then
+        local concCurrID = C_TradeSkillUI.GetConcentrationCurrencyID(skillLineID)
+        if concCurrID and concCurrID ~= 0 then
+            local currInfo = C_CurrencyInfo.GetCurrencyInfo(concCurrID)
+            if currInfo then
+                topBar.concText:SetText("Conc: " .. currInfo.quantity .. "/" .. currInfo.maxQuantity)
+                topBar.concText:Show()
+            else
+                topBar.concText:Hide()
+            end
+        else
+            topBar.concText:Hide()
+        end
+    else
+        topBar.concText:Hide()
+    end
 end
 
 local function CreateTopBar(parent)
@@ -178,6 +202,12 @@ local function CreateTopBar(parent)
     topBar.kpText:SetPoint("LEFT", topBar.expBtn, "RIGHT", 12, 0)
     topBar.kpText:SetTextColor(unpack(ns.COLORS.goldText))
 
+    -- Concentration text
+    topBar.concText = parent:CreateFontString(nil, "OVERLAY")
+    topBar.concText:SetFont(ns.FONT, 11, "")
+    topBar.concText:SetPoint("LEFT", topBar.kpText, "RIGHT", 12, 0)
+    topBar.concText:SetTextColor(0.9, 0.7, 0.2)
+
     -- Separator under top bar
     local sep = parent:CreateTexture(nil, "ARTWORK")
     sep:SetHeight(1)
@@ -219,7 +249,8 @@ local function CreateFooter(parent)
             return
         end
         ns.lastCraftedRecipeID = entry.recipeID
-        C_TradeSkillUI.CraftRecipe(entry.recipeID, 1)
+        local applyConc = ns.ProfRecipes and ns.ProfRecipes.GetConcentrationChecked and ns.ProfRecipes.GetConcentrationChecked() or false
+        C_TradeSkillUI.CraftRecipe(entry.recipeID, 1, {}, nil, nil, applyConc)
     end)
 
     -- Resize grip

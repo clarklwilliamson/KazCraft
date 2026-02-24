@@ -287,9 +287,16 @@ local function CreateRecipeRow(parent, index)
     row.favText:SetText("|cffffd700*|r")
     row.favText:Hide()
 
+    row.recipeID = nil
+
     row:SetScript("OnEnter", function(self)
         self.bg:SetColorTexture(unpack(ns.COLORS.rowHover))
         self.leftAccent:Show()
+        if self.recipeID and IsShiftKeyDown() then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetRecipeResultItem(self.recipeID)
+            GameTooltip:Show()
+        end
     end)
     row:SetScript("OnLeave", function(self)
         if self._selected then
@@ -299,6 +306,16 @@ local function CreateRecipeRow(parent, index)
         end
         if not self._selected then
             self.leftAccent:Hide()
+        end
+        GameTooltip:Hide()
+    end)
+    row:SetScript("OnUpdate", function(self)
+        if GameTooltip:IsOwned(self) and not IsShiftKeyDown() then
+            GameTooltip:Hide()
+        elseif not GameTooltip:IsOwned(self) and self.recipeID and IsShiftKeyDown() and self:IsMouseOver() then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetRecipeResultItem(self.recipeID)
+            GameTooltip:Show()
         end
     end)
 
@@ -313,6 +330,7 @@ local function UpdateRecipeRow(row, entry, index)
 
     if entry.type == "separator" then
         -- Divider line with label
+        row.recipeID = nil
         row:Show()
         row.icon:Hide()
         row.arrow:Hide()
@@ -336,6 +354,7 @@ local function UpdateRecipeRow(row, entry, index)
 
     if entry.type == "category" then
         -- Category row
+        row.recipeID = nil
         row.icon:Hide()
         row.arrow:Show()
         row.arrow:SetPoint("LEFT", row, "LEFT", 4 + indent, 0)
@@ -364,6 +383,7 @@ local function UpdateRecipeRow(row, entry, index)
     else
         -- Recipe row
         local info = entry.info
+        row.recipeID = entry.recipeID
         row.arrow:Hide()
 
         -- Craftable count (left of icon)
@@ -761,6 +781,28 @@ local function CreateReagentRow(parent, index)
     row.nameText:SetTextColor(unpack(ns.COLORS.brightText))
 
     row.checkText = nil  -- merged into countText
+    row.itemID = nil
+
+    row:EnableMouse(true)
+    row:SetScript("OnEnter", function(self)
+        if self.itemID and IsShiftKeyDown() then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetItemByID(self.itemID)
+            GameTooltip:Show()
+        end
+    end)
+    row:SetScript("OnLeave", function(self)
+        GameTooltip:Hide()
+    end)
+    row:SetScript("OnUpdate", function(self)
+        if GameTooltip:IsOwned(self) and not IsShiftKeyDown() then
+            GameTooltip:Hide()
+        elseif not GameTooltip:IsOwned(self) and self.itemID and IsShiftKeyDown() and self:IsMouseOver() then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetItemByID(self.itemID)
+            GameTooltip:Show()
+        end
+    end)
 
     return row
 end
@@ -798,18 +840,34 @@ local function CreateReagentSlotBox(parent, index)
 
     box:SetScript("OnEnter", function(self)
         self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        if self.itemID then
-            GameTooltip:SetItemByID(self.itemID)
-        elseif self.slotSchematic then
-            GameTooltip:SetText(self.slotSchematic.slotText or "Optional Reagent", 1, 1, 1)
-            GameTooltip:AddLine("Click to select a reagent", 0.7, 0.7, 0.7)
+        if IsShiftKeyDown() then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            if self.itemID then
+                GameTooltip:SetItemByID(self.itemID)
+            elseif self.slotSchematic then
+                GameTooltip:SetText(self.slotSchematic.slotText or "Optional Reagent", 1, 1, 1)
+                GameTooltip:AddLine("Click to select a reagent", 0.7, 0.7, 0.7)
+            end
+            GameTooltip:Show()
         end
-        GameTooltip:Show()
     end)
     box:SetScript("OnLeave", function(self)
         self:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
         GameTooltip:Hide()
+    end)
+    box:SetScript("OnUpdate", function(self)
+        if GameTooltip:IsOwned(self) and not IsShiftKeyDown() then
+            GameTooltip:Hide()
+        elseif not GameTooltip:IsOwned(self) and IsShiftKeyDown() and self:IsMouseOver() then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            if self.itemID then
+                GameTooltip:SetItemByID(self.itemID)
+            elseif self.slotSchematic then
+                GameTooltip:SetText(self.slotSchematic.slotText or "Optional Reagent", 1, 1, 1)
+                GameTooltip:AddLine("Click to select a reagent", 0.7, 0.7, 0.7)
+            end
+            GameTooltip:Show()
+        end
     end)
 
     box:Hide()
@@ -916,22 +974,53 @@ local function CreateRightPanel(parent)
     detail.icon:SetSize(32, 32)
     detail.icon:SetPoint("TOPLEFT", detail.nameText, "BOTTOMLEFT", 0, -6)
 
+    -- Invisible overlay for Shift-tooltip on the recipe output icon
+    detail.iconBtn = CreateFrame("Button", nil, detailFrame)
+    detail.iconBtn:SetAllPoints(detail.icon)
+    detail.iconBtn:SetFrameLevel(detailFrame:GetFrameLevel() + 5)
+    detail.iconBtn.recipeID = nil
+    detail.iconBtn:SetScript("OnEnter", function(self)
+        if self.recipeID and IsShiftKeyDown() then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetRecipeResultItem(self.recipeID)
+            GameTooltip:Show()
+        end
+    end)
+    detail.iconBtn:SetScript("OnLeave", function(self)
+        GameTooltip:Hide()
+    end)
+    detail.iconBtn:SetScript("OnUpdate", function(self)
+        if GameTooltip:IsOwned(self) and not IsShiftKeyDown() then
+            GameTooltip:Hide()
+        elseif not GameTooltip:IsOwned(self) and self.recipeID and IsShiftKeyDown() and self:IsMouseOver() then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetRecipeResultItem(self.recipeID)
+            GameTooltip:Show()
+        end
+    end)
+
     detail.subtypeText = detailFrame:CreateFontString(nil, "OVERLAY")
     detail.subtypeText:SetFont(ns.FONT, 14, "")
     detail.subtypeText:SetPoint("LEFT", detail.icon, "RIGHT", 8, 0)
     detail.subtypeText:SetTextColor(unpack(ns.COLORS.mutedText))
 
-    -- ── Reagents ──
-    local reagentY = -80
+    -- Recipe description / flavor text
+    detail.descText = detailFrame:CreateFontString(nil, "OVERLAY")
+    detail.descText:SetFont(ns.FONT, 12, "")
+    detail.descText:SetPoint("TOPLEFT", detail.icon, "BOTTOMLEFT", 0, -6)
+    detail.descText:SetPoint("RIGHT", detailFrame, "RIGHT", -12, 0)
+    detail.descText:SetJustifyH("LEFT")
+    detail.descText:SetWordWrap(true)
+    detail.descText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    -- ── Reagents ── (anchored dynamically below description)
     detail.reagentHeader = detailFrame:CreateFontString(nil, "OVERLAY")
     detail.reagentHeader:SetFont(ns.FONT, 12, "")
-    detail.reagentHeader:SetPoint("TOPLEFT", detailFrame, "TOPLEFT", 8, reagentY)
     detail.reagentHeader:SetText("REAGENTS")
     detail.reagentHeader:SetTextColor(unpack(ns.COLORS.headerText))
 
     detail.reagentFrame = CreateFrame("Frame", nil, detailFrame)
-    detail.reagentFrame:SetPoint("TOPLEFT", detailFrame, "TOPLEFT", 8, reagentY - 18)
-    detail.reagentFrame:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -8, reagentY - 18)
+    -- anchored dynamically in RefreshDetail below reagentHeader
     detail.reagentFrame:SetHeight(MAX_REAGENT_ROWS * REAGENT_ROW_HEIGHT)
 
     for i = 1, MAX_REAGENT_ROWS do
@@ -1103,8 +1192,12 @@ local function CreateRightPanel(parent)
         if qty < 1 then qty = 1 end
         local applyConc = detail.concCheck:GetChecked() and true or false
         ns.lastCraftedRecipeID = nil -- don't decrement queue for manual crafts
-        local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
-        C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty, reagentInfoTbl, nil, nil, applyConc)
+        if currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Salvage) then
+            currentTransaction:CraftSalvage(qty)
+        else
+            local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
+            C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty, reagentInfoTbl, nil, nil, applyConc)
+        end
     end)
 
     -- Craft All button
@@ -1112,13 +1205,18 @@ local function CreateRightPanel(parent)
     detail.craftAllBtn:SetPoint("LEFT", detail.craftBtn, "RIGHT", 4, 0)
     detail.craftAllBtn:SetScript("OnClick", function()
         if not selectedRecipeID or isCrafting then return end
-        local info = C_TradeSkillUI.GetRecipeInfo(selectedRecipeID)
-        local count = info and info.numAvailable or 0
-        if count > 0 then
-            local applyConc = detail.concCheck:GetChecked() and true or false
-            ns.lastCraftedRecipeID = nil
-            local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
-            C_TradeSkillUI.CraftRecipe(selectedRecipeID, count, reagentInfoTbl, nil, nil, applyConc)
+        local applyConc = detail.concCheck:GetChecked() and true or false
+        ns.lastCraftedRecipeID = nil
+        if currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Salvage) then
+            -- Salvage is always 1 at a time
+            currentTransaction:CraftSalvage(1)
+        else
+            local info = C_TradeSkillUI.GetRecipeInfo(selectedRecipeID)
+            local count = info and info.numAvailable or 0
+            if count > 0 then
+                local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
+                C_TradeSkillUI.CraftRecipe(selectedRecipeID, count, reagentInfoTbl, nil, nil, applyConc)
+            end
         end
     end)
 
@@ -1296,6 +1394,8 @@ function ProfRecipes:RefreshDetail()
         detail.nameText:SetText("")
         detail.icon:SetTexture(nil)
         detail.subtypeText:SetText("")
+        detail.descText:SetText("")
+        detail.descText:Hide()
         detail.reagentHeader:Hide()
         detail.reagentFrame:Hide()
         detail.salvageBox:Hide()
@@ -1336,6 +1436,7 @@ function ProfRecipes:RefreshDetail()
 
     -- Icon + subtype
     detail.icon:SetTexture(info.icon or 134400)
+    detail.iconBtn.recipeID = selectedRecipeID
     local subtype = ""
     if info.categoryID then
         local catInfo = C_TradeSkillUI.GetCategoryInfo(info.categoryID)
@@ -1362,6 +1463,30 @@ function ProfRecipes:RefreshDetail()
     end
 
     local schematic = currentSchematic
+
+    -- ── Recipe description / flavor text ──
+    local reagentInfos = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
+    local desc = C_TradeSkillUI.GetRecipeDescription(selectedRecipeID, reagentInfos)
+    if desc and desc ~= "" then
+        local textureID, height = string.match(desc, "|T(%d+):(%d+)|t")
+        if textureID then
+            local size = height or 24
+            desc = string.gsub(desc, "|T.*|t", CreateSimpleTextureMarkup(textureID, size, size, 0, 3))
+        end
+        detail.descText:SetText(desc)
+        detail.descText:Show()
+    else
+        detail.descText:SetText("")
+        detail.descText:Hide()
+    end
+
+    -- Anchor reagent header dynamically below description (or icon if no desc)
+    local reagentAnchor = detail.descText:IsShown() and detail.descText or detail.icon
+    detail.reagentHeader:ClearAllPoints()
+    detail.reagentHeader:SetPoint("TOPLEFT", reagentAnchor, "BOTTOMLEFT", 0, -8)
+    detail.reagentFrame:ClearAllPoints()
+    detail.reagentFrame:SetPoint("TOPLEFT", detail.reagentHeader, "BOTTOMLEFT", 0, -4)
+    detail.reagentFrame:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -8, 0)
 
     -- ── Salvage slot (Disassemble, Scour, Pilfer) ──
     local isSalvage = schematic and schematic.recipeType == Enum.TradeskillRecipeType.Salvage
@@ -1502,6 +1627,7 @@ function ProfRecipes:RefreshDetail()
                     end
 
                     row.icon:SetTexture(displayIcon)
+                    row.itemID = slot.reagents[1] and slot.reagents[1].itemID
 
                     -- Quality pips inline: T1/T2/T3 counts
                     local nameStr = displayName
@@ -1529,6 +1655,7 @@ function ProfRecipes:RefreshDetail()
                     end
 
                     row.icon:SetTexture(itemIcon or 134400)
+                    row.itemID = itemID
                     row.nameText:SetText((itemName or ("Item:" .. (itemID or "?"))) ..
                         (needed > 1 and (" x" .. needed) or ""))
 
@@ -1552,6 +1679,7 @@ function ProfRecipes:RefreshDetail()
 
     -- Hide unused reagent rows
     for i = reagentCount + 1, #reagentRows do
+        reagentRows[i].itemID = nil
         reagentRows[i]:Hide()
     end
 

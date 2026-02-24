@@ -48,6 +48,8 @@ function handlers.ADDON_LOADED(addon)
     if addon ~= addonName then return end
     InitDB()
     SetCharKey()
+    -- Prevent Blizzard from auto-showing ProfessionsFrame (we handle it)
+    UIParent:UnregisterEvent("TRADE_SKILL_SHOW")
     frame:UnregisterEvent("ADDON_LOADED")
 end
 

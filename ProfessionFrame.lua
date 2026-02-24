@@ -20,6 +20,7 @@ local footer = {}
 local profOpen = false
 local activeTab = nil
 local switchingToBlizzard = false
+local switchingToKazCraft = false
 
 -- Tab definitions
 local TAB_DEFS = {
@@ -30,39 +31,14 @@ local TAB_DEFS = {
 
 --------------------------------------------------------------------
 -- Blizzard ProfessionsFrame suppression
--- Can't Hide() — OnHide calls CloseTradeSkill(). Can't SetScale —
--- corrupts CraftSim/tab sizing on restore. Solution: move offscreen
--- + SetAlpha(0). Frame stays "shown", APIs keep working, no visual.
+-- UIParent:UnregisterEvent("TRADE_SKILL_SHOW") is done in Core.lua
+-- ADDON_LOADED so Blizzard never auto-shows ProfessionsFrame.
+-- When switching to Blizzard UI, manually call UIParent_OnEvent().
 --------------------------------------------------------------------
-local blizzPointSaved = nil
-
-local function SuppressBlizzardProf()
-    if not ProfessionsFrame then return end
-    -- Save current anchor before moving offscreen
-    if not blizzPointSaved then
-        local point, relativeTo, relPoint, x, y = ProfessionsFrame:GetPoint(1)
-        if point then
-            blizzPointSaved = { point, relPoint, x, y }
-        end
-    end
-    ProfessionsFrame:ClearAllPoints()
-    ProfessionsFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 2000, -2000)
-    ProfessionsFrame:SetAlpha(0)
-    ProfessionsFrame:EnableMouse(false)
-end
-
 local function RestoreBlizzardProf()
-    if not ProfessionsFrame then return end
-    ProfessionsFrame:EnableMouse(true)
-    ProfessionsFrame:SetAlpha(1)
-    ProfessionsFrame:ClearAllPoints()
-    if blizzPointSaved then
-        ProfessionsFrame:SetPoint(blizzPointSaved[1], UIParent, blizzPointSaved[2],
-            blizzPointSaved[3], blizzPointSaved[4])
-    else
-        ProfessionsFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 16, -116)
-    end
-    blizzPointSaved = nil
+    -- Manually trigger Blizzard's handler to load + show ProfessionsFrame
+    if ProfessionsFrame_LoadUI then ProfessionsFrame_LoadUI() end
+    UIParent_OnEvent(UIParent, "TRADE_SKILL_SHOW")
 end
 
 --------------------------------------------------------------------
@@ -332,9 +308,6 @@ local function CreateMainFrame()
         -- Close the profession entirely
         if profOpen then
             profOpen = false
-            -- Restore Blizzard frame to clean state before closing
-            RestoreBlizzardProf()
-            -- CloseTradeSkill triggers Blizzard OnHide which hides ProfessionsFrame
             C_TradeSkillUI.CloseTradeSkill()
         end
     end)
@@ -429,7 +402,6 @@ function ProfFrame:Show()
         CreateMainFrame()
     end
 
-    SuppressBlizzardProf()
     UpdateTopBar()
 
     -- Select Recipes tab
@@ -600,8 +572,9 @@ end
 --------------------------------------------------------------------
 function ProfFrame:SwitchToBlizzard()
     switchingToBlizzard = true
+    profOpen = false
     if mainFrame then mainFrame:Hide() end
-    RestoreBlizzardProf()
+    RestoreBlizzardProf()  -- manually triggers UIParent_OnEvent to show Blizzard frame
     self:EnsureBlizzardSwitchButton()
 end
 
@@ -614,12 +587,15 @@ function ProfFrame:EnsureBlizzardSwitchButton()
     btn:SetFrameStrata("DIALOG")
     btn:SetFrameLevel(500)
     btn:SetScript("OnClick", function()
-        SuppressBlizzardProf()
-        if not mainFrame then CreateMainFrame() end
-        UpdateTopBar()
-        if tabBar then tabBar:Select(activeTab or "recipes") end
-        ProfFrame:SelectTab(activeTab or "recipes")
-        mainFrame:Show()
+        switchingToKazCraft = true
+        -- Hide Blizzard frame (its OnHide calls CloseTradeSkill → TRADE_SKILL_CLOSE)
+        HideUIPanel(ProfessionsFrame)
+        switchingToKazCraft = false
+        -- Re-open the trade skill so APIs work, then show KazCraft
+        local profID = ns.currentProfInfo and ns.currentProfInfo.professionID
+        if profID then
+            C_TradeSkillUI.OpenTradeSkill(profID)
+        end
     end)
     ProfessionsFrame._kazButton = btn
 end
@@ -632,6 +608,7 @@ function ProfFrame:OnTradeSkillShow()
 end
 
 function ProfFrame:OnTradeSkillClose()
+    if switchingToKazCraft then return end  -- ignore close during switch-back
     self:Hide()
 end
 

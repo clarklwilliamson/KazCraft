@@ -38,6 +38,17 @@ local selectedRecipeID = nil
 local scrollOffset = 0
 local isCrafting = false
 
+-- Reagent slot state
+local currentTransaction = nil
+local currentSchematic = nil
+local lastTransactionRecipeID = nil
+local optionalSlotFrames = {}
+local finishingSlotFrames = {}
+local MAX_OPTIONAL_SLOTS = 5
+local MAX_FINISHING_SLOTS = 3
+local SLOT_BOX_SIZE = 40
+local SLOT_BOX_SPACING = 6
+
 --------------------------------------------------------------------
 -- Category tree → flat display list
 --------------------------------------------------------------------
@@ -405,6 +416,9 @@ local function UpdateRecipeRow(row, entry, index)
         end
 
         row:SetScript("OnClick", function()
+            if CloseProfessionsItemFlyout then
+                pcall(CloseProfessionsItemFlyout)
+            end
             selectedRecipeID = entry.recipeID
             if KazCraftDB then KazCraftDB.lastRecipeID = selectedRecipeID end
             ProfRecipes:RefreshRows()
@@ -751,6 +765,57 @@ local function CreateReagentRow(parent, index)
     return row
 end
 
+--------------------------------------------------------------------
+-- Reagent slot box (40x40 icon button for Optional/Finishing)
+--------------------------------------------------------------------
+local function CreateReagentSlotBox(parent, index)
+    local box = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    box:SetSize(SLOT_BOX_SIZE, SLOT_BOX_SIZE)
+    box:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeSize = 1,
+    })
+    box:SetBackdropColor(8/255, 8/255, 8/255, 1)
+    box:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+    box:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+    box.icon = box:CreateTexture(nil, "ARTWORK")
+    box.icon:SetSize(32, 32)
+    box.icon:SetPoint("CENTER")
+    box.icon:Hide()
+
+    box.plusText = box:CreateFontString(nil, "OVERLAY")
+    box.plusText:SetFont(ns.FONT, 18, "")
+    box.plusText:SetPoint("CENTER")
+    box.plusText:SetText("+")
+    box.plusText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    -- State
+    box.slotIndex = nil
+    box.slotSchematic = nil
+    box.itemID = nil
+
+    box:SetScript("OnEnter", function(self)
+        self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.itemID then
+            GameTooltip:SetItemByID(self.itemID)
+        elseif self.slotSchematic then
+            GameTooltip:SetText(self.slotSchematic.slotText or "Optional Reagent", 1, 1, 1)
+            GameTooltip:AddLine("Click to select a reagent", 0.7, 0.7, 0.7)
+        end
+        GameTooltip:Show()
+    end)
+    box:SetScript("OnLeave", function(self)
+        self:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+        GameTooltip:Hide()
+    end)
+
+    box:Hide()
+    return box
+end
+
 local function CreateQueueRowSmall(parent, index)
     local row = CreateFrame("Frame", nil, parent)
     row:SetHeight(QUEUE_ROW_HEIGHT)
@@ -873,6 +938,40 @@ local function CreateRightPanel(parent)
         reagentRows[i] = CreateReagentRow(detail.reagentFrame, i)
     end
 
+    -- ── Optional Reagents ──
+    detail.optionalHeader = detailFrame:CreateFontString(nil, "OVERLAY")
+    detail.optionalHeader:SetFont(ns.FONT, 12, "")
+    detail.optionalHeader:SetText("OPTIONAL REAGENTS")
+    detail.optionalHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    detail.optionalHeader:Hide()
+
+    detail.optionalFrame = CreateFrame("Frame", nil, detailFrame)
+    detail.optionalFrame:SetHeight(SLOT_BOX_SIZE)
+    detail.optionalFrame:SetPoint("LEFT", detailFrame, "LEFT", 8, 0)
+    detail.optionalFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+    detail.optionalFrame:Hide()
+
+    for i = 1, MAX_OPTIONAL_SLOTS do
+        optionalSlotFrames[i] = CreateReagentSlotBox(detail.optionalFrame, i)
+    end
+
+    -- ── Finishing Reagents ──
+    detail.finishingHeader = detailFrame:CreateFontString(nil, "OVERLAY")
+    detail.finishingHeader:SetFont(ns.FONT, 12, "")
+    detail.finishingHeader:SetText("FINISHING REAGENTS")
+    detail.finishingHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    detail.finishingHeader:Hide()
+
+    detail.finishingFrame = CreateFrame("Frame", nil, detailFrame)
+    detail.finishingFrame:SetHeight(SLOT_BOX_SIZE)
+    detail.finishingFrame:SetPoint("LEFT", detailFrame, "LEFT", 8, 0)
+    detail.finishingFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+    detail.finishingFrame:Hide()
+
+    for i = 1, MAX_FINISHING_SLOTS do
+        finishingSlotFrames[i] = CreateReagentSlotBox(detail.finishingFrame, i)
+    end
+
     -- ── Details ──
     detail.detailHeader = detailFrame:CreateFontString(nil, "OVERLAY")
     detail.detailHeader:SetFont(ns.FONT, 12, "")
@@ -938,6 +1037,11 @@ local function CreateRightPanel(parent)
         if KazCraftDB and KazCraftDB.settings then
             KazCraftDB.settings.useBestQuality = self:GetChecked() and true or false
         end
+        -- Re-allocate basic reagents with new quality preference
+        if currentTransaction and Professions and Professions.AllocateAllBasicReagents then
+            Professions.AllocateAllBasicReagents(currentTransaction, self:GetChecked() and true or false)
+        end
+        ProfRecipes:RefreshDetail()
     end)
 
     detail.bestQualLabel = detail.controlFrame:CreateFontString(nil, "OVERLAY")
@@ -991,7 +1095,8 @@ local function CreateRightPanel(parent)
         if qty < 1 then qty = 1 end
         local applyConc = detail.concCheck:GetChecked() and true or false
         ns.lastCraftedRecipeID = nil -- don't decrement queue for manual crafts
-        C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty, {}, nil, nil, applyConc)
+        local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
+        C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty, reagentInfoTbl, nil, nil, applyConc)
     end)
 
     -- Craft All button
@@ -1004,7 +1109,8 @@ local function CreateRightPanel(parent)
         if count > 0 then
             local applyConc = detail.concCheck:GetChecked() and true or false
             ns.lastCraftedRecipeID = nil
-            C_TradeSkillUI.CraftRecipe(selectedRecipeID, count, {}, nil, nil, applyConc)
+            local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
+            C_TradeSkillUI.CraftRecipe(selectedRecipeID, count, reagentInfoTbl, nil, nil, applyConc)
         end
     end)
 
@@ -1079,6 +1185,84 @@ end
 --------------------------------------------------------------------
 -- Refresh detail panel
 --------------------------------------------------------------------
+local function SetupSlotBox(box, slotIndex, slotSchematic, transaction)
+    box.slotIndex = slotIndex
+    box.slotSchematic = slotSchematic
+    box.itemID = nil
+
+    -- Check if transaction has an allocation for this slot
+    local allocs = transaction and transaction:GetAllocations(slotIndex)
+    local hasAlloc = allocs and allocs:HasAllocations()
+
+    if hasAlloc then
+        for _, alloc in allocs:Enumerate() do
+            local reagent = alloc:GetReagent()
+            if reagent and reagent.itemID then
+                box.itemID = reagent.itemID
+                local _, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(reagent.itemID)
+                box.icon:SetTexture(itemIcon or 134400)
+                box.icon:Show()
+                box.plusText:Hide()
+                break
+            end
+        end
+    else
+        box.icon:Hide()
+        box.plusText:Show()
+    end
+
+    -- OnClick: left = open flyout, right = clear
+    box:SetScript("OnClick", function(self, button)
+        if button == "RightButton" then
+            if transaction and transaction:HasAnyAllocations(slotIndex) then
+                transaction:ClearAllocations(slotIndex)
+                ProfRecipes:RefreshDetail()
+            end
+            return
+        end
+
+        -- Left click — open Blizzard flyout
+        if not transaction or not slotSchematic then return end
+        if not CreateProfessionsMCRFlyout then return end
+
+        if CloseProfessionsItemFlyout then
+            CloseProfessionsItemFlyout()
+        end
+
+        -- Duck-type a slot object for MCRFlyout
+        local fakeSlot = {
+            IsOriginalReagentSet = function() return true end,
+            GetOriginalReagent = function() return nil end,
+            SetReagent = function() end,
+            ClearReagent = function() end,
+            RestoreOriginalReagent = function() end,
+            GetReagentSlotSchematic = function() return slotSchematic end,
+            GetSlotIndex = function() return slotIndex end,
+            IsUnallocatable = function() return false end,
+            Button = self,
+        }
+
+        local behavior = CreateProfessionsMCRFlyout(transaction, slotSchematic, fakeSlot)
+        local flyout = OpenProfessionsItemFlyout(self, detailFrame, behavior)
+
+        if flyout then
+            local function OnFlyoutItemSelected(o, f, elementData)
+                local reagent = elementData.reagent
+                if not reagent then return end
+                local count = ProfessionsUtil.GetReagentQuantityInPossession(reagent, false)
+                if count == 0 then return end
+                local qtyReq = slotSchematic:GetQuantityRequired(reagent)
+                if slotSchematic.required and count < qtyReq then return end
+                transaction:OverwriteAllocation(slotIndex, reagent, qtyReq)
+                ProfRecipes:RefreshDetail()
+            end
+            flyout:RegisterCallback(ProfessionsFlyoutMixin.Event.ItemSelected, OnFlyoutItemSelected, box)
+        end
+    end)
+
+    box:Show()
+end
+
 function ProfRecipes:RefreshDetail()
     if not initialized or not detailFrame then return end
 
@@ -1089,6 +1273,10 @@ function ProfRecipes:RefreshDetail()
         detail.subtypeText:SetText("")
         detail.reagentHeader:Hide()
         detail.reagentFrame:Hide()
+        detail.optionalHeader:Hide()
+        detail.optionalFrame:Hide()
+        detail.finishingHeader:Hide()
+        detail.finishingFrame:Hide()
         detail.detailHeader:Hide()
         detail.qualityText:Hide()
         detail.skillText:Hide()
@@ -1105,8 +1293,9 @@ function ProfRecipes:RefreshDetail()
     detail.favBtn:Show()
 
     -- Sync Best Quality checkbox with global setting
-    if KazCraftDB and KazCraftDB.settings then
-        detail.bestQualCheck:SetChecked(KazCraftDB.settings.useBestQuality)
+    local useBest = KazCraftDB and KazCraftDB.settings and KazCraftDB.settings.useBestQuality
+    if detail.bestQualCheck then
+        detail.bestQualCheck:SetChecked(useBest and true or false)
     end
 
     local info = C_TradeSkillUI.GetRecipeInfo(selectedRecipeID)
@@ -1127,15 +1316,36 @@ function ProfRecipes:RefreshDetail()
     end
     detail.subtypeText:SetText(subtype)
 
-    -- Reagents
+    -- ── Transaction lifecycle ──
+    local hasProfTemplates = (Professions and Professions.AllocateAllBasicReagents and
+                              ProfessionsUtil and ProfessionsUtil.GetRecipeSchematic and
+                              CreateProfessionsRecipeTransaction) and true or false
+
+    if hasProfTemplates then
+        if selectedRecipeID ~= lastTransactionRecipeID then
+            currentSchematic = ProfessionsUtil.GetRecipeSchematic(selectedRecipeID, false)
+            currentTransaction = CreateProfessionsRecipeTransaction(currentSchematic)
+            lastTransactionRecipeID = selectedRecipeID
+            Professions.AllocateAllBasicReagents(currentTransaction, useBest and true or false)
+        end
+    else
+        -- Fallback: plain schematic, no transaction
+        currentSchematic = C_TradeSkillUI.GetRecipeSchematic(selectedRecipeID, false)
+        currentTransaction = nil
+    end
+
+    local schematic = currentSchematic
+
+    -- ── Basic Reagents ──
     detail.reagentHeader:Show()
     detail.reagentFrame:Show()
 
-    local schematic = C_TradeSkillUI.GetRecipeSchematic(selectedRecipeID, false)
     local reagentCount = 0
+    local optionalSlots = {}
+    local finishingSlots = {}
 
     if schematic and schematic.reagentSlotSchematics then
-        for _, slot in ipairs(schematic.reagentSlotSchematics) do
+        for slotIndex, slot in ipairs(schematic.reagentSlotSchematics) do
             if slot.reagentType == Enum.CraftingReagentType.Basic then
                 reagentCount = reagentCount + 1
                 local row = reagentRows[reagentCount]
@@ -1144,32 +1354,100 @@ function ProfRecipes:RefreshDetail()
                     reagentRows[reagentCount] = row
                 end
 
-                local firstReagent = slot.reagents and slot.reagents[1]
-                local itemID = firstReagent and firstReagent.itemID
-                local needed = slot.quantityRequired or 0
+                local inputMode = hasProfTemplates and Professions.GetReagentInputMode(slot) or nil
+                local isQuality = inputMode and inputMode == Professions.ReagentInputMode.Quality
 
-                -- Item info
-                local itemName, _, _, _, _, _, _, _, _, itemIcon
-                if itemID then
-                    itemName, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(itemID)
-                    if not itemName then
-                        C_Item.RequestLoadItemDataByID(itemID)
+                if isQuality and currentTransaction then
+                    -- Quality reagent — show allocated tier + per-tier counts
+                    local needed = slot.quantityRequired or 0
+                    local totalHave = 0
+                    local allocStr = ""
+                    local displayIcon = 134400
+                    local displayName = ""
+
+                    for tierIdx, reagent in ipairs(slot.reagents) do
+                        local tierHave = ProfessionsUtil.GetReagentQuantityInPossession(reagent, false)
+                        totalHave = totalHave + tierHave
+
+                        local allocated = 0
+                        local allocs = currentTransaction:GetAllocations(slotIndex)
+                        if allocs then
+                            allocated = allocs:GetQuantityAllocated(reagent)
+                        end
+
+                        -- Use the tier that has the most allocation for display
+                        if allocated > 0 and displayName == "" then
+                            local itemName, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(reagent.itemID)
+                            displayIcon = itemIcon or 134400
+                            displayName = itemName or ("Item:" .. reagent.itemID)
+                        end
+
+                        -- Build per-tier count string for tooltip-style inline display
+                        if tierHave > 0 or allocated > 0 then
+                            local tierColor = tierIdx == 1 and "ffffff" or (tierIdx == 2 and "4dff4d" or "4d9fff")
+                            if allocStr ~= "" then allocStr = allocStr .. " " end
+                            allocStr = allocStr .. "|cff" .. tierColor .. tierHave .. "|r"
+                        end
+                    end
+
+                    -- Fallback if nothing allocated yet
+                    if displayName == "" then
+                        local firstReagent = slot.reagents[1]
+                        if firstReagent then
+                            local itemName, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(firstReagent.itemID)
+                            displayIcon = itemIcon or 134400
+                            displayName = itemName or ("Item:" .. firstReagent.itemID)
+                            if not itemName then
+                                C_Item.RequestLoadItemDataByID(firstReagent.itemID)
+                            end
+                        end
+                    end
+
+                    row.icon:SetTexture(displayIcon)
+
+                    -- Quality pips inline: T1/T2/T3 counts
+                    local nameStr = displayName
+                    if needed > 1 then nameStr = nameStr .. " x" .. needed end
+                    if allocStr ~= "" then nameStr = nameStr .. "  [" .. allocStr .. "]" end
+                    row.nameText:SetText(nameStr)
+
+                    if totalHave >= needed then
+                        row.countText:SetText("|cff4dff4d" .. totalHave .. "/" .. needed .. "|r")
+                    else
+                        row.countText:SetText("|cffff4d4d" .. totalHave .. "/" .. needed .. "|r")
+                    end
+                else
+                    -- Fixed reagent (single tier) — original display logic
+                    local firstReagent = slot.reagents and slot.reagents[1]
+                    local itemID = firstReagent and firstReagent.itemID
+                    local needed = slot.quantityRequired or 0
+
+                    local itemName, _, _, _, _, _, _, _, _, itemIcon
+                    if itemID then
+                        itemName, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(itemID)
+                        if not itemName then
+                            C_Item.RequestLoadItemDataByID(itemID)
+                        end
+                    end
+
+                    row.icon:SetTexture(itemIcon or 134400)
+                    row.nameText:SetText((itemName or ("Item:" .. (itemID or "?"))) ..
+                        (needed > 1 and (" x" .. needed) or ""))
+
+                    local have = itemID and C_Item.GetItemCount(itemID, true, false, true, true) or 0
+                    if have >= needed then
+                        row.countText:SetText("|cff4dff4d" .. have .. "/" .. needed .. "|r")
+                    else
+                        row.countText:SetText("|cffff4d4d" .. have .. "/" .. needed .. "|r")
                     end
                 end
 
-                row.icon:SetTexture(itemIcon or 134400)
-                row.nameText:SetText((itemName or ("Item:" .. (itemID or "?"))) ..
-                    (needed > 1 and (" x" .. needed) or ""))
-
-                -- Have count
-                local have = itemID and C_Item.GetItemCount(itemID, true, false, true, true) or 0
-                if have >= needed then
-                    row.countText:SetText("|cff4dff4d" .. have .. "/" .. needed .. "|r")
-                else
-                    row.countText:SetText("|cffff4d4d" .. have .. "/" .. needed .. "|r")
-                end
-
                 row:Show()
+
+            elseif slot.reagentType == Enum.CraftingReagentType.Modifying then
+                table.insert(optionalSlots, { slotIndex = slotIndex, slot = slot })
+            elseif slot.reagentType == Enum.CraftingReagentType.Finishing then
+                table.insert(finishingSlots, { slotIndex = slotIndex, slot = slot })
             end
         end
     end
@@ -1182,15 +1460,83 @@ function ProfRecipes:RefreshDetail()
     -- Adjust reagent frame height
     detail.reagentFrame:SetHeight(math.max(1, reagentCount * REAGENT_ROW_HEIGHT))
 
-    -- Details section — anchor below reagents
-    local detailY = -80 - 18 - (reagentCount * REAGENT_ROW_HEIGHT) - 10
+    -- ── Optional Reagents section ──
+    local chainAnchor = detail.reagentFrame
+    local chainAnchorPoint = "BOTTOMLEFT"
+    local chainOffset = -10
+
+    if #optionalSlots > 0 and currentTransaction then
+        detail.optionalHeader:ClearAllPoints()
+        detail.optionalHeader:SetPoint("TOPLEFT", chainAnchor, chainAnchorPoint, 0, chainOffset)
+        detail.optionalHeader:Show()
+
+        detail.optionalFrame:ClearAllPoints()
+        detail.optionalFrame:SetPoint("TOPLEFT", detail.optionalHeader, "BOTTOMLEFT", 0, -4)
+        detail.optionalFrame:Show()
+
+        for i, entry in ipairs(optionalSlots) do
+            if i > MAX_OPTIONAL_SLOTS then break end
+            local box = optionalSlotFrames[i]
+            box:ClearAllPoints()
+            box:SetPoint("TOPLEFT", detail.optionalFrame, "TOPLEFT", (i - 1) * (SLOT_BOX_SIZE + SLOT_BOX_SPACING), 0)
+            SetupSlotBox(box, entry.slotIndex, entry.slot, currentTransaction)
+        end
+        for i = #optionalSlots + 1, MAX_OPTIONAL_SLOTS do
+            optionalSlotFrames[i]:Hide()
+        end
+
+        chainAnchor = detail.optionalFrame
+        chainAnchorPoint = "BOTTOMLEFT"
+        chainOffset = -10
+    else
+        detail.optionalHeader:Hide()
+        detail.optionalFrame:Hide()
+        for i = 1, MAX_OPTIONAL_SLOTS do
+            optionalSlotFrames[i]:Hide()
+        end
+    end
+
+    -- ── Finishing Reagents section ──
+    if #finishingSlots > 0 and currentTransaction then
+        detail.finishingHeader:ClearAllPoints()
+        detail.finishingHeader:SetPoint("TOPLEFT", chainAnchor, chainAnchorPoint, 0, chainOffset)
+        detail.finishingHeader:Show()
+
+        detail.finishingFrame:ClearAllPoints()
+        detail.finishingFrame:SetPoint("TOPLEFT", detail.finishingHeader, "BOTTOMLEFT", 0, -4)
+        detail.finishingFrame:Show()
+
+        for i, entry in ipairs(finishingSlots) do
+            if i > MAX_FINISHING_SLOTS then break end
+            local box = finishingSlotFrames[i]
+            box:ClearAllPoints()
+            box:SetPoint("TOPLEFT", detail.finishingFrame, "TOPLEFT", (i - 1) * (SLOT_BOX_SIZE + SLOT_BOX_SPACING), 0)
+            SetupSlotBox(box, entry.slotIndex, entry.slot, currentTransaction)
+        end
+        for i = #finishingSlots + 1, MAX_FINISHING_SLOTS do
+            finishingSlotFrames[i]:Hide()
+        end
+
+        chainAnchor = detail.finishingFrame
+        chainAnchorPoint = "BOTTOMLEFT"
+        chainOffset = -10
+    else
+        detail.finishingHeader:Hide()
+        detail.finishingFrame:Hide()
+        for i = 1, MAX_FINISHING_SLOTS do
+            finishingSlotFrames[i]:Hide()
+        end
+    end
+
+    -- ── Details section — anchor below last reagent section ──
     detail.detailHeader:ClearAllPoints()
-    detail.detailHeader:SetPoint("TOPLEFT", detailFrame, "TOPLEFT", 8, detailY)
+    detail.detailHeader:SetPoint("TOPLEFT", chainAnchor, chainAnchorPoint, 0, chainOffset)
     detail.detailHeader:Show()
 
     -- Quality + skill info from GetCraftingOperationInfo
     local applyConc = detail.concCheck:GetChecked()
-    local opInfo = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, {}, nil, applyConc)
+    local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
+    local opInfo = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, reagentInfoTbl, nil, applyConc)
 
     if opInfo then
         -- Quality display
@@ -1430,6 +1776,12 @@ function ProfRecipes:Hide()
     leftPanel:Hide()
     rightPanel:Hide()
     if filterMenu then filterMenu:Hide() end
+    if CloseProfessionsItemFlyout then
+        pcall(CloseProfessionsItemFlyout)
+    end
+    currentTransaction = nil
+    currentSchematic = nil
+    lastTransactionRecipeID = nil
 end
 
 function ProfRecipes:IsShown()

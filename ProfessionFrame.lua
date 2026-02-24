@@ -24,7 +24,7 @@ local switchingToBlizzard = false
 -- Tab definitions
 local TAB_DEFS = {
     { key = "recipes", label = "Recipes", module = function() return ns.ProfRecipes end },
-    { key = "specs",   label = "Specializations", module = function() return nil end },
+    { key = "specs",   label = "Specializations", module = function() return ns.ProfSpecs end },
     { key = "orders",  label = "Crafting Orders", module = function() return nil end },
 }
 
@@ -410,7 +410,7 @@ function ProfFrame:SelectTab(key)
                 if mod.Show then
                     mod:Show()
                 end
-            elseif key == "specs" or key == "orders" then
+            elseif key == "orders" then
                 -- Placeholder — show message
                 self:ShowPlaceholder(key)
             end
@@ -428,7 +428,7 @@ function ProfFrame:ShowPlaceholder(key)
         placeholderText:SetPoint("CENTER", contentFrame, "CENTER", 0, 0)
         placeholderText:SetTextColor(unpack(ns.COLORS.mutedText))
     end
-    local labels = { specs = "Specializations", orders = "Crafting Orders" }
+    local labels = { orders = "Crafting Orders" }
     placeholderText:SetText((labels[key] or key) .. " — coming soon")
     placeholderText:Show()
 end

@@ -145,13 +145,13 @@ local function CreateTopBar(parent)
 
     -- Profession name
     topBar.nameText = parent:CreateFontString(nil, "OVERLAY")
-    topBar.nameText:SetFont(ns.FONT, 13, "")
+    topBar.nameText:SetFont(ns.FONT, 14, "")
     topBar.nameText:SetPoint("LEFT", topBar.icon, "RIGHT", 6, 0)
     topBar.nameText:SetTextColor(unpack(ns.COLORS.brightText))
 
     -- Skill level text
     topBar.skillText = parent:CreateFontString(nil, "OVERLAY")
-    topBar.skillText:SetFont(ns.FONT, 11, "")
+    topBar.skillText:SetFont(ns.FONT, 14, "")
     topBar.skillText:SetPoint("LEFT", topBar.nameText, "RIGHT", 14, 0)
     topBar.skillText:SetTextColor(unpack(ns.COLORS.mutedText))
 
@@ -174,12 +174,12 @@ local function CreateTopBar(parent)
     topBar.expBtn:SetPoint("LEFT", topBar.skillBarBg, "RIGHT", 12, 0)
 
     topBar.expBtnText = topBar.expBtn:CreateFontString(nil, "OVERLAY")
-    topBar.expBtnText:SetFont(ns.FONT, 11, "")
+    topBar.expBtnText:SetFont(ns.FONT, 14, "")
     topBar.expBtnText:SetPoint("LEFT", topBar.expBtn, "LEFT", 0, 0)
     topBar.expBtnText:SetTextColor(unpack(ns.COLORS.tabInactive))
 
     topBar.expBtnArrow = topBar.expBtn:CreateFontString(nil, "OVERLAY")
-    topBar.expBtnArrow:SetFont(ns.FONT, 9, "")
+    topBar.expBtnArrow:SetFont(ns.FONT, 12, "")
     topBar.expBtnArrow:SetPoint("LEFT", topBar.expBtnText, "RIGHT", 4, 0)
     topBar.expBtnArrow:SetText("v")
     topBar.expBtnArrow:SetTextColor(unpack(ns.COLORS.mutedText))
@@ -198,13 +198,13 @@ local function CreateTopBar(parent)
 
     -- KP text
     topBar.kpText = parent:CreateFontString(nil, "OVERLAY")
-    topBar.kpText:SetFont(ns.FONT, 11, "")
+    topBar.kpText:SetFont(ns.FONT, 14, "")
     topBar.kpText:SetPoint("LEFT", topBar.expBtn, "RIGHT", 12, 0)
     topBar.kpText:SetTextColor(unpack(ns.COLORS.goldText))
 
     -- Concentration text
     topBar.concText = parent:CreateFontString(nil, "OVERLAY")
-    topBar.concText:SetFont(ns.FONT, 11, "")
+    topBar.concText:SetFont(ns.FONT, 14, "")
     topBar.concText:SetPoint("LEFT", topBar.kpText, "RIGHT", 12, 0)
     topBar.concText:SetTextColor(0.9, 0.7, 0.2)
 
@@ -229,7 +229,7 @@ local function CreateFooter(parent)
 
     -- Materials cost
     footer.costText = f:CreateFontString(nil, "OVERLAY")
-    footer.costText:SetFont(ns.FONT, 11, "")
+    footer.costText:SetFont(ns.FONT, 14, "")
     footer.costText:SetPoint("LEFT", f, "LEFT", 8, 0)
     footer.costText:SetTextColor(unpack(ns.COLORS.mutedText))
 
@@ -574,18 +574,18 @@ function ProfFrame:ToggleExpansionMenu(anchorBtn)
         local isSelected = (info.professionID == currentID)
 
         local indicator = row:CreateFontString(nil, "OVERLAY")
-        indicator:SetFont(ns.FONT, 11, "")
+        indicator:SetFont(ns.FONT, 14, "")
         indicator:SetPoint("LEFT", row, "LEFT", 2, 0)
         indicator:SetText(isSelected and "|cffffd700o|r" or "  ")
 
         local nameStr = row:CreateFontString(nil, "OVERLAY")
-        nameStr:SetFont(ns.FONT, 11, "")
+        nameStr:SetFont(ns.FONT, 14, "")
         nameStr:SetPoint("LEFT", indicator, "RIGHT", 4, 0)
         nameStr:SetText(info.expansionName or "?")
         nameStr:SetTextColor(unpack(isSelected and ns.COLORS.brightText or ns.COLORS.mutedText))
 
         local skillStr = row:CreateFontString(nil, "OVERLAY")
-        skillStr:SetFont(ns.FONT, 11, "")
+        skillStr:SetFont(ns.FONT, 14, "")
         skillStr:SetPoint("RIGHT", row, "RIGHT", -4, 0)
         skillStr:SetText((info.skillLevel or 0) .. "/" .. (info.maxSkillLevel or 0))
         skillStr:SetTextColor(unpack(ns.COLORS.mutedText))

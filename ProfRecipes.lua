@@ -249,7 +249,7 @@ local function CreateRecipeRow(parent, index)
 
     -- Arrow for categories
     row.arrow = row:CreateFontString(nil, "OVERLAY")
-    row.arrow:SetFont(ns.FONT, 10, "")
+    row.arrow:SetFont(ns.FONT, 12, "")
     row.arrow:SetTextColor(unpack(ns.COLORS.mutedText))
 
     -- Icon for recipes
@@ -258,20 +258,20 @@ local function CreateRecipeRow(parent, index)
 
     -- Name
     row.nameText = row:CreateFontString(nil, "OVERLAY")
-    row.nameText:SetFont(ns.FONT, 11, "")
+    row.nameText:SetFont(ns.FONT, 14, "")
     row.nameText:SetJustifyH("LEFT")
     row.nameText:SetWordWrap(false)
 
     -- Count (craftable) — left of icon
     row.countText = row:CreateFontString(nil, "OVERLAY")
-    row.countText:SetFont(ns.FONT, 10, "")
+    row.countText:SetFont(ns.FONT, 12, "")
     row.countText:SetTextColor(unpack(ns.COLORS.mutedText))
     row.countText:SetJustifyH("RIGHT")
     row.countText:SetWidth(20)
 
     -- Favorite star
     row.favText = row:CreateFontString(nil, "OVERLAY")
-    row.favText:SetFont(ns.FONT, 10, "")
+    row.favText:SetFont(ns.FONT, 12, "")
     row.favText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     row.favText:SetText("|cffffd700*|r")
     row.favText:Hide()
@@ -315,7 +315,7 @@ local function UpdateRecipeRow(row, entry, index)
         row.nameText:SetPoint("LEFT", row, "LEFT", 6, 0)
         row.nameText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
         row.nameText:SetText("|cff888888--- " .. (entry.text or "") .. " ---|r")
-        row.nameText:SetFont(ns.FONT, 10, "")
+        row.nameText:SetFont(ns.FONT, 12, "")
         row.nameText:SetTextColor(unpack(ns.COLORS.mutedText))
         row:SetScript("OnClick", nil)
         return
@@ -335,7 +335,7 @@ local function UpdateRecipeRow(row, entry, index)
         row.nameText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
         row.nameText:SetText(entry.name)
         row.nameText:SetTextColor(unpack(ns.COLORS.headerText))
-        row.nameText:SetFont(ns.FONT, 11, "")
+        row.nameText:SetFont(ns.FONT, 14, "")
 
         row.countText:SetText("")
         row.favText:Hide()
@@ -382,7 +382,7 @@ local function UpdateRecipeRow(row, entry, index)
         row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
         row.nameText:SetPoint("RIGHT", row, "RIGHT", -20, 0)
         row.nameText:SetText(info and info.name or ("Recipe " .. entry.recipeID))
-        row.nameText:SetFont(ns.FONT, 11, "")
+        row.nameText:SetFont(ns.FONT, 14, "")
         local color = GetDifficultyColor(info)
         row.nameText:SetTextColor(color[1], color[2], color[3])
 
@@ -450,7 +450,7 @@ local function CreateLeftPanel(parent)
     })
     searchBox:SetBackdropColor(unpack(ns.COLORS.searchBg))
     searchBox:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
-    searchBox:SetFont(ns.FONT, 11, "")
+    searchBox:SetFont(ns.FONT, 14, "")
     searchBox:SetTextColor(unpack(ns.COLORS.brightText))
     searchBox:SetTextInsets(6, 6, 0, 0)
     searchBox:SetAutoFocus(false)
@@ -458,7 +458,7 @@ local function CreateLeftPanel(parent)
 
     -- Placeholder text
     searchBox.placeholder = searchBox:CreateFontString(nil, "OVERLAY")
-    searchBox.placeholder:SetFont(ns.FONT, 11, "")
+    searchBox.placeholder:SetFont(ns.FONT, 14, "")
     searchBox.placeholder:SetPoint("LEFT", searchBox, "LEFT", 6, 0)
     searchBox.placeholder:SetText("Search...")
     searchBox.placeholder:SetTextColor(unpack(ns.COLORS.mutedText))
@@ -597,12 +597,12 @@ local function CreateFilterRow(parent, index)
     row.check:SetPoint("LEFT", row, "LEFT", 6, 0)
 
     row.arrow = row:CreateFontString(nil, "OVERLAY")
-    row.arrow:SetFont(ns.FONT, 10, "")
+    row.arrow:SetFont(ns.FONT, 12, "")
     row.arrow:SetPoint("LEFT", row, "LEFT", 6, 0)
     row.arrow:SetTextColor(unpack(ns.COLORS.mutedText))
 
     row.label = row:CreateFontString(nil, "OVERLAY")
-    row.label:SetFont(ns.FONT, 11, "")
+    row.label:SetFont(ns.FONT, 14, "")
     row.label:SetTextColor(unpack(ns.COLORS.brightText))
 
     -- Full-row clickable button (for headers AND checkboxes)
@@ -634,7 +634,7 @@ local function UpdateFilterRow(row, entry)
         row.label:ClearAllPoints()
         row.label:SetPoint("LEFT", row.arrow, "RIGHT", 4, 0)
         row.label:SetText(entry.text)
-        row.label:SetFont(ns.FONT, 11, "")
+        row.label:SetFont(ns.FONT, 14, "")
         row.label:SetTextColor(unpack(ns.COLORS.headerText))
         row.hitBtn:Show()
         row.hitBtn:SetScript("OnClick", function()
@@ -653,7 +653,7 @@ local function UpdateFilterRow(row, entry)
         row.label:ClearAllPoints()
         row.label:SetPoint("LEFT", row.check, "RIGHT", 2, 0)
         row.label:SetText(entry.text)
-        row.label:SetFont(ns.FONT, 11, "")
+        row.label:SetFont(ns.FONT, 14, "")
         row.label:SetTextColor(unpack(ns.COLORS.brightText))
         -- Full row click toggles the checkbox
         row.hitBtn:Show()
@@ -734,12 +734,12 @@ local function CreateReagentRow(parent, index)
     row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
 
     row.countText = row:CreateFontString(nil, "OVERLAY")
-    row.countText:SetFont(ns.FONT, 11, "")
+    row.countText:SetFont(ns.FONT, 14, "")
     row.countText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
     row.countText:SetJustifyH("LEFT")
 
     row.nameText = row:CreateFontString(nil, "OVERLAY")
-    row.nameText:SetFont(ns.FONT, 11, "")
+    row.nameText:SetFont(ns.FONT, 14, "")
     row.nameText:SetPoint("LEFT", row.countText, "RIGHT", 4, 0)
     row.nameText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     row.nameText:SetJustifyH("LEFT")
@@ -767,7 +767,7 @@ local function CreateQueueRowSmall(parent, index)
     row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
 
     row.nameText = row:CreateFontString(nil, "OVERLAY")
-    row.nameText:SetFont(ns.FONT, 10, "")
+    row.nameText:SetFont(ns.FONT, 12, "")
     row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
     row.nameText:SetPoint("RIGHT", row, "RIGHT", -72, 0)
     row.nameText:SetJustifyH("LEFT")
@@ -775,7 +775,7 @@ local function CreateQueueRowSmall(parent, index)
     row.nameText:SetTextColor(unpack(ns.COLORS.brightText))
 
     row.qtyText = row:CreateFontString(nil, "OVERLAY")
-    row.qtyText:SetFont(ns.FONT, 10, "")
+    row.qtyText:SetFont(ns.FONT, 12, "")
     row.qtyText:SetPoint("RIGHT", row, "RIGHT", -52, 0)
     row.qtyText:SetWidth(24)
     row.qtyText:SetJustifyH("CENTER")
@@ -787,7 +787,7 @@ local function CreateQueueRowSmall(parent, index)
         btn:SetSize(16, 16)
         btn:SetPoint("RIGHT", parent, "RIGHT", offsetX, 0)
         btn.t = btn:CreateFontString(nil, "OVERLAY")
-        btn.t:SetFont(ns.FONT, 11, "")
+        btn.t:SetFont(ns.FONT, 14, "")
         btn.t:SetPoint("CENTER")
         btn.t:SetText(text)
         btn.t:SetTextColor(unpack(defaultColor))
@@ -822,7 +822,7 @@ local function CreateRightPanel(parent)
 
     -- Recipe name
     detail.nameText = detailFrame:CreateFontString(nil, "OVERLAY")
-    detail.nameText:SetFont(ns.FONT, 15, "")
+    detail.nameText:SetFont(ns.FONT, 16, "")
     detail.nameText:SetPoint("TOPLEFT", detailFrame, "TOPLEFT", 8, -8)
     detail.nameText:SetPoint("RIGHT", detailFrame, "RIGHT", -40, 0)
     detail.nameText:SetJustifyH("LEFT")
@@ -852,14 +852,14 @@ local function CreateRightPanel(parent)
     detail.icon:SetPoint("TOPLEFT", detail.nameText, "BOTTOMLEFT", 0, -6)
 
     detail.subtypeText = detailFrame:CreateFontString(nil, "OVERLAY")
-    detail.subtypeText:SetFont(ns.FONT, 11, "")
+    detail.subtypeText:SetFont(ns.FONT, 14, "")
     detail.subtypeText:SetPoint("LEFT", detail.icon, "RIGHT", 8, 0)
     detail.subtypeText:SetTextColor(unpack(ns.COLORS.mutedText))
 
     -- ── Reagents ──
     local reagentY = -80
     detail.reagentHeader = detailFrame:CreateFontString(nil, "OVERLAY")
-    detail.reagentHeader:SetFont(ns.FONT, 10, "")
+    detail.reagentHeader:SetFont(ns.FONT, 12, "")
     detail.reagentHeader:SetPoint("TOPLEFT", detailFrame, "TOPLEFT", 8, reagentY)
     detail.reagentHeader:SetText("REAGENTS")
     detail.reagentHeader:SetTextColor(unpack(ns.COLORS.headerText))
@@ -875,21 +875,21 @@ local function CreateRightPanel(parent)
 
     -- ── Details ──
     detail.detailHeader = detailFrame:CreateFontString(nil, "OVERLAY")
-    detail.detailHeader:SetFont(ns.FONT, 10, "")
+    detail.detailHeader:SetFont(ns.FONT, 12, "")
     detail.detailHeader:SetText("DETAILS")
     detail.detailHeader:SetTextColor(unpack(ns.COLORS.headerText))
     -- anchored dynamically after reagents
 
     detail.qualityText = detailFrame:CreateFontString(nil, "OVERLAY")
-    detail.qualityText:SetFont(ns.FONT, 11, "")
+    detail.qualityText:SetFont(ns.FONT, 14, "")
     detail.qualityText:SetTextColor(unpack(ns.COLORS.brightText))
 
     detail.skillText = detailFrame:CreateFontString(nil, "OVERLAY")
-    detail.skillText:SetFont(ns.FONT, 11, "")
+    detail.skillText:SetFont(ns.FONT, 14, "")
     detail.skillText:SetTextColor(unpack(ns.COLORS.mutedText))
 
     detail.concText = detailFrame:CreateFontString(nil, "OVERLAY")
-    detail.concText:SetFont(ns.FONT, 11, "")
+    detail.concText:SetFont(ns.FONT, 14, "")
     detail.concText:SetTextColor(unpack(ns.COLORS.mutedText))
 
     -- Recipe source info box (unlearned / next rank)
@@ -911,12 +911,12 @@ local function CreateRightPanel(parent)
     detail.sourceIcon:SetTexture("Interface\\common\\help-i")
 
     detail.sourceLabel = detail.sourceFrame:CreateFontString(nil, "OVERLAY")
-    detail.sourceLabel:SetFont(ns.FONT, 10, "")
+    detail.sourceLabel:SetFont(ns.FONT, 12, "")
     detail.sourceLabel:SetPoint("TOPLEFT", detail.sourceIcon, "TOPRIGHT", 4, 1)
     detail.sourceLabel:SetTextColor(1, 0.82, 0)
 
     detail.sourceText = detail.sourceFrame:CreateFontString(nil, "OVERLAY")
-    detail.sourceText:SetFont(ns.FONT, 11, "")
+    detail.sourceText:SetFont(ns.FONT, 14, "")
     detail.sourceText:SetPoint("TOPLEFT", detail.sourceLabel, "BOTTOMLEFT", 0, -4)
     detail.sourceText:SetPoint("RIGHT", detail.sourceFrame, "RIGHT", -8, 0)
     detail.sourceText:SetJustifyH("LEFT")
@@ -941,7 +941,7 @@ local function CreateRightPanel(parent)
     end)
 
     detail.bestQualLabel = detail.controlFrame:CreateFontString(nil, "OVERLAY")
-    detail.bestQualLabel:SetFont(ns.FONT, 11, "")
+    detail.bestQualLabel:SetFont(ns.FONT, 14, "")
     detail.bestQualLabel:SetPoint("LEFT", detail.bestQualCheck, "RIGHT", 2, 0)
     detail.bestQualLabel:SetText("Best Quality")
     detail.bestQualLabel:SetTextColor(unpack(ns.COLORS.brightText))
@@ -955,7 +955,7 @@ local function CreateRightPanel(parent)
     end)
 
     detail.concLabel = detail.controlFrame:CreateFontString(nil, "OVERLAY")
-    detail.concLabel:SetFont(ns.FONT, 11, "")
+    detail.concLabel:SetFont(ns.FONT, 14, "")
     detail.concLabel:SetPoint("LEFT", detail.concCheck, "RIGHT", 2, 0)
     detail.concLabel:SetText("Concentration")
     detail.concLabel:SetTextColor(unpack(ns.COLORS.brightText))
@@ -972,7 +972,7 @@ local function CreateRightPanel(parent)
     })
     detail.qtyBox:SetBackdropColor(unpack(ns.COLORS.searchBg))
     detail.qtyBox:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
-    detail.qtyBox:SetFont(ns.FONT, 11, "")
+    detail.qtyBox:SetFont(ns.FONT, 14, "")
     detail.qtyBox:SetTextColor(unpack(ns.COLORS.brightText))
     detail.qtyBox:SetJustifyH("CENTER")
     detail.qtyBox:SetAutoFocus(false)
@@ -1008,9 +1008,10 @@ local function CreateRightPanel(parent)
         end
     end)
 
-    -- +Queue button
+    -- +Queue button (hidden for now — queue UI coming later)
     detail.queueBtn = ns.CreateButton(detail.controlFrame, "+Queue", 70, 24)
     detail.queueBtn:SetPoint("LEFT", detail.craftAllBtn, "RIGHT", 4, 0)
+    detail.queueBtn:Hide()
     detail.queueBtn:SetScript("OnClick", function()
         if not selectedRecipeID then return end
         local qty = tonumber(detail.qtyBox:GetText()) or 1
@@ -1027,7 +1028,7 @@ local function CreateRightPanel(parent)
 
     -- ── Queue (above craft controls) ──
     detail.queueHeader = rightPanel:CreateFontString(nil, "OVERLAY")
-    detail.queueHeader:SetFont(ns.FONT, 10, "")
+    detail.queueHeader:SetFont(ns.FONT, 12, "")
     detail.queueHeader:SetTextColor(unpack(ns.COLORS.headerText))
     -- anchored dynamically
 
@@ -1043,7 +1044,7 @@ local function CreateRightPanel(parent)
 
     -- No-selection message
     detail.emptyText = detailFrame:CreateFontString(nil, "OVERLAY")
-    detail.emptyText:SetFont(ns.FONT, 13, "")
+    detail.emptyText:SetFont(ns.FONT, 14, "")
     detail.emptyText:SetPoint("CENTER", detailFrame, "CENTER", 0, 0)
     detail.emptyText:SetText("Select a recipe")
     detail.emptyText:SetTextColor(unpack(ns.COLORS.mutedText))
@@ -1318,8 +1319,9 @@ function ProfRecipes:RefreshDetail()
         detail.craftBtn:Enable()
     end
 
-    -- Queue section
-    self:RefreshQueue()
+    -- Queue section (hidden for now)
+    detail.queueHeader:Hide()
+    detail.queueFrame:Hide()
 end
 
 --------------------------------------------------------------------

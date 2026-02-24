@@ -95,8 +95,9 @@ local function IsAtCraftingTable()
     return ok and result
 end
 
-local function IsInGuild()
-    return IsInGuild and IsInGuild() or false
+local _IsInGuild = IsInGuild
+local function IsPlayerInGuild()
+    return _IsInGuild and _IsInGuild() or false
 end
 
 local function FormatGold(copper)
@@ -192,7 +193,7 @@ local function CreateOrderTypeTabs(parent)
     for i, def in ipairs(ORDER_TYPES) do
         -- Skip guild tab if not in guild
         local show = true
-        if def.key == "guild" and not IsInGuild() then
+        if def.key == "guild" and not IsPlayerInGuild() then
             show = false
         end
 
@@ -1324,15 +1325,15 @@ function ProfOrders:UpdateActionButtons()
         else
             -- Claimed but need to craft first — show Start crafting
             detailFrame.claimBtn:Show()
-            detailFrame.claimBtn.text:SetText("Start Craft")
+            detailFrame.claimBtn.label:SetText("Start Craft")
             detailFrame.declineBtn:Show()
-            detailFrame.declineBtn.text:SetText("Release")
+            detailFrame.declineBtn.label:SetText("Release")
             detailFrame.fulfillBtn:Hide()
         end
     else
         -- Not claimed — show Claim button (disabled if already have a claimed order)
         detailFrame.claimBtn:Show()
-        detailFrame.claimBtn.text:SetText("Claim Order")
+        detailFrame.claimBtn.label:SetText("Claim Order")
         if hasAnyClaimed then
             detailFrame.claimBtn:Disable()
         else

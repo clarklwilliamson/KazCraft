@@ -391,85 +391,81 @@ local function RenderTree()
     -- Draw connection lines first (under nodes)
     for _, pathID in ipairs(allNodes) do
         local pos = positions[pathID]
-        if not pos then goto continueLine end
+        if pos then
+            local ni = C_Traits.GetNodeInfo(configID, pathID)
+            if ni and ni.isVisible then
+                local px, py = ToCanvas(pos.x, pos.y)
 
-        local ni = C_Traits.GetNodeInfo(configID, pathID)
-        if not ni or not ni.isVisible then goto continueLine end
-
-        local px, py = ToCanvas(pos.x, pos.y)
-
-        -- Draw edges to children via visibleEdges
-        if ni.visibleEdges then
-            for _, edge in ipairs(ni.visibleEdges) do
-                local childPos = positions[edge.targetNode]
-                if childPos then
-                    local cx, cy = ToCanvas(childPos.x, childPos.y)
-                    local lineColor
-                    if edge.isActive then
-                        lineColor = { 200/255, 170/255, 100/255, 0.7 }
-                    else
-                        lineColor = { 0.3, 0.3, 0.3, 0.4 }
+                -- Draw edges to children via visibleEdges
+                if ni.visibleEdges then
+                    for _, edge in ipairs(ni.visibleEdges) do
+                        local childPos = positions[edge.targetNode]
+                        if childPos then
+                            local cx, cy = ToCanvas(childPos.x, childPos.y)
+                            local lineColor
+                            if edge.isActive then
+                                lineColor = { 200/255, 170/255, 100/255, 0.7 }
+                            else
+                                lineColor = { 0.3, 0.3, 0.3, 0.4 }
+                            end
+                            DrawLine(canvasContent, px, py, cx, cy, lineColor)
+                        end
                     end
-                    DrawLine(canvasContent, px, py, cx, cy, lineColor)
                 end
-            end
-        end
 
-        -- Also draw to ProfSpecs children (some connections aren't in visibleEdges)
-        local children = C_ProfSpecs.GetChildrenForPath(pathID)
-        if children then
-            for _, childID in ipairs(children) do
-                local childPos = positions[childID]
-                if childPos then
-                    -- Check if we already drew this via visibleEdges
-                    local alreadyDrawn = false
-                    if ni.visibleEdges then
-                        for _, edge in ipairs(ni.visibleEdges) do
-                            if edge.targetNode == childID then
-                                alreadyDrawn = true
-                                break
+                -- Also draw to ProfSpecs children (some connections aren't in visibleEdges)
+                local children = C_ProfSpecs.GetChildrenForPath(pathID)
+                if children then
+                    for _, childID in ipairs(children) do
+                        local childPos = positions[childID]
+                        if childPos then
+                            -- Check if we already drew this via visibleEdges
+                            local alreadyDrawn = false
+                            if ni.visibleEdges then
+                                for _, edge in ipairs(ni.visibleEdges) do
+                                    if edge.targetNode == childID then
+                                        alreadyDrawn = true
+                                        break
+                                    end
+                                end
+                            end
+                            if not alreadyDrawn then
+                                local cx, cy = ToCanvas(childPos.x, childPos.y)
+                                local childState = GetNodeState(childID)
+                                local lineColor
+                                if childState ~= "locked" then
+                                    lineColor = { 200/255, 170/255, 100/255, 0.5 }
+                                else
+                                    lineColor = { 0.3, 0.3, 0.3, 0.3 }
+                                end
+                                DrawLine(canvasContent, px, py, cx, cy, lineColor)
                             end
                         end
                     end
-                    if not alreadyDrawn then
-                        local cx, cy = ToCanvas(childPos.x, childPos.y)
-                        local childState = GetNodeState(childID)
-                        local lineColor
-                        if childState ~= "locked" then
-                            lineColor = { 200/255, 170/255, 100/255, 0.5 }
-                        else
-                            lineColor = { 0.3, 0.3, 0.3, 0.3 }
-                        end
-                        DrawLine(canvasContent, px, py, cx, cy, lineColor)
-                    end
                 end
             end
         end
-
-        ::continueLine::
     end
 
     -- Draw nodes on top
     for _, pathID in ipairs(allNodes) do
         local pos = positions[pathID]
-        if not pos then goto continueNode end
+        if pos then
+            local ni = C_Traits.GetNodeInfo(configID, pathID)
+            if ni and ni.isVisible then
+                local px, py = ToCanvas(pos.x, pos.y)
 
-        local ni = C_Traits.GetNodeInfo(configID, pathID)
-        if not ni or not ni.isVisible then goto continueNode end
+                local f = nodeFrames[pathID]
+                if not f then
+                    f = CreateNodeFrame(canvasContent, pathID)
+                    nodeFrames[pathID] = f
+                end
 
-        local px, py = ToCanvas(pos.x, pos.y)
-
-        local f = nodeFrames[pathID]
-        if not f then
-            f = CreateNodeFrame(canvasContent, pathID)
-            nodeFrames[pathID] = f
+                f:ClearAllPoints()
+                f:SetPoint("CENTER", canvasContent, "TOPLEFT", px, -py)
+                UpdateNodeFrame(f, pathID)
+            end
         end
-
-        f:ClearAllPoints()
-        f:SetPoint("CENTER", canvasContent, "TOPLEFT", px, -py)
-        UpdateNodeFrame(f, pathID)
-
-        ::continueNode::
     end
 end
 

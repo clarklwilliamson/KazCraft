@@ -149,9 +149,24 @@ local function BuildDisplayList()
         end
     end
 
+    -- Strip root wrapper categories (expansion-level wrappers with no direct
+    -- recipes). Promote their children as new roots. Blizzard does the same.
+    local effectiveRoots = {}
+    for catID in pairs(rootCats) do
+        local cat = categories[catID]
+        if cat and #cat.recipes == 0 and #cat.subcats > 0 then
+            -- Wrapper — promote subcategories
+            for _, subID in ipairs(cat.subcats) do
+                effectiveRoots[subID] = true
+            end
+        else
+            effectiveRoots[catID] = true
+        end
+    end
+
     -- Sort root categories by name
     local sortedRoots = {}
-    for catID in pairs(rootCats) do
+    for catID in pairs(effectiveRoots) do
         table.insert(sortedRoots, catID)
     end
     table.sort(sortedRoots, function(a, b)
@@ -494,7 +509,7 @@ function ProfRecipes:ToggleFilterMenu(anchorBtn)
     end
 
     filterMenu:ClearAllPoints()
-    filterMenu:SetPoint("TOPLEFT", anchorBtn, "BOTTOMLEFT", 0, -2)
+    filterMenu:SetPoint("TOPRIGHT", anchorBtn, "BOTTOMRIGHT", 0, -2)
     filterMenu:Show()
 end
 

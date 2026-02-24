@@ -931,7 +931,7 @@ local function CreateRightPanel(parent)
 
     detail.reagentFrame = CreateFrame("Frame", nil, detailFrame)
     detail.reagentFrame:SetPoint("TOPLEFT", detailFrame, "TOPLEFT", 8, reagentY - 18)
-    detail.reagentFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+    detail.reagentFrame:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -8, reagentY - 18)
     detail.reagentFrame:SetHeight(MAX_REAGENT_ROWS * REAGENT_ROW_HEIGHT)
 
     for i = 1, MAX_REAGENT_ROWS do
@@ -990,6 +990,10 @@ local function CreateRightPanel(parent)
     detail.concText = detailFrame:CreateFontString(nil, "OVERLAY")
     detail.concText:SetFont(ns.FONT, 14, "")
     detail.concText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    detail.cooldownText = detailFrame:CreateFontString(nil, "OVERLAY")
+    detail.cooldownText:SetFont(ns.FONT, 14, "")
+    detail.cooldownText:SetTextColor(0.9, 0.3, 0.3, 1)
 
     -- Recipe source info box (unlearned / next rank)
     detail.sourceFrame = CreateFrame("Frame", nil, detailFrame, "BackdropTemplate")
@@ -1192,7 +1196,7 @@ local function SetupSlotBox(box, slotIndex, slotSchematic, transaction)
 
     -- Check if transaction has an allocation for this slot
     local allocs = transaction and transaction:GetAllocations(slotIndex)
-    local hasAlloc = allocs and allocs:HasAllocations()
+    local hasAlloc = allocs and type(allocs.HasAllocations) == "function" and allocs:HasAllocations()
 
     if hasAlloc then
         for _, alloc in allocs:Enumerate() do
@@ -1210,6 +1214,8 @@ local function SetupSlotBox(box, slotIndex, slotSchematic, transaction)
         box.icon:Hide()
         box.plusText:Show()
     end
+
+    box:Show()
 
     -- OnClick: left = open flyout, right = clear
     box:SetScript("OnClick", function(self, button)
@@ -1246,6 +1252,8 @@ local function SetupSlotBox(box, slotIndex, slotSchematic, transaction)
         local flyout = OpenProfessionsItemFlyout(self, detailFrame, behavior)
 
         if flyout then
+            flyout:SetFrameStrata("TOOLTIP")
+            flyout:SetFrameLevel(900)
             local function OnFlyoutItemSelected(o, f, elementData)
                 local reagent = elementData.reagent
                 if not reagent then return end
@@ -1259,8 +1267,6 @@ local function SetupSlotBox(box, slotIndex, slotSchematic, transaction)
             flyout:RegisterCallback(ProfessionsFlyoutMixin.Event.ItemSelected, OnFlyoutItemSelected, box)
         end
     end)
-
-    box:Show()
 end
 
 function ProfRecipes:RefreshDetail()
@@ -1281,6 +1287,7 @@ function ProfRecipes:RefreshDetail()
         detail.qualityText:Hide()
         detail.skillText:Hide()
         detail.concText:Hide()
+        detail.cooldownText:Hide()
         detail.sourceFrame:Hide()
         detail.controlFrame:Hide()
         detail.queueHeader:Hide()
@@ -1371,7 +1378,7 @@ function ProfRecipes:RefreshDetail()
 
                         local allocated = 0
                         local allocs = currentTransaction:GetAllocations(slotIndex)
-                        if allocs then
+                        if allocs and type(allocs.GetQuantityAllocated) == "function" then
                             allocated = allocs:GetQuantityAllocated(reagent)
                         end
 
@@ -1472,6 +1479,7 @@ function ProfRecipes:RefreshDetail()
 
         detail.optionalFrame:ClearAllPoints()
         detail.optionalFrame:SetPoint("TOPLEFT", detail.optionalHeader, "BOTTOMLEFT", 0, -4)
+        detail.optionalFrame:SetPoint("TOPRIGHT", detail.optionalHeader, "BOTTOMRIGHT", 0, -4)
         detail.optionalFrame:Show()
 
         for i, entry in ipairs(optionalSlots) do
@@ -1479,7 +1487,12 @@ function ProfRecipes:RefreshDetail()
             local box = optionalSlotFrames[i]
             box:ClearAllPoints()
             box:SetPoint("TOPLEFT", detail.optionalFrame, "TOPLEFT", (i - 1) * (SLOT_BOX_SIZE + SLOT_BOX_SPACING), 0)
-            SetupSlotBox(box, entry.slotIndex, entry.slot, currentTransaction)
+            local ok, err = pcall(SetupSlotBox, box, entry.slotIndex, entry.slot, currentTransaction)
+            if not ok then
+                box.icon:Hide()
+                box.plusText:Show()
+                box:Show()
+            end
         end
         for i = #optionalSlots + 1, MAX_OPTIONAL_SLOTS do
             optionalSlotFrames[i]:Hide()
@@ -1504,6 +1517,7 @@ function ProfRecipes:RefreshDetail()
 
         detail.finishingFrame:ClearAllPoints()
         detail.finishingFrame:SetPoint("TOPLEFT", detail.finishingHeader, "BOTTOMLEFT", 0, -4)
+        detail.finishingFrame:SetPoint("TOPRIGHT", detail.finishingHeader, "BOTTOMRIGHT", 0, -4)
         detail.finishingFrame:Show()
 
         for i, entry in ipairs(finishingSlots) do
@@ -1511,7 +1525,12 @@ function ProfRecipes:RefreshDetail()
             local box = finishingSlotFrames[i]
             box:ClearAllPoints()
             box:SetPoint("TOPLEFT", detail.finishingFrame, "TOPLEFT", (i - 1) * (SLOT_BOX_SIZE + SLOT_BOX_SPACING), 0)
-            SetupSlotBox(box, entry.slotIndex, entry.slot, currentTransaction)
+            local ok, err = pcall(SetupSlotBox, box, entry.slotIndex, entry.slot, currentTransaction)
+            if not ok then
+                box.icon:Hide()
+                box.plusText:Show()
+                box:Show()
+            end
         end
         for i = #finishingSlots + 1, MAX_FINISHING_SLOTS do
             finishingSlotFrames[i]:Hide()
@@ -1613,6 +1632,41 @@ function ProfRecipes:RefreshDetail()
         detail.concLabel:SetTextColor(unpack(ns.COLORS.mutedText))
     end
 
+    -- ── Cooldown ──
+    local cooldown, isDayCooldown, charges, maxCharges = C_TradeSkillUI.GetRecipeCooldown(selectedRecipeID)
+    local cdAnchor = detail.concText:IsShown() and detail.concText or
+                     (detail.skillText:IsShown() and detail.skillText or detail.qualityText)
+
+    if charges and maxCharges and maxCharges > 0 then
+        -- Charge-based cooldown (e.g. Transmute)
+        local cdStr
+        if charges < maxCharges and cooldown then
+            cdStr = string.format("Charges: %d/%d  (next in %s)", charges, maxCharges, SecondsToTime(cooldown))
+        else
+            cdStr = string.format("Charges: %d/%d", charges, maxCharges)
+        end
+        detail.cooldownText:SetText(cdStr)
+        detail.cooldownText:SetTextColor(charges > 0 and 0.9 or 0.9, charges > 0 and 0.82 or 0.3, charges > 0 and 0.3 or 0.3)
+        detail.cooldownText:ClearAllPoints()
+        detail.cooldownText:SetPoint("TOPLEFT", cdAnchor, "BOTTOMLEFT", 0, -4)
+        detail.cooldownText:Show()
+    elseif cooldown then
+        -- Simple cooldown
+        local cdStr
+        if isDayCooldown and cooldown <= 86400 then
+            cdStr = "Cooldown expires at midnight"
+        else
+            cdStr = "Cooldown remaining: " .. SecondsToTime(cooldown)
+        end
+        detail.cooldownText:SetText(cdStr)
+        detail.cooldownText:SetTextColor(0.9, 0.3, 0.3)
+        detail.cooldownText:ClearAllPoints()
+        detail.cooldownText:SetPoint("TOPLEFT", cdAnchor, "BOTTOMLEFT", 0, -4)
+        detail.cooldownText:Show()
+    else
+        detail.cooldownText:Hide()
+    end
+
     -- Recipe source info (unlearned or next rank)
     local sourceText, sourceLabel
     if not info.learned then
@@ -1623,8 +1677,9 @@ function ProfRecipes:RefreshDetail()
         sourceLabel = "Next Rank"
     end
 
-    local lastAnchor = detail.concText:IsShown() and detail.concText or
-                       (detail.skillText:IsShown() and detail.skillText or detail.qualityText)
+    local lastAnchor = detail.cooldownText:IsShown() and detail.cooldownText or
+                       (detail.concText:IsShown() and detail.concText or
+                       (detail.skillText:IsShown() and detail.skillText or detail.qualityText))
 
     if sourceText then
         detail.sourceLabel:SetText(sourceLabel)

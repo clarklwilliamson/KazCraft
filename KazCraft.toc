@@ -5,6 +5,7 @@
 ## Author: Kaz (Claude Code) & Logan
 ## Version: 2.0.0
 ## SavedVariables: KazCraftDB
+## RequiredDeps: KazGUILib
 ## OptionalDeps: CraftSim, TradeSkillMaster, TradeSkillMaster_AppHelper
 ## X-Category: Kaz
 ## X-Flavor: Mainline

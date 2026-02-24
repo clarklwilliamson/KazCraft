@@ -1,15 +1,19 @@
 ## Interface: 120001
+## Category-enUS: Kaz
 ## Title: KazCraft
-## Notes: Profession queue + AH replacement
+## Notes: Profession frame + AH replacement
 ## Author: Kaz (Claude Code) & Logan
 ## Version: 2.0.0
 ## SavedVariables: KazCraftDB
 ## OptionalDeps: CraftSim, TradeSkillMaster, TradeSkillMaster_AppHelper
+## X-Category: Kaz
 ## X-Flavor: Mainline
 
 Util.lua
 Data.lua
 Core.lua
+ProfRecipes.lua
+ProfessionFrame.lua
 ProfessionUI.lua
 AHShop.lua
 AHBrowse.lua

@@ -14,6 +14,8 @@ local DB_DEFAULTS = {
     recipeCache = {},
     profPosition = {},
     ahPosition = {},
+    profSize = nil,
+    profCollapses = {},
 }
 
 local function InitDB()
@@ -56,17 +58,52 @@ function handlers.TRADE_SKILL_SHOW()
     -- Background cache all recipes
     ns.Data:CacheAllRecipes(profInfo)
 
-    -- Show profession panel
-    if ns.ProfessionUI then
-        ns.ProfessionUI:Show()
+    -- Show our profession frame (replaces Blizzard ProfessionsFrame)
+    if ns.ProfFrame then
+        ns.ProfFrame:OnTradeSkillShow()
     end
 end
 
 function handlers.TRADE_SKILL_CLOSE()
-    if ns.ProfessionUI then
-        ns.ProfessionUI:Hide()
+    if ns.ProfFrame then
+        ns.ProfFrame:OnTradeSkillClose()
     end
     ns.currentProfName = nil
+end
+
+function handlers.TRADE_SKILL_LIST_UPDATE()
+    if ns.ProfFrame then
+        ns.ProfFrame:OnTradeSkillListUpdate()
+    end
+end
+
+function handlers.TRADE_SKILL_DATA_SOURCE_CHANGED()
+    SetCharKey()
+    local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
+    ns.currentProfInfo = profInfo
+    ns.currentProfName = profInfo and profInfo.professionName or "Unknown"
+    ns.Data:CacheAllRecipes(profInfo)
+    if ns.ProfFrame then
+        ns.ProfFrame:OnTradeSkillDataSourceChanged()
+    end
+end
+
+function handlers.TRADE_SKILL_CRAFT_BEGIN()
+    if ns.ProfFrame then
+        ns.ProfFrame:OnCraftBegin()
+    end
+end
+
+function handlers.UPDATE_TRADESKILL_CAST_STOPPED()
+    if ns.ProfFrame then
+        ns.ProfFrame:OnCraftStopped()
+    end
+end
+
+function handlers.CRAFTING_DETAILS_UPDATE()
+    if ns.ProfFrame and ns.ProfFrame:IsShown() and ns.ProfRecipes then
+        ns.ProfRecipes:RefreshDetail()
+    end
 end
 
 function handlers.AUCTION_HOUSE_SHOW()
@@ -83,6 +120,9 @@ function handlers.AUCTION_HOUSE_CLOSED()
 end
 
 function handlers.BAG_UPDATE_DELAYED()
+    if ns.ProfFrame and ns.ProfFrame:IsShown() then
+        ns.ProfFrame:OnBagUpdate()
+    end
     if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
         ns.ProfessionUI:RefreshMaterials()
     end
@@ -103,6 +143,9 @@ function handlers.TRADE_SKILL_ITEM_CRAFTED_RESULT()
             ns.ProfessionUI:RefreshAll()
         end
     end
+    if ns.ProfFrame then
+        ns.ProfFrame:OnCraftComplete()
+    end
 end
 
 -- Throttled refresh when item data arrives (names/icons for materials)
@@ -112,6 +155,9 @@ function handlers.GET_ITEM_INFO_RECEIVED()
     itemInfoPending = true
     C_Timer.After(0.1, function()
         itemInfoPending = false
+        if ns.ProfFrame and ns.ProfFrame:IsShown() then
+            ns.ProfFrame:Refresh()
+        end
         if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
             ns.ProfessionUI:RefreshMaterials()
         end
@@ -223,6 +269,11 @@ end)
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("TRADE_SKILL_SHOW")
 frame:RegisterEvent("TRADE_SKILL_CLOSE")
+frame:RegisterEvent("TRADE_SKILL_LIST_UPDATE")
+frame:RegisterEvent("TRADE_SKILL_DATA_SOURCE_CHANGED")
+frame:RegisterEvent("TRADE_SKILL_CRAFT_BEGIN")
+frame:RegisterEvent("UPDATE_TRADESKILL_CAST_STOPPED")
+frame:RegisterEvent("CRAFTING_DETAILS_UPDATE")
 frame:RegisterEvent("AUCTION_HOUSE_SHOW")
 frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
 frame:RegisterEvent("BAG_UPDATE_DELAYED")
@@ -253,8 +304,8 @@ SlashCmdList["KAZCRAFT"] = function(msg)
     msg = strtrim(msg):lower()
 
     if msg == "" or msg == "toggle" then
-        if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
-            ns.ProfessionUI:Hide()
+        if ns.ProfFrame and ns.ProfFrame:IsShown() then
+            ns.ProfFrame:Hide()
         elseif ns.AHUI and ns.AHUI:IsShown() then
             ns.AHUI:Hide()
         else
@@ -277,6 +328,9 @@ SlashCmdList["KAZCRAFT"] = function(msg)
     elseif msg == "clear" then
         ns.Data:ClearQueue()
         print("|cffc8aa64KazCraft:|r Queue cleared.")
+        if ns.ProfFrame and ns.ProfFrame:IsShown() then
+            ns.ProfFrame:Refresh()
+        end
         if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
             ns.ProfessionUI:RefreshAll()
         end

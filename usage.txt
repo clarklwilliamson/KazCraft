@@ -1,0 +1,29 @@
+KazCraft - Profession frame + full AH replacement
+
+Opens at profession table → replaces Blizzard ProfessionsFrame
+Opens at auction house → replaces Blizzard AuctionHouseFrame
+
+Profession Frame:
+  Top bar: profession icon, name, skill level/bar, knowledge points
+  Tabs: Recipes | Specializations | Crafting Orders
+  Recipes tab:
+    Left panel: search, filters (Have Mats / Skill Up / First Craft), category tree
+    Right panel: recipe detail, reagents (have/need), quality, craft controls, queue
+  Footer: materials cost, Craft Next button
+  "WoW UI" button switches back to Blizzard frame
+
+AH Frame:
+  Tabs: Shop | Browse | Sell | Auctions
+  "WoW UI" button switches back to Blizzard AH
+
+Commands:
+  /kc                 Toggle profession/AH UI
+  /kc list            Print current crafting queue
+  /kc clear           Clear crafting queue for current character
+  /kc shop            Print cross-character shopping list (materials needed)
+  /kc help            Show all commands
+
+  /kaz craft          Same as /kc
+
+Keyboard:
+  ESC                 Close window

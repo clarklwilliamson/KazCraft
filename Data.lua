@@ -222,13 +222,14 @@ function Data:GetMaterialList(charKey)
         mat.totalCost = mat.short * mat.price
 
         -- Item info (may need server query — request it, refresh on callback)
-        local itemName, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(itemID)
+        local itemName, _, _, _, _, _, _, _, _, itemIcon, _, _, _, bindType = C_Item.GetItemInfo(itemID)
         if not itemName then
             -- Request from server — will fire GET_ITEM_INFO_RECEIVED when ready
             C_Item.RequestLoadItemDataByID(itemID)
         end
         mat.itemName = itemName or ("Item:" .. itemID)
         mat.icon = itemIcon or 134400
+        mat.soulbound = (bindType == 1) -- LE_ITEM_BIND_ON_PICKUP
 
         table.insert(result, mat)
     end
@@ -246,7 +247,9 @@ function Data:GetTotalCost(charKey)
     local mats = self:GetMaterialList(charKey)
     local total = 0
     for _, mat in ipairs(mats) do
-        total = total + mat.totalCost
+        if not mat.soulbound then
+            total = total + mat.totalCost
+        end
     end
     return total
 end

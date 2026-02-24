@@ -438,10 +438,10 @@ function AHShop:Refresh()
         end
     end
 
-    -- Filter to only short materials
+    -- Filter to only short, buyable materials (exclude soulbound)
     local shortMats = {}
     for _, mat in ipairs(currentMats) do
-        if mat.short > 0 then
+        if mat.short > 0 and not mat.soulbound then
             table.insert(shortMats, mat)
         end
     end

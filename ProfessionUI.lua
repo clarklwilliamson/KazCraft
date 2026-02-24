@@ -388,7 +388,13 @@ function ProfUI:RefreshMaterials()
                 row.nameText:SetText(mat.itemName)
 
                 local haveColor = mat.have >= mat.need and ns.COLORS.greenText or ns.COLORS.redText
-                row.nameText:SetTextColor(unpack(haveColor))
+                if mat.soulbound then
+                    row.nameText:SetTextColor(unpack(ns.COLORS.mutedText))
+                    row.icon:SetDesaturated(true)
+                else
+                    row.nameText:SetTextColor(unpack(haveColor))
+                    row.icon:SetDesaturated(false)
+                end
                 row.countText:SetText(mat.have .. "/" .. mat.need)
                 row.countText:SetTextColor(unpack(haveColor))
 

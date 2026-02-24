@@ -545,12 +545,10 @@ local function CreateReagentRow(parent, index)
 
     row.countText = row:CreateFontString(nil, "OVERLAY")
     row.countText:SetFont(ns.FONT, 11, "")
-    row.countText:SetPoint("RIGHT", row, "RIGHT", -24, 0)
+    row.countText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     row.countText:SetJustifyH("RIGHT")
 
-    row.checkText = row:CreateFontString(nil, "OVERLAY")
-    row.checkText:SetFont(ns.FONT, 11, "")
-    row.checkText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+    row.checkText = nil  -- merged into countText
 
     return row
 end
@@ -608,9 +606,16 @@ local function CreateQueueRowSmall(parent, index)
 end
 
 local function CreateRightPanel(parent)
-    rightPanel = CreateFrame("Frame", nil, parent)
+    rightPanel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", 0, 0)
     rightPanel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+    rightPanel:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeSize = 1,
+    })
+    rightPanel:SetBackdropColor(unpack(ns.COLORS.panelBg))
+    rightPanel:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
 
     -- Scrollable detail content
     local scroll = CreateFrame("ScrollFrame", nil, rightPanel, "UIPanelScrollFrameTemplate")
@@ -912,14 +917,10 @@ function ProfRecipes:RefreshDetail()
 
                 -- Have count
                 local have = itemID and C_Item.GetItemCount(itemID, true, false, true, true) or 0
-                row.countText:SetText(have .. "/" .. needed)
-
                 if have >= needed then
-                    row.countText:SetTextColor(unpack(ns.COLORS.greenText))
-                    row.checkText:SetText("|cff4dff4dOK|r") -- ✓
+                    row.countText:SetText("|cff4dff4d" .. have .. "/" .. needed .. "|r")
                 else
-                    row.countText:SetTextColor(unpack(ns.COLORS.redText))
-                    row.checkText:SetText("")
+                    row.countText:SetText("|cffff4d4d" .. have .. "/" .. needed .. "|r")
                 end
 
                 row:Show()

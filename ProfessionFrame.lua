@@ -470,10 +470,10 @@ function ProfFrame:Refresh()
     end
 end
 
-function ProfFrame:RefreshRecipeList()
+function ProfFrame:RefreshRecipeList(resetScroll)
     if not self:IsShown() then return end
     if activeTab == "recipes" and ns.ProfRecipes then
-        ns.ProfRecipes:RefreshRecipeList()
+        ns.ProfRecipes:RefreshRecipeList(resetScroll)
     end
 end
 
@@ -576,7 +576,7 @@ function ProfFrame:ToggleExpansionMenu(anchorBtn)
             C_Timer.After(0.05, function()
                 if ProfFrame:IsShown() then
                     UpdateTopBar()
-                    ProfFrame:RefreshRecipeList()
+                    ProfFrame:RefreshRecipeList(true)
                 end
             end)
         end)
@@ -638,7 +638,7 @@ end
 function ProfFrame:OnTradeSkillDataSourceChanged()
     if not self:IsShown() then return end
     UpdateTopBar()
-    self:RefreshRecipeList()
+    self:RefreshRecipeList(true)
 end
 
 function ProfFrame:OnCraftBegin()

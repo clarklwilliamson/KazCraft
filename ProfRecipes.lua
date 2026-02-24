@@ -1063,10 +1063,15 @@ end
 --------------------------------------------------------------------
 -- Refresh recipe list (rebuild from API)
 --------------------------------------------------------------------
-function ProfRecipes:RefreshRecipeList()
+function ProfRecipes:RefreshRecipeList(resetScroll)
     if not initialized then return end
     BuildDisplayList()
-    scrollOffset = 0
+    if resetScroll then
+        scrollOffset = 0
+    else
+        -- Clamp scroll to new list size
+        scrollOffset = math.max(0, math.min(scrollOffset, math.max(0, #displayList - MAX_VISIBLE_ROWS)))
+    end
     self:RefreshRows()
 end
 
@@ -1373,7 +1378,7 @@ function ProfRecipes:Show()
     if not initialized then return end
     leftPanel:Show()
     rightPanel:Show()
-    self:RefreshRecipeList()
+    self:RefreshRecipeList(true)
     self:RefreshDetail()
 end
 

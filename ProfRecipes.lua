@@ -938,6 +938,10 @@ local function CreateRightPanel(parent)
         reagentRows[i] = CreateReagentRow(detail.reagentFrame, i)
     end
 
+    -- ── Salvage slot (Disassemble, Scour, Pilfer) ──
+    detail.salvageBox = CreateReagentSlotBox(detailFrame, 1)
+    detail.salvageBox:Hide()
+
     -- ── Optional Reagents ──
     detail.optionalHeader = detailFrame:CreateFontString(nil, "OVERLAY")
     detail.optionalHeader:SetFont(ns.FONT, 12, "")
@@ -1227,9 +1231,16 @@ local function SetupSlotBox(box, slotIndex, slotSchematic, transaction)
             return
         end
 
-        -- Left click — open Blizzard flyout
+        -- Left click — toggle Blizzard flyout
         if not transaction or not slotSchematic then return end
         if not CreateProfessionsMCRFlyout then return end
+
+        -- If flyout is already open for this box, close and bail
+        if self._flyoutOpen then
+            if CloseProfessionsItemFlyout then CloseProfessionsItemFlyout() end
+            self._flyoutOpen = false
+            return
+        end
 
         if CloseProfessionsItemFlyout then
             CloseProfessionsItemFlyout()
@@ -1254,6 +1265,14 @@ local function SetupSlotBox(box, slotIndex, slotSchematic, transaction)
         if flyout then
             flyout:SetFrameStrata("TOOLTIP")
             flyout:SetFrameLevel(900)
+            self._flyoutOpen = true
+
+            -- Clear flag when flyout closes (selection or outside click)
+            local ownerBox = self
+            flyout:HookScript("OnHide", function()
+                ownerBox._flyoutOpen = false
+            end)
+
             local function OnFlyoutItemSelected(o, f, elementData)
                 local reagent = elementData.reagent
                 if not reagent then return end
@@ -1279,6 +1298,7 @@ function ProfRecipes:RefreshDetail()
         detail.subtypeText:SetText("")
         detail.reagentHeader:Hide()
         detail.reagentFrame:Hide()
+        detail.salvageBox:Hide()
         detail.optionalHeader:Hide()
         detail.optionalFrame:Hide()
         detail.finishingHeader:Hide()
@@ -1343,9 +1363,80 @@ function ProfRecipes:RefreshDetail()
 
     local schematic = currentSchematic
 
+    -- ── Salvage slot (Disassemble, Scour, Pilfer) ──
+    local isSalvage = schematic and schematic.recipeType == Enum.TradeskillRecipeType.Salvage
+    if isSalvage and currentTransaction then
+        detail.reagentHeader:SetText("TARGET ITEM")
+        detail.reagentHeader:Show()
+        detail.reagentFrame:Hide()
+
+        local sBox = detail.salvageBox
+        sBox:ClearAllPoints()
+        sBox:SetPoint("TOPLEFT", detail.reagentHeader, "BOTTOMLEFT", 0, -6)
+
+        -- Show current salvage allocation if any
+        local salvageItem = currentTransaction:GetSalvageAllocation()
+        if salvageItem then
+            local itemID = salvageItem:GetItemID()
+            if itemID then
+                local _, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(itemID)
+                sBox.icon:SetTexture(itemIcon or 134400)
+                sBox.icon:Show()
+                sBox.plusText:Hide()
+                sBox.itemID = itemID
+            else
+                sBox.icon:Hide()
+                sBox.plusText:Show()
+                sBox.itemID = nil
+            end
+        else
+            sBox.icon:Hide()
+            sBox.plusText:Show()
+            sBox.itemID = nil
+        end
+
+        sBox:SetScript("OnClick", function(self, button)
+            if button == "RightButton" then
+                currentTransaction:ClearSalvageAllocations()
+                ProfRecipes:RefreshDetail()
+                return
+            end
+            -- Left click — toggle salvage flyout
+            if self._flyoutOpen then
+                if CloseProfessionsItemFlyout then CloseProfessionsItemFlyout() end
+                self._flyoutOpen = false
+                return
+            end
+            if CloseProfessionsItemFlyout then CloseProfessionsItemFlyout() end
+            if not CreateProfessionsSalvageFlyout then return end
+
+            local behavior = CreateProfessionsSalvageFlyout(currentTransaction)
+            local flyout = OpenProfessionsItemFlyout(self, detailFrame, behavior)
+            if flyout then
+                flyout:SetFrameStrata("TOOLTIP")
+                flyout:SetFrameLevel(900)
+                self._flyoutOpen = true
+                flyout:HookScript("OnHide", function() sBox._flyoutOpen = false end)
+
+                flyout:RegisterCallback(ProfessionsFlyoutMixin.Event.ItemSelected, function(_, _, elementData)
+                    local item = elementData.item
+                    if not item then return end
+                    currentTransaction:SetSalvageAllocation(item)
+                    ProfRecipes:RefreshDetail()
+                end)
+            end
+        end)
+        sBox:Show()
+    else
+        detail.reagentHeader:SetText("REAGENTS")
+        detail.salvageBox:Hide()
+    end
+
     -- ── Basic Reagents ──
-    detail.reagentHeader:Show()
-    detail.reagentFrame:Show()
+    if not isSalvage then
+        detail.reagentHeader:Show()
+        detail.reagentFrame:Show()
+    end
 
     local reagentCount = 0
     local optionalSlots = {}
@@ -1468,9 +1559,16 @@ function ProfRecipes:RefreshDetail()
     detail.reagentFrame:SetHeight(math.max(1, reagentCount * REAGENT_ROW_HEIGHT))
 
     -- ── Optional Reagents section ──
-    local chainAnchor = detail.reagentFrame
-    local chainAnchorPoint = "BOTTOMLEFT"
-    local chainOffset = -10
+    local chainAnchor, chainAnchorPoint, chainOffset
+    if isSalvage then
+        chainAnchor = detail.salvageBox
+        chainAnchorPoint = "BOTTOMLEFT"
+        chainOffset = -10
+    else
+        chainAnchor = detail.reagentFrame
+        chainAnchorPoint = "BOTTOMLEFT"
+        chainOffset = -10
+    end
 
     if #optionalSlots > 0 and currentTransaction then
         detail.optionalHeader:ClearAllPoints()

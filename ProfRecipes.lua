@@ -911,18 +911,18 @@ local function CreateRightPanel(parent)
 
     detail.sourceIcon = detail.sourceFrame:CreateTexture(nil, "ARTWORK")
     detail.sourceIcon:SetSize(16, 16)
-    detail.sourceIcon:SetPoint("LEFT", detail.sourceFrame, "LEFT", 6, 0)
+    detail.sourceIcon:SetPoint("TOPLEFT", detail.sourceFrame, "TOPLEFT", 6, -6)
     detail.sourceIcon:SetTexture("Interface\\common\\help-i")
 
     detail.sourceLabel = detail.sourceFrame:CreateFontString(nil, "OVERLAY")
     detail.sourceLabel:SetFont(ns.FONT, 10, "")
-    detail.sourceLabel:SetPoint("TOPLEFT", detail.sourceIcon, "TOPRIGHT", 4, 0)
+    detail.sourceLabel:SetPoint("TOPLEFT", detail.sourceIcon, "TOPRIGHT", 4, 1)
     detail.sourceLabel:SetTextColor(1, 0.82, 0)
 
     detail.sourceText = detail.sourceFrame:CreateFontString(nil, "OVERLAY")
     detail.sourceText:SetFont(ns.FONT, 11, "")
-    detail.sourceText:SetPoint("TOPLEFT", detail.sourceLabel, "BOTTOMLEFT", 0, -2)
-    detail.sourceText:SetPoint("RIGHT", detail.sourceFrame, "RIGHT", -6, 0)
+    detail.sourceText:SetPoint("TOPLEFT", detail.sourceLabel, "BOTTOMLEFT", 0, -4)
+    detail.sourceText:SetPoint("RIGHT", detail.sourceFrame, "RIGHT", -8, 0)
     detail.sourceText:SetJustifyH("LEFT")
     detail.sourceText:SetWordWrap(true)
     detail.sourceText:SetTextColor(unpack(ns.COLORS.brightText))
@@ -1260,10 +1260,13 @@ function ProfRecipes:RefreshDetail()
         detail.sourceFrame:ClearAllPoints()
         detail.sourceFrame:SetPoint("TOPLEFT", lastAnchor, "BOTTOMLEFT", -8, -8)
         detail.sourceFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
-        -- Size height to fit text
-        local textHeight = detail.sourceText:GetStringHeight() or 14
-        detail.sourceFrame:SetHeight(textHeight + detail.sourceLabel:GetStringHeight() + 16)
+        -- Force layout so GetStringHeight returns correct value
+        detail.sourceFrame:SetHeight(200)
         detail.sourceFrame:Show()
+        local labelH = detail.sourceLabel:GetStringHeight() or 12
+        local textH = detail.sourceText:GetStringHeight() or 14
+        -- 6 top pad + label + 4 gap + text + 8 bottom pad
+        detail.sourceFrame:SetHeight(labelH + textH + 18)
         lastAnchor = detail.sourceFrame
     else
         detail.sourceFrame:Hide()

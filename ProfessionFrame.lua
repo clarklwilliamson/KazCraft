@@ -25,7 +25,7 @@ local switchingToBlizzard = false
 local TAB_DEFS = {
     { key = "recipes", label = "Recipes", module = function() return ns.ProfRecipes end },
     { key = "specs",   label = "Specializations", module = function() return ns.ProfSpecs end },
-    { key = "orders",  label = "Crafting Orders", module = function() return nil end },
+    { key = "orders",  label = "Crafting Orders", module = function() return ns.ProfOrders end },
 }
 
 --------------------------------------------------------------------
@@ -396,9 +396,6 @@ function ProfFrame:SelectTab(key)
         end
     end
 
-    -- Hide placeholder before showing new tab
-    self:HidePlaceholder()
-
     -- Show selected tab
     for _, def in ipairs(TAB_DEFS) do
         if def.key == key then
@@ -410,34 +407,12 @@ function ProfFrame:SelectTab(key)
                 if mod.Show then
                     mod:Show()
                 end
-            elseif key == "orders" then
-                -- Placeholder — show message
-                self:ShowPlaceholder(key)
             end
             break
         end
     end
 end
 
--- Placeholder for unimplemented tabs
-local placeholderText
-function ProfFrame:ShowPlaceholder(key)
-    if not placeholderText then
-        placeholderText = contentFrame:CreateFontString(nil, "OVERLAY")
-        placeholderText:SetFont(ns.FONT, 14, "")
-        placeholderText:SetPoint("CENTER", contentFrame, "CENTER", 0, 0)
-        placeholderText:SetTextColor(unpack(ns.COLORS.mutedText))
-    end
-    local labels = { orders = "Crafting Orders" }
-    placeholderText:SetText((labels[key] or key) .. " — coming soon")
-    placeholderText:Show()
-end
-
-function ProfFrame:HidePlaceholder()
-    if placeholderText then
-        placeholderText:Hide()
-    end
-end
 
 function ProfFrame:GetContentFrame()
     return contentFrame
@@ -454,9 +429,6 @@ function ProfFrame:Show()
 
     SuppressBlizzardProf()
     UpdateTopBar()
-
-    -- Hide placeholder
-    self:HidePlaceholder()
 
     -- Select Recipes tab
     if tabBar then
@@ -643,7 +615,6 @@ function ProfFrame:EnsureBlizzardSwitchButton()
         SuppressBlizzardProf()
         if not mainFrame then CreateMainFrame() end
         UpdateTopBar()
-        ProfFrame:HidePlaceholder()
         if tabBar then tabBar:Select(activeTab or "recipes") end
         ProfFrame:SelectTab(activeTab or "recipes")
         mainFrame:Show()

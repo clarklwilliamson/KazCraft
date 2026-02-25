@@ -393,8 +393,6 @@ local function UpdateRecipeRow(row, entry, index)
         row.recipeID = entry.recipeID
         row.arrow:Hide()
 
-        row.countText:Hide()
-
         row.icon:Show()
         row.icon:ClearAllPoints()
         row.icon:SetPoint("LEFT", row, "LEFT", 4 + indent, 0)
@@ -403,7 +401,12 @@ local function UpdateRecipeRow(row, entry, index)
         local craftable = C_TradeSkillUI.GetCraftableCount(entry.recipeID) or 0
         local recipeName = info and info.name or ("Recipe " .. entry.recipeID)
         if craftable > 0 then
-            recipeName = recipeName .. " |cffc8aa64[" .. craftable .. "]|r"
+            row.countText:SetFont(ns.FONT, 12, "")
+            row.countText:SetText("|cffc8aa64[" .. craftable .. "]|r")
+            row.countText:SetWidth(0)
+            row.countText:Show()
+        else
+            row.countText:Hide()
         end
         row.nameText:Show()
         row.nameText:ClearAllPoints()
@@ -440,7 +443,7 @@ local function UpdateRecipeRow(row, entry, index)
             row.qualityPip:Hide()
         end
 
-        -- Right-side anchor chain: name truncates before rightmost element
+        -- Right-side anchor chain: name truncates before rightmost elements
         local rightAnchor = row
         local rightPoint = "RIGHT"
         local rightOfs = -4
@@ -450,6 +453,13 @@ local function UpdateRecipeRow(row, entry, index)
             rightAnchor = row.qualityPip
             rightPoint = "LEFT"
             rightOfs = -1
+        end
+        if row.countText:IsShown() then
+            row.countText:ClearAllPoints()
+            row.countText:SetPoint("RIGHT", rightAnchor, rightPoint, rightOfs, 0)
+            rightAnchor = row.countText
+            rightPoint = "LEFT"
+            rightOfs = -2
         end
         if row.favText:IsShown() then
             row.favText:ClearAllPoints()

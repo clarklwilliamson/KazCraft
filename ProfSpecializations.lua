@@ -377,9 +377,9 @@ local function PopulateDetailPanel(pathID)
     detailName:SetText(name or "Specialization")
     detailName:SetTextColor(unpack(ns.COLORS.accent))
 
-    -- Rank
-    local cur = ni.activeRank or 0
-    local mx = ni.maxRanks or 0
+    -- Rank (subtract 1: unlock entry is free and doesn't count)
+    local cur = math.max((ni.activeRank or 0) - 1, 0)
+    local mx = math.max((ni.maxRanks or 0) - 1, 0)
     if mx > 0 then
         local rankColor = (cur >= mx) and "|cff4dff4d" or "|cffffffff"
         detailRank:SetText("Rank: " .. rankColor .. cur .. "/" .. mx .. "|r")
@@ -463,8 +463,8 @@ local function PopulateDetailPanel(pathID)
     elseif state == "maxed" then
         detailStatus:SetText("|cff4dff4dCompleted|r")
     elseif state == "progress" then
-        local cur = ni.activeRank or 0
-        local mx = ni.maxRanks or 0
+        local cur = math.max((ni.activeRank or 0) - 1, 0)
+        local mx = math.max((ni.maxRanks or 0) - 1, 0)
         detailStatus:SetText("|cffC8AA64In progress (" .. cur .. "/" .. mx .. ")|r")
     else
         detailStatus:SetText("")
@@ -561,8 +561,9 @@ local function UpdateNodeFrame(f, nodeID, treeLocked)
     local icon, name, desc = GetNodeDisplayInfo(ni)
     f.icon:SetTexture(icon or 134400)
 
-    local current = ni.activeRank or 0
-    local max = ni.maxRanks or 0
+    -- Subtract 1: unlock entry is free, doesn't count as a spent point
+    local current = math.max((ni.activeRank or 0) - 1, 0)
+    local max = math.max((ni.maxRanks or 0) - 1, 0)
     f.rankText:SetText(max > 0 and (current .. "/" .. max) or "")
 
     local state = GetNodeState(nodeID, treeLocked)

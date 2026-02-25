@@ -298,6 +298,113 @@ local function CreateMainFrame()
         ProfFrame:SwitchToBlizzard()
     end)
 
+    -- Profession equipment slots (left of WoW UI button, recipe tab only)
+    local EQUIP_SIZE = 20
+    local EQUIP_GAP = 3
+    local equipSlots = {}  -- list of slot frames
+
+    local function GetProfessionSlotIDs()
+        local profInfo = C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
+            or C_TradeSkillUI.GetChildProfessionInfo()
+        if not profInfo then return {} end
+
+        -- Get the parent (overall) profession ID for matching
+        local targetID = tonumber(profInfo.parentProfessionID or profInfo.professionID)
+        if not targetID then return {} end
+
+        local prof1, prof2, _, fishing, cooking = GetProfessions()
+
+        -- Check each profession index, compare skillLine to our target
+        if cooking then
+            local _, _, _, _, _, _, skillLine = GetProfessionInfo(cooking)
+            if tonumber(skillLine) == targetID then return { 26, 27 } end
+        end
+        if fishing then
+            local _, _, _, _, _, _, skillLine = GetProfessionInfo(fishing)
+            if tonumber(skillLine) == targetID then return { 28 } end
+        end
+        if prof1 then
+            local _, _, _, _, _, _, skillLine = GetProfessionInfo(prof1)
+            if tonumber(skillLine) == targetID then return { 20, 21, 22 } end
+        end
+        if prof2 then
+            local _, _, _, _, _, _, skillLine = GetProfessionInfo(prof2)
+            if tonumber(skillLine) == targetID then return { 23, 24, 25 } end
+        end
+        return {}
+    end
+
+    local function CreateEquipSlot(index)
+        local f = CreateFrame("Button", nil, mainFrame, "BackdropTemplate")
+        f:SetSize(EQUIP_SIZE, EQUIP_SIZE)
+        f:SetBackdrop({
+            bgFile = "Interface\\BUTTONS\\WHITE8X8",
+            edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+            edgeSize = 1,
+        })
+        f:SetBackdropColor(0.06, 0.06, 0.06, 0.9)
+        f:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+
+        f.icon = f:CreateTexture(nil, "ARTWORK")
+        f.icon:SetSize(EQUIP_SIZE - 4, EQUIP_SIZE - 4)
+        f.icon:SetPoint("CENTER")
+
+        f.slotID = nil
+
+        f:SetScript("OnEnter", function(self)
+            if not self.slotID then return end
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+            GameTooltip:SetInventoryItem("player", self.slotID)
+            GameTooltip:Show()
+            self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
+        end)
+        f:SetScript("OnLeave", function(self)
+            GameTooltip:Hide()
+            self:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+        end)
+
+        return f
+    end
+
+    -- Create 3 slots (max possible), show/hide as needed
+    for i = 1, 3 do
+        equipSlots[i] = CreateEquipSlot(i)
+    end
+
+    function ProfFrame:UpdateEquipmentSlots()
+        local slotIDs = GetProfessionSlotIDs()
+        for i = 1, 3 do
+            local slot = equipSlots[i]
+            local invSlot = slotIDs[i]
+            if invSlot then
+                slot.slotID = invSlot
+                local tex = GetInventoryItemTexture("player", invSlot)
+                if tex then
+                    slot.icon:SetTexture(tex)
+                    slot.icon:SetDesaturated(false)
+                    slot.icon:SetAlpha(1)
+                else
+                    slot.icon:SetTexture(134400)  -- question mark
+                    slot.icon:SetDesaturated(true)
+                    slot.icon:SetAlpha(0.3)
+                end
+                slot:ClearAllPoints()
+                slot:SetPoint("RIGHT", wowBtn, "LEFT", -(EQUIP_GAP + (i - 1) * (EQUIP_SIZE + EQUIP_GAP)), 0)
+                slot:Show()
+            else
+                slot:Hide()
+            end
+        end
+    end
+
+    function ProfFrame:ShowEquipmentSlots()
+        self:UpdateEquipmentSlots()
+    end
+
+    function ProfFrame:HideEquipmentSlots()
+        for i = 1, 3 do equipSlots[i]:Hide() end
+    end
+
     -- ESC key support
     table.insert(UISpecialFrames, "KazCraftProfFrame2")
     mainFrame:SetScript("OnHide", function()
@@ -385,6 +492,13 @@ function ProfFrame:SelectTab(key)
             end
             break
         end
+    end
+
+    -- Equipment slots: recipe tab only
+    if key == "recipes" then
+        self:ShowEquipmentSlots()
+    else
+        self:HideEquipmentSlots()
     end
 end
 

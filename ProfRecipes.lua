@@ -1532,7 +1532,7 @@ function ProfRecipes:RefreshDetail()
             currentTransaction = CreateProfessionsRecipeTransaction(currentSchematic)
             lastTransactionRecipeID = selectedRecipeID
             if not isRecraft then
-                Professions.AllocateAllBasicReagents(currentTransaction, useBest and true or false)
+                pcall(Professions.AllocateAllBasicReagents, currentTransaction, useBest and true or false)
             end
         end
     else
@@ -1573,6 +1573,9 @@ function ProfRecipes:RefreshDetail()
         detail.reagentHeader:SetText("TARGET ITEM")
         detail.reagentHeader:Show()
         detail.reagentFrame:Hide()
+        detail.recraftBox:Hide()
+        detail.recraftArrow:Hide()
+        detail.recraftOutput:Hide()
 
         local sBox = detail.salvageBox
         sBox:ClearAllPoints()

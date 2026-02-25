@@ -1101,6 +1101,23 @@ local function CreateRightPanel(parent)
     detail.recraftOutput:Hide()
     detail.recraftOutput:SetScript("OnClick", nil) -- output box is display-only
 
+    -- ── Enchant target slot ──
+    detail.enchantHeader = detailFrame:CreateFontString(nil, "OVERLAY")
+    detail.enchantHeader:SetFont(ns.FONT, 12, "")
+    detail.enchantHeader:SetText("ENCHANT TARGET")
+    detail.enchantHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    detail.enchantHeader:Hide()
+
+    detail.enchantBox = CreateReagentSlotBox(detailFrame, 1)
+    detail.enchantBox:Hide()
+
+    detail.enchantName = detailFrame:CreateFontString(nil, "OVERLAY")
+    detail.enchantName:SetFont(ns.FONT, 11, "")
+    detail.enchantName:SetPoint("LEFT", detail.enchantBox, "RIGHT", 8, 0)
+    detail.enchantName:SetTextColor(unpack(ns.COLORS.brightText))
+    detail.enchantName:SetText("Select an item to enchant")
+    detail.enchantName:Hide()
+
     -- ── Optional Reagents ──
     detail.optionalHeader = detailFrame:CreateFontString(nil, "OVERLAY")
     detail.optionalHeader:SetFont(ns.FONT, 12, "")
@@ -1285,6 +1302,8 @@ local function CreateRightPanel(parent)
             currentTransaction:CraftSalvage(qty)
         elseif currentTransaction and currentTransaction:IsRecraft() then
             currentTransaction:RecraftRecipe()
+        elseif currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Enchant) then
+            currentTransaction:CraftEnchant(selectedRecipeID, qty)
         else
             local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
             C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty, reagentInfoTbl, nil, nil, applyConc)
@@ -1302,6 +1321,15 @@ local function CreateRightPanel(parent)
             currentTransaction:CraftSalvage(1)
         elseif currentTransaction and currentTransaction:IsRecraft() then
             currentTransaction:RecraftRecipe()
+        elseif currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Enchant) then
+            local enchantItem = currentTransaction:GetEnchantAllocation()
+            if enchantItem then
+                -- For vellums, craft count = available vellums; for gear, always 1
+                local itemID = enchantItem:GetItemID()
+                local count = itemID and ItemUtil.GetCraftingReagentCount(itemID) or 1
+                if count < 1 then count = 1 end
+                currentTransaction:CraftEnchant(selectedRecipeID, count)
+            end
         else
             local info = C_TradeSkillUI.GetRecipeInfo(selectedRecipeID)
             local count = info and info.numAvailable or 0
@@ -1546,6 +1574,9 @@ function ProfRecipes:RefreshDetail()
         detail.recraftBox:Hide()
         detail.recraftArrow:Hide()
         detail.recraftOutput:Hide()
+        detail.enchantHeader:Hide()
+        detail.enchantBox:Hide()
+        detail.enchantName:Hide()
         detail.optionalHeader:Hide()
         detail.optionalFrame:Hide()
         detail.finishingHeader:Hide()
@@ -2000,10 +2031,89 @@ function ProfRecipes:RefreshDetail()
     -- Adjust reagent frame height
     detail.reagentFrame:SetHeight(math.max(1, reagentCount * REAGENT_ROW_HEIGHT))
 
+    -- ── Enchant target slot ──
+    local isEnchant = schematic and schematic.recipeType == Enum.TradeskillRecipeType.Enchant
+        and not C_TradeSkillUI.IsRuneforging()
+    if isEnchant and currentTransaction then
+        detail.enchantHeader:ClearAllPoints()
+        detail.enchantHeader:SetPoint("TOPLEFT", detail.reagentFrame, "BOTTOMLEFT", 0, -10)
+        detail.enchantHeader:Show()
+
+        local eBox = detail.enchantBox
+        eBox:ClearAllPoints()
+        eBox:SetPoint("TOPLEFT", detail.enchantHeader, "BOTTOMLEFT", 0, -4)
+
+        -- Show current enchant allocation
+        local enchantItem = currentTransaction:GetEnchantAllocation()
+        if enchantItem then
+            local itemID = enchantItem:GetItemID()
+            if itemID then
+                local itemIcon = C_Item.GetItemIconByID(itemID)
+                eBox.icon:SetTexture(itemIcon or 134400)
+                eBox.icon:Show()
+                eBox.plusText:Hide()
+                eBox.itemID = itemID
+                detail.enchantName:SetText(enchantItem:GetItemName() or "")
+            else
+                eBox.icon:Hide()
+                eBox.plusText:Show()
+                eBox.itemID = nil
+                detail.enchantName:SetText("Select an item to enchant")
+            end
+        else
+            eBox.icon:Hide()
+            eBox.plusText:Show()
+            eBox.itemID = nil
+            detail.enchantName:SetText("Select an item to enchant")
+        end
+
+        eBox:SetScript("OnClick", function(self, button)
+            if button == "RightButton" then
+                currentTransaction:ClearEnchantAllocations()
+                ProfRecipes:RefreshDetail()
+                return
+            end
+            -- Left click — toggle enchant flyout
+            if self._flyoutOpen then
+                if CloseProfessionsItemFlyout then CloseProfessionsItemFlyout() end
+                self._flyoutOpen = false
+                return
+            end
+            if CloseProfessionsItemFlyout then CloseProfessionsItemFlyout() end
+            if not CreateProfessionsEnchantFlyout then return end
+
+            local behavior = CreateProfessionsEnchantFlyout(currentTransaction)
+            local flyout = OpenProfessionsItemFlyout(self, detailFrame, behavior)
+            if flyout then
+                flyout:SetFrameStrata("TOOLTIP")
+                flyout:SetFrameLevel(900)
+                self._flyoutOpen = true
+                flyout:HookScript("OnHide", function() eBox._flyoutOpen = false end)
+
+                flyout:RegisterCallback(ProfessionsFlyoutMixin.Event.ItemSelected, function(_, _, elementData)
+                    local item = elementData.item
+                    if not item then return end
+                    currentTransaction:SetEnchantAllocation(item)
+                    ProfRecipes:RefreshDetail()
+                end)
+            end
+        end)
+        eBox:Show()
+        detail.enchantName:Show()
+    else
+        detail.enchantHeader:Hide()
+        detail.enchantBox:Hide()
+        detail.enchantName:Hide()
+    end
+
     -- ── Optional Reagents section ──
     local chainAnchor, chainAnchorPoint, chainOffset
     if isSalvage then
         chainAnchor = detail.salvageBox
+        chainAnchorPoint = "BOTTOMLEFT"
+        chainOffset = -10
+    elseif isEnchant then
+        chainAnchor = detail.enchantBox
         chainAnchorPoint = "BOTTOMLEFT"
         chainOffset = -10
     else

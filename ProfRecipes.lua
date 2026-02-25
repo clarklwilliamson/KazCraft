@@ -280,6 +280,11 @@ local function CreateRecipeRow(parent, index)
     row.countText:SetJustifyH("RIGHT")
     row.countText:SetWidth(20)
 
+    -- Quality pip (atlas icon)
+    row.qualityPip = row:CreateTexture(nil, "OVERLAY")
+    row.qualityPip:SetSize(14, 14)
+    row.qualityPip:Hide()
+
     -- Favorite star
     row.favText = row:CreateFontString(nil, "OVERLAY")
     row.favText:SetFont(ns.FONT, 12, "")
@@ -336,6 +341,7 @@ local function UpdateRecipeRow(row, entry, index)
         row.arrow:Hide()
         row.countText:Hide()
         row.favText:Hide()
+        row.qualityPip:Hide()
         row._selected = false
         row.leftAccent:Hide()
         row.bg:SetColorTexture(1, 1, 1, 0)
@@ -369,6 +375,7 @@ local function UpdateRecipeRow(row, entry, index)
 
         row.countText:SetText("")
         row.favText:Hide()
+        row.qualityPip:Hide()
         row._selected = false
         row.leftAccent:Hide()
         row.bg:SetColorTexture(1, 1, 1, 0)
@@ -386,33 +393,23 @@ local function UpdateRecipeRow(row, entry, index)
         row.recipeID = entry.recipeID
         row.arrow:Hide()
 
-        -- Craftable count (left of icon)
-        local craftable = info and info.numAvailable or 0
-        row.countText:ClearAllPoints()
-        row.countText:SetPoint("LEFT", row, "LEFT", 4 + indent, 0)
-        if craftable > 0 then
-            row.countText:SetText(craftable)
-            row.countText:SetTextColor(unpack(ns.COLORS.greenText))
-            row.countText:Show()
-        else
-            row.countText:SetText("")
-            row.countText:Hide()
-        end
+        row.countText:Hide()
 
         row.icon:Show()
         row.icon:ClearAllPoints()
-        if craftable > 0 then
-            row.icon:SetPoint("LEFT", row.countText, "RIGHT", 2, 0)
-        else
-            row.icon:SetPoint("LEFT", row, "LEFT", 4 + indent, 0)
-        end
+        row.icon:SetPoint("LEFT", row, "LEFT", 4 + indent, 0)
         row.icon:SetTexture(info and info.icon or 134400)
 
+        local craftable = C_TradeSkillUI.GetCraftableCount(entry.recipeID) or 0
+        local recipeName = info and info.name or ("Recipe " .. entry.recipeID)
+        if craftable > 0 then
+            recipeName = recipeName .. " |cffc8aa64[" .. craftable .. "]|r"
+        end
         row.nameText:Show()
         row.nameText:ClearAllPoints()
         row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
         row.nameText:SetPoint("RIGHT", row, "RIGHT", -20, 0)
-        row.nameText:SetText(info and info.name or ("Recipe " .. entry.recipeID))
+        row.nameText:SetText(recipeName)
         row.nameText:SetFont(ns.FONT, 14, "")
         local color = GetDifficultyColor(info)
         row.nameText:SetTextColor(color[1], color[2], color[3])
@@ -423,6 +420,45 @@ local function UpdateRecipeRow(row, entry, index)
         else
             row.favText:Hide()
         end
+
+        -- Quality pip — show achievable tier for recipes with quality
+        local hasQuality = info and info.qualityIlvlBonuses and #info.qualityIlvlBonuses > 0
+        if hasQuality and ProfessionsUtil and Professions then
+            local tempSchematic = ProfessionsUtil.GetRecipeSchematic(entry.recipeID, false)
+            local tempTxn = CreateProfessionsRecipeTransaction(tempSchematic)
+            pcall(Professions.AllocateAllBasicReagents, tempTxn, true)
+            local tempReagents = tempTxn:CreateCraftingReagentInfoTbl() or {}
+            local opInfo = C_TradeSkillUI.GetCraftingOperationInfo(entry.recipeID, tempReagents, nil, false)
+            local qTier = opInfo and opInfo.craftingQuality or 0
+            if qTier > 0 then
+                row.qualityPip:SetAtlas("Professions-Icon-Quality-Tier" .. qTier .. "-Small", false)
+                row.qualityPip:Show()
+            else
+                row.qualityPip:Hide()
+            end
+        else
+            row.qualityPip:Hide()
+        end
+
+        -- Right-side anchor chain: name truncates before rightmost element
+        local rightAnchor = row
+        local rightPoint = "RIGHT"
+        local rightOfs = -4
+        if row.qualityPip:IsShown() then
+            row.qualityPip:ClearAllPoints()
+            row.qualityPip:SetPoint("RIGHT", rightAnchor, rightPoint, rightOfs, 0)
+            rightAnchor = row.qualityPip
+            rightPoint = "LEFT"
+            rightOfs = -1
+        end
+        if row.favText:IsShown() then
+            row.favText:ClearAllPoints()
+            row.favText:SetPoint("RIGHT", rightAnchor, rightPoint, rightOfs, 0)
+            rightAnchor = row.favText
+            rightPoint = "LEFT"
+            rightOfs = -2
+        end
+        row.nameText:SetPoint("RIGHT", rightAnchor, rightPoint, rightOfs, 0)
 
         -- Selection highlight
         local isSelected = (entry.recipeID == selectedRecipeID)
@@ -1002,6 +1038,12 @@ local function CreateRightPanel(parent)
         end
     end)
 
+    -- Quality pip overlay on recipe output icon
+    detail.iconQualityPip = detailFrame:CreateTexture(nil, "OVERLAY", nil, 2)
+    detail.iconQualityPip:SetSize(16, 16)
+    detail.iconQualityPip:SetPoint("BOTTOMRIGHT", detail.icon, "BOTTOMRIGHT", 2, -2)
+    detail.iconQualityPip:Hide()
+
     detail.subtypeText = detailFrame:CreateFontString(nil, "OVERLAY")
     detail.subtypeText:SetFont(ns.FONT, 14, "")
     detail.subtypeText:SetPoint("LEFT", detail.icon, "RIGHT", 8, 0)
@@ -1423,6 +1465,7 @@ function ProfRecipes:RefreshDetail()
         detail.emptyText:Show()
         detail.nameText:SetText("")
         detail.icon:SetTexture(nil)
+        detail.iconQualityPip:Hide()
         detail.subtypeText:SetText("")
         detail.descText:SetText("")
         detail.descText:Hide()
@@ -1607,6 +1650,20 @@ function ProfRecipes:RefreshDetail()
                 rBox.plusText:Hide()
                 rBox.itemID = item:GetItemID()
 
+                -- Quality pip on input item
+                local inputQuality = ns.GetCraftingQuality(item:GetItemID())
+                if inputQuality and inputQuality > 0 then
+                    if not rBox.qualityPip then
+                        rBox.qualityPip = rBox:CreateTexture(nil, "OVERLAY", nil, 2)
+                        rBox.qualityPip:SetSize(14, 14)
+                        rBox.qualityPip:SetPoint("BOTTOMRIGHT", rBox, "BOTTOMRIGHT", 2, -2)
+                    end
+                    rBox.qualityPip:SetAtlas(ns.GetQualityAtlas(inputQuality), false)
+                    rBox.qualityPip:Show()
+                elseif rBox.qualityPip then
+                    rBox.qualityPip:Hide()
+                end
+
                 -- Update title to "Recrafting: Item Name"
                 local itemName = C_Item.GetItemInfo(item:GetItemID())
                 if itemName then
@@ -1631,14 +1688,27 @@ function ProfRecipes:RefreshDetail()
                     outBox.icon:SetTexture(outIcon or itemIcon or 134400)
                     outBox.icon:Show()
                     outBox.plusText:Hide()
-                    -- Store hyperlink for tooltip
                     outBox.itemLink = outputData.hyperlink
+                    -- Quality pip on output
+                    local outItemID = C_Item.GetItemIDByItemInfo and C_Item.GetItemIDByItemInfo(outputData.hyperlink)
+                    local outQuality = outItemID and ns.GetCraftingQuality(outItemID)
+                    if outQuality and outQuality > 0 then
+                        if not outBox.qualityPip then
+                            outBox.qualityPip = outBox:CreateTexture(nil, "OVERLAY", nil, 2)
+                            outBox.qualityPip:SetSize(14, 14)
+                            outBox.qualityPip:SetPoint("BOTTOMRIGHT", outBox, "BOTTOMRIGHT", 2, -2)
+                        end
+                        outBox.qualityPip:SetAtlas(ns.GetQualityAtlas(outQuality), false)
+                        outBox.qualityPip:Show()
+                    elseif outBox.qualityPip then
+                        outBox.qualityPip:Hide()
+                    end
                 else
-                    -- Fallback: same icon as input
                     outBox.icon:SetTexture(itemIcon or 134400)
                     outBox.icon:Show()
                     outBox.plusText:Hide()
                     outBox.itemLink = nil
+                    if outBox.qualityPip then outBox.qualityPip:Hide() end
                 end
                 outBox:SetScript("OnEnter", function(self)
                     self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
@@ -1662,6 +1732,7 @@ function ProfRecipes:RefreshDetail()
                 rBox.icon:Hide()
                 rBox.plusText:Show()
                 rBox.itemID = nil
+                if rBox.qualityPip then rBox.qualityPip:Hide() end
                 detail.recraftArrow:Hide()
                 detail.recraftOutput:Hide()
             end
@@ -1669,6 +1740,7 @@ function ProfRecipes:RefreshDetail()
             rBox.icon:Hide()
             rBox.plusText:Show()
             rBox.itemID = nil
+            if rBox.qualityPip then rBox.qualityPip:Hide() end
             detail.recraftArrow:Hide()
             detail.recraftOutput:Hide()
         end
@@ -1960,21 +2032,29 @@ function ProfRecipes:RefreshDetail()
     local opInfo = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, reagentInfoTbl, nil, applyConc)
 
     if opInfo then
-        -- Quality display
+        -- Quality display with atlas pips
         if opInfo.craftingQualityID and opInfo.craftingQualityID > 0 then
             local qTier = opInfo.craftingQuality or 0
             local maxTier = opInfo.maxCraftingQuality or 5
-            local stars = ""
+            local pips = ""
             for i = 1, maxTier do
                 if i <= qTier then
-                    stars = stars .. "|cffffd700*|r"
+                    pips = pips .. "|A:Professions-Icon-Quality-Tier" .. i .. "-Small:0:0|a"
                 else
-                    stars = stars .. "|cff666666*|r"
+                    pips = pips .. "|cff666666*|r"
                 end
             end
-            detail.qualityText:SetText("Quality: " .. stars)
+            detail.qualityText:SetText("Quality: " .. pips)
+            -- Pip overlay on output icon
+            if qTier > 0 then
+                detail.iconQualityPip:SetAtlas("Professions-Icon-Quality-Tier" .. qTier .. "-Small", false)
+                detail.iconQualityPip:Show()
+            else
+                detail.iconQualityPip:Hide()
+            end
         else
             detail.qualityText:SetText("")
+            detail.iconQualityPip:Hide()
         end
         detail.qualityText:ClearAllPoints()
         detail.qualityText:SetPoint("TOPLEFT", detail.detailHeader, "BOTTOMLEFT", 0, -6)
@@ -2027,6 +2107,7 @@ function ProfRecipes:RefreshDetail()
         detail.qualityText:SetPoint("TOPLEFT", detail.detailHeader, "BOTTOMLEFT", 0, -6)
         detail.qualityText:SetText("")
         detail.qualityText:Show()
+        detail.iconQualityPip:Hide()
         detail.skillText:Hide()
         detail.concText:Hide()
         detail.concCheck:SetChecked(false)

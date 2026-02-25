@@ -1189,6 +1189,25 @@ local function CreateRightPanel(parent)
     detail.sourceText:SetWordWrap(true)
     detail.sourceText:SetTextColor(unpack(ns.COLORS.brightText))
 
+    -- TSM cost / profit (above craft controls)
+    detail.tsmCostLabel = rightPanel:CreateFontString(nil, "OVERLAY")
+    detail.tsmCostLabel:SetFont(ns.FONT, 12, "")
+    detail.tsmCostLabel:SetTextColor(unpack(ns.COLORS.headerText))
+    detail.tsmCostLabel:SetText("To Craft:")
+
+    detail.tsmCostValue = rightPanel:CreateFontString(nil, "OVERLAY")
+    detail.tsmCostValue:SetFont(ns.FONT, 12, "")
+    detail.tsmCostValue:SetPoint("LEFT", detail.tsmCostLabel, "RIGHT", 4, 0)
+
+    detail.tsmProfitLabel = rightPanel:CreateFontString(nil, "OVERLAY")
+    detail.tsmProfitLabel:SetFont(ns.FONT, 12, "")
+    detail.tsmProfitLabel:SetTextColor(unpack(ns.COLORS.headerText))
+    detail.tsmProfitLabel:SetText("Profit:")
+
+    detail.tsmProfitValue = rightPanel:CreateFontString(nil, "OVERLAY")
+    detail.tsmProfitValue:SetFont(ns.FONT, 12, "")
+    detail.tsmProfitValue:SetPoint("LEFT", detail.tsmProfitLabel, "RIGHT", 4, 0)
+
     -- Craft controls — pinned to bottom of right panel
     detail.controlFrame = CreateFrame("Frame", nil, rightPanel)
     detail.controlFrame:SetHeight(60)
@@ -1537,6 +1556,10 @@ function ProfRecipes:RefreshDetail()
         detail.concText:Hide()
         detail.cooldownText:Hide()
         detail.sourceFrame:Hide()
+        detail.tsmCostLabel:Hide()
+        detail.tsmCostValue:Hide()
+        detail.tsmProfitLabel:Hide()
+        detail.tsmProfitValue:Hide()
         detail.controlFrame:Hide()
         detail.queueHeader:Hide()
         detail.queueFrame:Hide()
@@ -2240,6 +2263,90 @@ function ProfRecipes:RefreshDetail()
         lastAnchor = detail.sourceFrame
     else
         detail.sourceFrame:Hide()
+    end
+
+    -- TSM cost / profit
+    local hasTSM = TSM_API and TSM_API.GetCustomPriceValue
+    if hasTSM and schematic then
+        -- Get the crafted item
+        local outputItemID = schematic.outputItemID
+        local itemString = outputItemID and ("i:" .. outputItemID) or nil
+        local craftCost, sellValue
+
+        -- Crafting cost: sum up reagent costs via TSM
+        if itemString then
+            local ok1, val1 = pcall(TSM_API.GetCustomPriceValue, "Crafting", itemString)
+            if ok1 and val1 then craftCost = val1 end
+
+            local ok2, val2 = pcall(TSM_API.GetCustomPriceValue, "DBMarket", itemString)
+            if ok2 and val2 then sellValue = val2 end
+        end
+
+        -- If no Crafting source, manually sum reagent costs
+        if not craftCost and schematic.reagentSlotSchematics then
+            local total = 0
+            local missing = false
+            for _, slot in ipairs(schematic.reagentSlotSchematics) do
+                if slot.reagentType == Enum.CraftingReagentType.Basic then
+                    local reagents = slot.reagents
+                    local qty = slot.quantityRequired or 1
+                    if reagents and reagents[1] then
+                        local rItemID = reagents[1].itemID
+                        if rItemID then
+                            local rStr = "i:" .. rItemID
+                            local ok, val = pcall(TSM_API.GetCustomPriceValue, "DBMinBuyout", rStr)
+                            if ok and val and val > 0 then
+                                total = total + (val * qty)
+                            else
+                                missing = true
+                            end
+                        end
+                    end
+                end
+            end
+            if total > 0 then craftCost = total end
+            if missing then craftCost = nil end
+        end
+
+        if craftCost then
+            detail.tsmCostLabel:ClearAllPoints()
+            detail.tsmCostLabel:SetPoint("BOTTOMLEFT", detail.controlFrame, "TOPLEFT", 0, 22)
+            detail.tsmCostValue:SetText(ns.FormatGold(craftCost))
+            detail.tsmCostValue:SetTextColor(unpack(ns.COLORS.brightText))
+            detail.tsmCostLabel:Show()
+            detail.tsmCostValue:Show()
+
+            detail.tsmProfitLabel:ClearAllPoints()
+            detail.tsmProfitLabel:SetPoint("BOTTOMLEFT", detail.controlFrame, "TOPLEFT", 0, 6)
+
+            if sellValue then
+                local profit = sellValue - craftCost
+                detail.tsmProfitValue:SetText(ns.FormatGold(math.abs(profit)))
+                if profit >= 0 then
+                    detail.tsmProfitValue:SetTextColor(0.3, 0.85, 0.3)
+                    detail.tsmProfitLabel:SetText("Profit:")
+                else
+                    detail.tsmProfitValue:SetTextColor(0.85, 0.3, 0.3)
+                    detail.tsmProfitLabel:SetText("Loss:")
+                end
+            else
+                detail.tsmProfitValue:SetText("|cff888888(no price data)|r")
+                detail.tsmProfitValue:SetTextColor(unpack(ns.COLORS.mutedText))
+                detail.tsmProfitLabel:SetText("Profit:")
+            end
+            detail.tsmProfitLabel:Show()
+            detail.tsmProfitValue:Show()
+        else
+            detail.tsmCostLabel:Hide()
+            detail.tsmCostValue:Hide()
+            detail.tsmProfitLabel:Hide()
+            detail.tsmProfitValue:Hide()
+        end
+    else
+        detail.tsmCostLabel:Hide()
+        detail.tsmCostValue:Hide()
+        detail.tsmProfitLabel:Hide()
+        detail.tsmProfitValue:Hide()
     end
 
     -- Craft controls (pinned to bottom, just show/hide)

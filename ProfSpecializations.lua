@@ -590,11 +590,6 @@ local function GetOrCreateTreeBox(index)
     box.content:SetPoint("TOPLEFT", box, "TOPLEFT", BOX_PAD, -(BOX_TITLE_H))
     box.content:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -BOX_PAD, BOX_PAD)
 
-    -- Line layer between backdrop and node icons
-    box.lineLayer = CreateFrame("Frame", nil, box.content)
-    box.lineLayer:SetAllPoints()
-    box.lineLayer:SetFrameLevel(box.content:GetFrameLevel() + 1)
-
     treeBoxes[index] = box
     treeBoxLines[index] = {}
     return box
@@ -739,37 +734,7 @@ local function RenderAllTrees()
                    (pos.y - t.minY) + NODE_SIZE / 2
         end
 
-        -- Draw lines on lineLayer (visible between backdrop and nodes)
-        local lines = treeBoxLines[idx]
-        for _, pathID in ipairs(t.allNodes) do
-            local pos = t.positions[pathID]
-            if pos then
-                local px, py = NodePos(pos)
-                for _, childID in ipairs(t.childrenOf[pathID] or {}) do
-                    local cp = t.positions[childID]
-                    if cp then
-                        local cx, cy = NodePos(cp)
-                        local line = box.lineLayer:CreateLine(nil, "ARTWORK", nil, -1)
-                        line:SetThickness(LINE_THICKNESS)
-                        line:SetStartPoint("CENTER", box.content, "TOPLEFT", px, -py)
-                        line:SetEndPoint("CENTER", box.content, "TOPLEFT", cx, -cy)
-
-                        local cs = GetNodeState(childID)
-                        local ps = GetNodeState(pathID)
-                        if ps ~= "locked" and cs ~= "locked" then
-                            line:SetColorTexture(200/255, 170/255, 100/255, 0.7)
-                        elseif ps ~= "locked" or cs ~= "locked" then
-                            line:SetColorTexture(200/255, 170/255, 100/255, 0.35)
-                        else
-                            line:SetColorTexture(0.3, 0.3, 0.3, 0.3)
-                        end
-                        table.insert(lines, line)
-                    end
-                end
-            end
-        end
-
-        -- Create/update nodes
+        -- Create/update nodes first (need frame refs for line anchoring)
         for _, pathID in ipairs(t.allNodes) do
             local pos = t.positions[pathID]
             if pos then
@@ -785,6 +750,35 @@ local function RenderAllTrees()
                 f:SetPoint("CENTER", box.content, "TOPLEFT", px, -py)
                 f:SetFrameLevel(box.content:GetFrameLevel() + 3)
                 UpdateNodeFrame(f, pathID)
+            end
+        end
+
+        -- Draw lines anchored to node frames (same approach as KSL)
+        local lines = treeBoxLines[idx]
+        for _, pathID in ipairs(t.allNodes) do
+            local parentFrame = nodeFrames[pathID]
+            if parentFrame and parentFrame:IsShown() then
+                for _, childID in ipairs(t.childrenOf[pathID] or {}) do
+                    local childFrame = nodeFrames[childID]
+                    if childFrame and childFrame:IsShown() then
+                        local line = box.content:CreateLine(nil, "ARTWORK")
+                        line:SetThickness(LINE_THICKNESS)
+                        line:SetStartPoint("CENTER", parentFrame)
+                        line:SetEndPoint("CENTER", childFrame)
+
+                        local cs = GetNodeState(childID)
+                        local ps = GetNodeState(pathID)
+                        if ps ~= "locked" and cs ~= "locked" then
+                            line:SetColorTexture(200/255, 170/255, 100/255, 0.8)
+                        elseif ps ~= "locked" or cs ~= "locked" then
+                            line:SetColorTexture(200/255, 170/255, 100/255, 0.4)
+                        else
+                            line:SetColorTexture(0.3, 0.3, 0.3, 0.4)
+                        end
+                        line:Show()
+                        table.insert(lines, line)
+                    end
+                end
             end
         end
 

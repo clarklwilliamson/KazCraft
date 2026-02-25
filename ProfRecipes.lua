@@ -1364,10 +1364,52 @@ end
 --------------------------------------------------------------------
 -- Refresh detail panel
 --------------------------------------------------------------------
-local function SetupSlotBox(box, slotIndex, slotSchematic, transaction)
+local function SetupSlotBox(box, slotIndex, slotSchematic, transaction, recipeInfo)
     box.slotIndex = slotIndex
     box.slotSchematic = slotSchematic
     box.itemID = nil
+
+    -- Check if slot is locked (spec tree not unlocked)
+    local isLocked = false
+    local lockReason = nil
+    if recipeInfo and Professions and Professions.GetReagentSlotStatus then
+        isLocked, lockReason = Professions.GetReagentSlotStatus(slotSchematic, recipeInfo)
+    end
+    box._locked = isLocked
+
+    if isLocked then
+        -- Show lock icon
+        box.icon:Hide()
+        box.plusText:Hide()
+        if not box.lockIcon then
+            box.lockIcon = box:CreateTexture(nil, "OVERLAY")
+            box.lockIcon:SetSize(16, 16)
+            box.lockIcon:SetPoint("CENTER")
+            box.lockIcon:SetTexture("Interface\\PetBattles\\PetBattle-LockIcon")
+        end
+        box.lockIcon:Show()
+        box:SetAlpha(0.5)
+        box:Show()
+        box:SetScript("OnClick", nil)
+        box:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine("Locked", 1, 0.3, 0.3)
+            if lockReason then
+                GameTooltip:AddLine(lockReason, 1, 1, 1, true)
+            end
+            GameTooltip:Show()
+        end)
+        box:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+            GameTooltip:Hide()
+        end)
+        return
+    end
+
+    -- Not locked — hide lock icon if it exists
+    if box.lockIcon then box.lockIcon:Hide() end
+    box:SetAlpha(1)
 
     -- Check if transaction has an allocation for this slot
     local allocs = transaction and transaction:GetAllocations(slotIndex)
@@ -1962,7 +2004,7 @@ function ProfRecipes:RefreshDetail()
             local box = optionalSlotFrames[i]
             box:ClearAllPoints()
             box:SetPoint("TOPLEFT", detail.optionalFrame, "TOPLEFT", (i - 1) * (SLOT_BOX_SIZE + SLOT_BOX_SPACING), 0)
-            local ok, err = pcall(SetupSlotBox, box, entry.slotIndex, entry.slot, currentTransaction)
+            local ok, err = pcall(SetupSlotBox, box, entry.slotIndex, entry.slot, currentTransaction, info)
             if not ok then
                 box.icon:Hide()
                 box.plusText:Show()
@@ -2000,7 +2042,7 @@ function ProfRecipes:RefreshDetail()
             local box = finishingSlotFrames[i]
             box:ClearAllPoints()
             box:SetPoint("TOPLEFT", detail.finishingFrame, "TOPLEFT", (i - 1) * (SLOT_BOX_SIZE + SLOT_BOX_SPACING), 0)
-            local ok, err = pcall(SetupSlotBox, box, entry.slotIndex, entry.slot, currentTransaction)
+            local ok, err = pcall(SetupSlotBox, box, entry.slotIndex, entry.slot, currentTransaction, info)
             if not ok then
                 box.icon:Hide()
                 box.plusText:Show()

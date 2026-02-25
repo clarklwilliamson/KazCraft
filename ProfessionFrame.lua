@@ -353,13 +353,21 @@ local function CreateMainFrame()
 
         f:SetScript("OnEnter", function(self)
             if not self.slotID then return end
+            -- Suppress equip compare tooltip
+            local oldCompare = GetCVarBool("alwaysCompareItems")
+            SetCVar("alwaysCompareItems", 0)
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
             GameTooltip:SetInventoryItem("player", self.slotID)
+            ShoppingTooltip1:Hide()
+            ShoppingTooltip2:Hide()
             GameTooltip:Show()
+            SetCVar("alwaysCompareItems", oldCompare and 1 or 0)
             self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
         end)
         f:SetScript("OnLeave", function(self)
             GameTooltip:Hide()
+            ShoppingTooltip1:Hide()
+            ShoppingTooltip2:Hide()
             self:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
         end)
 

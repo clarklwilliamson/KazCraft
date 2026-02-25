@@ -268,6 +268,51 @@ local function CreateFooter(parent)
 end
 
 --------------------------------------------------------------------
+-- Crafting table proximity — color orders tab red/white
+--------------------------------------------------------------------
+local nearCraftingTable = false
+local proximityTimer = 0
+local PROXIMITY_INTERVAL = 0.75
+
+local function UpdateOrdersTabColor()
+    if not tabBar or not tabBar.buttons then return end
+    local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
+    local profession = profInfo and profInfo.profession
+    local near = false
+    if profession and C_TradeSkillUI.IsNearProfessionSpellFocus then
+        local ok, result = pcall(C_TradeSkillUI.IsNearProfessionSpellFocus, profession)
+        near = ok and result or false
+    end
+    nearCraftingTable = near
+
+    for _, btn in ipairs(tabBar.buttons) do
+        if btn.key == "orders" then
+            if tabBar.activeKey == "orders" then
+                if near then
+                    btn.label:SetTextColor(unpack(ns.COLORS.accent))
+                else
+                    btn.label:SetTextColor(0.8, 0.2, 0.2)
+                end
+            else
+                if near then
+                    btn.label:SetTextColor(unpack(ns.COLORS.tabInactive))
+                else
+                    btn.label:SetTextColor(0.6, 0.15, 0.15)
+                end
+            end
+            break
+        end
+    end
+end
+
+local function OnProximityUpdate(self, elapsed)
+    proximityTimer = proximityTimer + elapsed
+    if proximityTimer < PROXIMITY_INTERVAL then return end
+    proximityTimer = 0
+    UpdateOrdersTabColor()
+end
+
+--------------------------------------------------------------------
 -- Main frame
 --------------------------------------------------------------------
 local function CreateMainFrame()
@@ -443,6 +488,16 @@ local function CreateMainFrame()
     tabBar:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 0, -(TOP_BAR_HEIGHT + 2))
     tabBar:SetPoint("TOPRIGHT", mainFrame, "TOPRIGHT", 0, -(TOP_BAR_HEIGHT + 2))
 
+    -- Hook orders tab OnLeave to maintain red color when not near table
+    for _, btn in ipairs(tabBar.buttons) do
+        if btn.key == "orders" then
+            btn:HookScript("OnLeave", function()
+                UpdateOrdersTabColor()
+            end)
+            break
+        end
+    end
+
     -- Content area
     contentFrame = CreateFrame("Frame", nil, mainFrame)
     contentFrame:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 1, -(TOP_BAR_HEIGHT + TAB_BAR_HEIGHT + 4))
@@ -508,11 +563,18 @@ function ProfFrame:SelectTab(key)
     else
         self:HideEquipmentSlots()
     end
+
+    -- Re-apply orders tab color (Select() resets all tab colors)
+    UpdateOrdersTabColor()
 end
 
 
 function ProfFrame:GetContentFrame()
     return contentFrame
+end
+
+function ProfFrame:IsNearCraftingTable()
+    return nearCraftingTable
 end
 
 --------------------------------------------------------------------
@@ -532,11 +594,19 @@ function ProfFrame:Show()
     end
     self:SelectTab("recipes")
 
+    -- Start proximity polling for orders tab color
+    proximityTimer = 0
+    UpdateOrdersTabColor()
+    mainFrame:SetScript("OnUpdate", OnProximityUpdate)
+
     mainFrame:Show()
 end
 
 function ProfFrame:Hide()
     profOpen = false
+    if mainFrame then
+        mainFrame:SetScript("OnUpdate", nil)
+    end
     if expansionMenu then expansionMenu:Hide() end
     if mainFrame and mainFrame:IsShown() then
         mainFrame:Hide()

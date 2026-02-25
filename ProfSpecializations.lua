@@ -18,18 +18,24 @@ local DETAIL_WIDTH = 280     -- right-side detail panel
 -- Node border colors by state
 local NODE_COLORS = {
     locked     = { 0.35, 0.35, 0.35, 1 },
-    selectable = { 200/255, 170/255, 100/255, 1 },  -- can unlock (locked but purchasable)
-    available  = { 200/255, 170/255, 100/255, 1 },   -- can spend points
-    progress   = { 0.6, 0.75, 0.55, 1 },             -- progressing, no points to spend
-    maxed      = { 0.3, 0.85, 0.3, 1 },
+    selectable = { 0.35, 0.35, 0.35, 1 },             -- grey border, blue halo signals unlock
+    available  = { 0.3, 0.85, 0.3, 1 },                  -- green — can spend points
+    progress   = { 0.55, 0.55, 0.55, 1 },              -- mid-grey — in progress, no points to spend
+    maxed      = { 200/255, 170/255, 100/255, 1 },     -- gold border — fully maxed
 }
 
 local NODE_BG_COLORS = {
     locked     = { 0.06, 0.06, 0.06, 0.9 },
-    selectable = { 0.10, 0.09, 0.06, 0.95 },
-    available  = { 0.10, 0.09, 0.06, 0.95 },
-    progress   = { 0.08, 0.10, 0.06, 0.95 },
-    maxed      = { 0.06, 0.10, 0.06, 0.95 },
+    selectable = { 0.06, 0.06, 0.06, 0.9 },            -- grey bg, halo does the work
+    available  = { 0.06, 0.10, 0.06, 0.95 },
+    progress   = { 0.08, 0.08, 0.08, 0.95 },
+    maxed      = { 0.10, 0.09, 0.06, 0.95 },
+}
+
+-- Glow/halo colors by state
+local NODE_GLOW_COLORS = {
+    selectable = { 0.3, 0.5, 1.0, 0.25 },              -- blue halo
+    available  = { 0.3, 0.85, 0.3, 0.15 },               -- green glow
 }
 
 --------------------------------------------------------------------
@@ -580,25 +586,28 @@ local function UpdateNodeFrame(f, nodeID, treeLocked)
         f.glow:Hide()
         f.rankText:SetTextColor(0.4, 0.4, 0.4)
     elseif state == "selectable" then
-        -- Locked but ready to unlock — bright with glow
-        f.icon:SetDesaturated(false)
-        f.icon:SetAlpha(0.85)
+        -- Can unlock — grey node with blue halo
+        f.icon:SetDesaturated(true)
+        f.icon:SetAlpha(0.6)
         f.lockIcon:Hide()
+        f.glow:SetColorTexture(unpack(NODE_GLOW_COLORS.selectable))
         f.glow:Show()
-        f.rankText:SetTextColor(unpack(ns.COLORS.accent))
+        f.rankText:SetTextColor(0.3, 0.5, 1.0)
     elseif state == "available" then
-        -- Progressing and can spend — bronze glow
+        -- Can spend points — bronze glow
         f.icon:SetDesaturated(false)
         f.icon:SetAlpha(1)
         f.lockIcon:Hide()
+        f.glow:SetColorTexture(unpack(NODE_GLOW_COLORS.available))
         f.glow:Show()
-        f.rankText:SetTextColor(unpack(ns.COLORS.accent))
+        f.rankText:SetTextColor(0.3, 0.85, 0.3)
     elseif state == "maxed" then
+        -- Fully maxed — gold border, no glow needed
         f.icon:SetDesaturated(false)
         f.icon:SetAlpha(1)
         f.lockIcon:Hide()
         f.glow:Hide()
-        f.rankText:SetTextColor(0.3, 0.9, 0.3)
+        f.rankText:SetTextColor(200/255, 170/255, 100/255)
     else
         -- progress: in progress but can't spend right now
         f.icon:SetDesaturated(false)

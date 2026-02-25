@@ -1653,8 +1653,8 @@ function ProfRecipes:RefreshDetail()
                 rBox.plusText:Hide()
                 rBox.itemID = item:GetItemID()
 
-                -- Quality pip on input item (equipment, not reagent)
-                local inputQuality = C_TradeSkillUI.GetItemCraftedQualityByItemInfo(item:GetItemID())
+                -- Quality pip on input item
+                local inputQuality = ns.GetCraftingQuality(item:GetItemID())
                 if inputQuality and inputQuality > 0 then
                     if not rBox.qualityPip then
                         rBox.qualityPip = rBox:CreateTexture(nil, "OVERLAY", nil, 2)
@@ -1692,16 +1692,9 @@ function ProfRecipes:RefreshDetail()
                     outBox.icon:Show()
                     outBox.plusText:Hide()
                     outBox.itemLink = outputData.hyperlink
-                    -- Quality pip on output — use crafting operation for predicted tier, fall back to item quality
-                    local outQuality
-                    local origRecipeID = currentSchematic and currentSchematic.recipeID
-                    if origRecipeID then
-                        local opInfo = C_TradeSkillUI.GetCraftingOperationInfo(origRecipeID, reagentInfoTbl, recraftGUID, false)
-                        outQuality = opInfo and opInfo.craftingQuality
-                    end
-                    if not outQuality or outQuality == 0 then
-                        outQuality = C_TradeSkillUI.GetItemCraftedQualityByItemInfo(outputData.hyperlink)
-                    end
+                    -- Quality pip on output
+                    local outItemID = C_Item.GetItemIDByItemInfo and C_Item.GetItemIDByItemInfo(outputData.hyperlink)
+                    local outQuality = outItemID and ns.GetCraftingQuality(outItemID)
                     if outQuality and outQuality > 0 then
                         if not outBox.qualityPip then
                             outBox.qualityPip = outBox:CreateTexture(nil, "OVERLAY", nil, 2)

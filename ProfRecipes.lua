@@ -440,7 +440,10 @@ local function UpdateRecipeRow(row, entry, index)
                 pcall(CloseProfessionsItemFlyout)
             end
             selectedRecipeID = entry.recipeID
-            if KazCraftDB then KazCraftDB.lastRecipeID = selectedRecipeID end
+            if KazCraftDB and ns.currentProfName then
+                if type(KazCraftDB.lastRecipeID) ~= "table" then KazCraftDB.lastRecipeID = {} end
+                KazCraftDB.lastRecipeID[ns.currentProfName] = selectedRecipeID
+            end
             ProfRecipes:RefreshRows()
             ProfRecipes:RefreshDetail()
         end)
@@ -1031,6 +1034,21 @@ local function CreateRightPanel(parent)
     detail.salvageBox = CreateReagentSlotBox(detailFrame, 1)
     detail.salvageBox:Hide()
 
+    -- ── Recraft slot (Recraft Equipment) ──
+    detail.recraftBox = CreateReagentSlotBox(detailFrame, 1)
+    detail.recraftBox:Hide()
+
+    -- Recraft preview: input → output
+    detail.recraftArrow = detailFrame:CreateFontString(nil, "OVERLAY")
+    detail.recraftArrow:SetFont(ns.FONT, 18, "")
+    detail.recraftArrow:SetText(">")
+    detail.recraftArrow:SetTextColor(unpack(ns.COLORS.mutedText))
+    detail.recraftArrow:Hide()
+
+    detail.recraftOutput = CreateReagentSlotBox(detailFrame, 2)
+    detail.recraftOutput:Hide()
+    detail.recraftOutput:SetScript("OnClick", nil) -- output box is display-only
+
     -- ── Optional Reagents ──
     detail.optionalHeader = detailFrame:CreateFontString(nil, "OVERLAY")
     detail.optionalHeader:SetFont(ns.FONT, 12, "")
@@ -1194,6 +1212,8 @@ local function CreateRightPanel(parent)
         ns.lastCraftedRecipeID = nil -- don't decrement queue for manual crafts
         if currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Salvage) then
             currentTransaction:CraftSalvage(qty)
+        elseif currentTransaction and currentTransaction:IsRecraft() then
+            currentTransaction:RecraftRecipe()
         else
             local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
             C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty, reagentInfoTbl, nil, nil, applyConc)
@@ -1208,8 +1228,9 @@ local function CreateRightPanel(parent)
         local applyConc = detail.concCheck:GetChecked() and true or false
         ns.lastCraftedRecipeID = nil
         if currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Salvage) then
-            -- Salvage is always 1 at a time
             currentTransaction:CraftSalvage(1)
+        elseif currentTransaction and currentTransaction:IsRecraft() then
+            currentTransaction:RecraftRecipe()
         else
             local info = C_TradeSkillUI.GetRecipeInfo(selectedRecipeID)
             local count = info and info.numAvailable or 0
@@ -1298,19 +1319,22 @@ local function SetupSlotBox(box, slotIndex, slotSchematic, transaction)
 
     -- Check if transaction has an allocation for this slot
     local allocs = transaction and transaction:GetAllocations(slotIndex)
-    local hasAlloc = allocs and type(allocs.HasAllocations) == "function" and allocs:HasAllocations()
+    local firstAlloc = allocs and type(allocs.GetFirstAllocation) == "function" and allocs:GetFirstAllocation()
 
-    if hasAlloc then
-        for _, alloc in allocs:Enumerate() do
-            local reagent = alloc:GetReagent()
-            if reagent and reagent.itemID then
-                box.itemID = reagent.itemID
-                local _, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(reagent.itemID)
-                box.icon:SetTexture(itemIcon or 134400)
-                box.icon:Show()
-                box.plusText:Hide()
-                break
+    if firstAlloc then
+        local reagent = firstAlloc:GetReagent()
+        if reagent and reagent.itemID then
+            box.itemID = reagent.itemID
+            local itemIcon = C_Item.GetItemIconByID(reagent.itemID)
+            if not itemIcon then
+                C_Item.RequestLoadItemDataByID(reagent.itemID)
             end
+            box.icon:SetTexture(itemIcon or 134400)
+            box.icon:Show()
+            box.plusText:Hide()
+        else
+            box.icon:Hide()
+            box.plusText:Show()
         end
     else
         box.icon:Hide()
@@ -1374,10 +1398,16 @@ local function SetupSlotBox(box, slotIndex, slotSchematic, transaction)
             local function OnFlyoutItemSelected(o, f, elementData)
                 local reagent = elementData.reagent
                 if not reagent then return end
-                local count = ProfessionsUtil.GetReagentQuantityInPossession(reagent, false)
-                if count == 0 then return end
-                local qtyReq = slotSchematic:GetQuantityRequired(reagent)
-                if slotSchematic.required and count < qtyReq then return end
+
+                -- Determine quantity required (method or field fallback)
+                local qtyReq = 1
+                if type(slotSchematic.GetQuantityRequired) == "function" then
+                    local ok, val = pcall(slotSchematic.GetQuantityRequired, slotSchematic, reagent)
+                    if ok and val then qtyReq = val end
+                else
+                    qtyReq = slotSchematic.quantityRequired or 1
+                end
+
                 transaction:OverwriteAllocation(slotIndex, reagent, qtyReq)
                 ProfRecipes:RefreshDetail()
             end
@@ -1399,6 +1429,9 @@ function ProfRecipes:RefreshDetail()
         detail.reagentHeader:Hide()
         detail.reagentFrame:Hide()
         detail.salvageBox:Hide()
+        detail.recraftBox:Hide()
+        detail.recraftArrow:Hide()
+        detail.recraftOutput:Hide()
         detail.optionalHeader:Hide()
         detail.optionalFrame:Hide()
         detail.finishingHeader:Hide()
@@ -1445,20 +1478,23 @@ function ProfRecipes:RefreshDetail()
     detail.subtypeText:SetText(subtype)
 
     -- ── Transaction lifecycle ──
+    local isRecraft = info.isRecraft or false
     local hasProfTemplates = (Professions and Professions.AllocateAllBasicReagents and
                               ProfessionsUtil and ProfessionsUtil.GetRecipeSchematic and
                               CreateProfessionsRecipeTransaction) and true or false
 
     if hasProfTemplates then
         if selectedRecipeID ~= lastTransactionRecipeID then
-            currentSchematic = ProfessionsUtil.GetRecipeSchematic(selectedRecipeID, false)
+            currentSchematic = ProfessionsUtil.GetRecipeSchematic(selectedRecipeID, isRecraft)
             currentTransaction = CreateProfessionsRecipeTransaction(currentSchematic)
             lastTransactionRecipeID = selectedRecipeID
-            Professions.AllocateAllBasicReagents(currentTransaction, useBest and true or false)
+            if not isRecraft then
+                Professions.AllocateAllBasicReagents(currentTransaction, useBest and true or false)
+            end
         end
     else
         -- Fallback: plain schematic, no transaction
-        currentSchematic = C_TradeSkillUI.GetRecipeSchematic(selectedRecipeID, false)
+        currentSchematic = C_TradeSkillUI.GetRecipeSchematic(selectedRecipeID, isRecraft)
         currentTransaction = nil
     end
 
@@ -1552,9 +1588,149 @@ function ProfRecipes:RefreshDetail()
             end
         end)
         sBox:Show()
+    elseif isRecraft and currentTransaction then
+        -- ── Recraft slot (Recraft Equipment) ──
+        detail.salvageBox:Hide()
+
+        local rBox = detail.recraftBox
+        rBox:ClearAllPoints()
+        rBox:SetPoint("TOPLEFT", reagentAnchor, "BOTTOMLEFT", 0, -8)
+
+        -- Show current recraft allocation if any
+        local recraftGUID = currentTransaction:GetRecraftAllocation()
+        if recraftGUID then
+            local item = Item:CreateFromItemGUID(recraftGUID)
+            if item and item:GetItemID() then
+                local itemIcon = C_Item.GetItemIconByID(item:GetItemID())
+                rBox.icon:SetTexture(itemIcon or 134400)
+                rBox.icon:Show()
+                rBox.plusText:Hide()
+                rBox.itemID = item:GetItemID()
+
+                -- Update title to "Recrafting: Item Name"
+                local itemName = C_Item.GetItemInfo(item:GetItemID())
+                if itemName then
+                    detail.nameText:SetText("Recrafting: " .. itemName)
+                end
+
+                -- Show output preview: input → output
+                detail.recraftArrow:ClearAllPoints()
+                detail.recraftArrow:SetPoint("LEFT", rBox, "RIGHT", 6, 0)
+                detail.recraftArrow:Show()
+
+                local outBox = detail.recraftOutput
+                outBox:ClearAllPoints()
+                outBox:SetPoint("LEFT", detail.recraftArrow, "RIGHT", 6, 0)
+
+                -- Get predicted output item
+                local reagentInfoTbl = currentTransaction:CreateCraftingReagentInfoTbl() or {}
+                local outputData = C_TradeSkillUI.GetRecipeOutputItemData(
+                    selectedRecipeID, reagentInfoTbl, recraftGUID)
+                if outputData and outputData.hyperlink then
+                    local outIcon = C_Item.GetItemIconByID(outputData.hyperlink)
+                    outBox.icon:SetTexture(outIcon or itemIcon or 134400)
+                    outBox.icon:Show()
+                    outBox.plusText:Hide()
+                    -- Store hyperlink for tooltip
+                    outBox.itemLink = outputData.hyperlink
+                else
+                    -- Fallback: same icon as input
+                    outBox.icon:SetTexture(itemIcon or 134400)
+                    outBox.icon:Show()
+                    outBox.plusText:Hide()
+                    outBox.itemLink = nil
+                end
+                outBox:SetScript("OnEnter", function(self)
+                    self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
+                    if IsShiftKeyDown() then
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        if self.itemLink then
+                            GameTooltip:SetHyperlink(self.itemLink)
+                        elseif rBox.itemID then
+                            GameTooltip:SetItemByID(rBox.itemID)
+                        end
+                        GameTooltip:Show()
+                    end
+                end)
+                outBox:SetScript("OnLeave", function(self)
+                    self:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+                    GameTooltip:Hide()
+                end)
+                outBox:SetScript("OnClick", nil)
+                outBox:Show()
+            else
+                rBox.icon:Hide()
+                rBox.plusText:Show()
+                rBox.itemID = nil
+                detail.recraftArrow:Hide()
+                detail.recraftOutput:Hide()
+            end
+        else
+            rBox.icon:Hide()
+            rBox.plusText:Show()
+            rBox.itemID = nil
+            detail.recraftArrow:Hide()
+            detail.recraftOutput:Hide()
+        end
+
+        rBox:SetScript("OnClick", function(self, button)
+            if button == "RightButton" then
+                -- Reset to generic recraft schematic (no item = no reagent slots)
+                currentSchematic = ProfessionsUtil.GetRecipeSchematic(selectedRecipeID, true)
+                currentTransaction = CreateProfessionsRecipeTransaction(currentSchematic)
+                lastTransactionRecipeID = selectedRecipeID
+                ProfRecipes:RefreshDetail()
+                return
+            end
+            -- Left click — toggle recraft flyout
+            if self._flyoutOpen then
+                if CloseProfessionsItemFlyout then CloseProfessionsItemFlyout() end
+                self._flyoutOpen = false
+                return
+            end
+            if CloseProfessionsItemFlyout then CloseProfessionsItemFlyout() end
+            if not CreateProfessionsRecraftFlyout then return end
+
+            local behavior = CreateProfessionsRecraftFlyout(currentTransaction)
+            local flyout = OpenProfessionsItemFlyout(self, detailFrame, behavior)
+            if flyout then
+                flyout:SetFrameStrata("TOOLTIP")
+                flyout:SetFrameLevel(900)
+                self._flyoutOpen = true
+                flyout:HookScript("OnHide", function() rBox._flyoutOpen = false end)
+
+                flyout:RegisterCallback(ProfessionsFlyoutMixin.Event.ItemSelected, function(_, _, elementData)
+                    local itemGUID = elementData.itemGUID
+                    if not itemGUID then return end
+                    -- Get the ORIGINAL recipe that crafted this item — it has the real reagent slots
+                    local origRecipeID = C_TradeSkillUI.GetOriginalCraftRecipeID(itemGUID)
+                    if origRecipeID and origRecipeID > 0 then
+                        currentSchematic = ProfessionsUtil.GetRecipeSchematic(origRecipeID, true)
+                    end
+                    currentTransaction = CreateProfessionsRecipeTransaction(currentSchematic)
+                    currentTransaction:SetRecraftAllocation(itemGUID)
+                    local bestQ = KazCraftDB and KazCraftDB.settings and KazCraftDB.settings.useBestQuality
+                    pcall(Professions.AllocateAllBasicReagents, currentTransaction, bestQ and true or false)
+                    ProfRecipes:RefreshDetail()
+                end)
+            end
+        end)
+        rBox:Show()
+
+        -- Re-anchor reagent header below the recraft preview
+        local recraftBottomAnchor = detail.recraftOutput:IsShown() and detail.recraftOutput or rBox
+        detail.reagentHeader:SetText("REAGENTS")
+        detail.reagentHeader:ClearAllPoints()
+        detail.reagentHeader:SetPoint("TOPLEFT", recraftBottomAnchor, "BOTTOMLEFT", 0, -8)
+        detail.reagentFrame:ClearAllPoints()
+        detail.reagentFrame:SetPoint("TOPLEFT", detail.reagentHeader, "BOTTOMLEFT", 0, -4)
+        detail.reagentFrame:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -8, 0)
     else
         detail.reagentHeader:SetText("REAGENTS")
         detail.salvageBox:Hide()
+        detail.recraftBox:Hide()
+        detail.recraftArrow:Hide()
+        detail.recraftOutput:Hide()
     end
 
     -- ── Basic Reagents ──
@@ -2032,8 +2208,9 @@ end
 function ProfRecipes:Show()
     if not initialized then return end
     -- Restore last selected recipe
-    if not selectedRecipeID and KazCraftDB and KazCraftDB.lastRecipeID then
-        selectedRecipeID = KazCraftDB.lastRecipeID
+    if not selectedRecipeID and KazCraftDB and ns.currentProfName then
+        if type(KazCraftDB.lastRecipeID) ~= "table" then KazCraftDB.lastRecipeID = {} end
+        selectedRecipeID = KazCraftDB.lastRecipeID[ns.currentProfName]
     end
     leftPanel:Show()
     rightPanel:Show()

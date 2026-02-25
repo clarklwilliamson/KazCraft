@@ -1653,8 +1653,9 @@ function ProfRecipes:RefreshDetail()
                 rBox.plusText:Hide()
                 rBox.itemID = item:GetItemID()
 
-                -- Quality pip on input item
-                local inputQuality = ns.GetCraftingQuality(item:GetItemID())
+                -- Quality pip on input item (equipment needs GetItemCraftedQualityByItemInfo with a link)
+                local inputLink = item:GetItemLink()
+                local inputQuality = inputLink and C_TradeSkillUI.GetItemCraftedQualityByItemInfo(inputLink) or nil
                 if inputQuality and inputQuality > 0 then
                     if not rBox.qualityPip then
                         rBox.qualityPip = rBox:CreateTexture(nil, "OVERLAY", nil, 2)
@@ -1692,20 +1693,7 @@ function ProfRecipes:RefreshDetail()
                     outBox.icon:Show()
                     outBox.plusText:Hide()
                     outBox.itemLink = outputData.hyperlink
-                    -- Quality pip on output
-                    local outItemID = C_Item.GetItemIDByItemInfo and C_Item.GetItemIDByItemInfo(outputData.hyperlink)
-                    local outQuality = outItemID and ns.GetCraftingQuality(outItemID)
-                    if outQuality and outQuality > 0 then
-                        if not outBox.qualityPip then
-                            outBox.qualityPip = outBox:CreateTexture(nil, "OVERLAY", nil, 2)
-                            outBox.qualityPip:SetSize(14, 14)
-                            outBox.qualityPip:SetPoint("BOTTOMRIGHT", outBox, "BOTTOMRIGHT", 2, -2)
-                        end
-                        outBox.qualityPip:SetAtlas(ns.GetQualityAtlas(outQuality), false)
-                        outBox.qualityPip:Show()
-                    elseif outBox.qualityPip then
-                        outBox.qualityPip:Hide()
-                    end
+                    -- Output pip set later from Details section opInfo
                 else
                     outBox.icon:SetTexture(itemIcon or 134400)
                     outBox.icon:Show()
@@ -2032,7 +2020,9 @@ function ProfRecipes:RefreshDetail()
     -- Quality + skill info from GetCraftingOperationInfo
     local applyConc = detail.concCheck:GetChecked()
     local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
-    local opInfo = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, reagentInfoTbl, nil, applyConc)
+    local recraftItemGUID = currentTransaction and currentTransaction:GetRecraftAllocation() or nil
+    local opRecipeID = (recraftItemGUID and currentSchematic) and currentSchematic.recipeID or selectedRecipeID
+    local opInfo = C_TradeSkillUI.GetCraftingOperationInfo(opRecipeID, reagentInfoTbl, recraftItemGUID, applyConc)
 
     if opInfo then
         -- Quality display with atlas pips
@@ -2054,6 +2044,21 @@ function ProfRecipes:RefreshDetail()
                 detail.iconQualityPip:Show()
             else
                 detail.iconQualityPip:Hide()
+            end
+            -- Also set recraft output box pip if visible
+            local outBox = detail.recraftOutput
+            if outBox and outBox:IsShown() then
+                if qTier > 0 then
+                    if not outBox.qualityPip then
+                        outBox.qualityPip = outBox:CreateTexture(nil, "OVERLAY", nil, 2)
+                        outBox.qualityPip:SetSize(14, 14)
+                        outBox.qualityPip:SetPoint("BOTTOMRIGHT", outBox, "BOTTOMRIGHT", 2, -2)
+                    end
+                    outBox.qualityPip:SetAtlas(ns.GetQualityAtlas(qTier), false)
+                    outBox.qualityPip:Show()
+                elseif outBox.qualityPip then
+                    outBox.qualityPip:Hide()
+                end
             end
         else
             detail.qualityText:SetText("")

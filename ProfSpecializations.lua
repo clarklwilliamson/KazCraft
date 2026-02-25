@@ -6,19 +6,21 @@ ns.ProfSpecs = ProfSpecs
 --------------------------------------------------------------------
 -- Constants
 --------------------------------------------------------------------
-local NODE_SIZE = 54
-local NODE_ICON_SIZE = 40
+local NODE_SIZE = 48
+local NODE_ICON_SIZE = 36
 local LINE_THICKNESS = 2
-local CANVAS_PADDING = 60
-local TREE_TAB_HEIGHT = 28
-local POINTS_BAR_HEIGHT = 28
+local BOX_PAD = 14           -- padding inside each tree box
+local BOX_TITLE_H = 22      -- title bar height inside box
+local BOX_GAP = 8            -- gap between tree boxes
+local POINTS_BAR_HEIGHT = 24
+local DETAIL_WIDTH = 280     -- right-side detail panel
 
 -- Node border colors by state
 local NODE_COLORS = {
     locked     = { 0.35, 0.35, 0.35, 1 },
-    available  = { 200/255, 170/255, 100/255, 1 },   -- accent bronze
-    progress   = { 0.6, 0.75, 0.55, 1 },             -- soft green
-    maxed      = { 0.3, 0.85, 0.3, 1 },              -- bright green
+    available  = { 200/255, 170/255, 100/255, 1 },
+    progress   = { 0.6, 0.75, 0.55, 1 },
+    maxed      = { 0.3, 0.85, 0.3, 1 },
 }
 
 local NODE_BG_COLORS = {
@@ -35,21 +37,54 @@ local initialized = false
 local parentFrame
 
 -- UI refs
-local treeTabBar
-local treeTabs = {}
 local pointsText
-local canvasFrame
-local canvasContent    -- the inner frame nodes/lines attach to
+local canvasFrame       -- main area
+local treeArea          -- left side: tree boxes go here
+local detailPanel       -- right side: hover info
+
+-- Detail panel sub-elements
+local detailName, detailRank, detailDesc, detailSep
+local detailBonusHeader
+local detailBonusLines = {}
+local detailStatus
 
 -- Data state
 local skillLineID = nil
 local configID = nil
 local specTabIDs = {}
-local activeTabID = nil
 
--- Node/line pools
-local nodeFrames = {}   -- nodeID → frame
-local lineTextures = {} -- table of line texture refs
+-- Pools
+local nodeFrames = {}       -- pathID → frame
+local treeBoxes = {}        -- list of box frames (reused)
+local treeBoxLines = {}     -- boxIdx → {line textures}
+
+--------------------------------------------------------------------
+-- Hand-tuned node positions (from KazSpecLayout /ksl dump)
+-- pathID → { x, y } relative to tree root (0,0)
+--------------------------------------------------------------------
+local SAVED_POSITIONS = {
+    -- Engineering: Engineered Equipment (root 100765)
+    [100765] = { x = 0, y = 0 },
+    [100764] = { x = -77, y = 92 },
+    [100763] = { x = -150, y = 182 },
+    [100762] = { x = -77, y = 181 },
+    [100761] = { x = 77, y = 92 },
+    [100760] = { x = 78, y = 179 },
+    [100759] = { x = 157, y = 178 },
+    -- Engineering: Devices (root 100791)
+    [100791] = { x = 0, y = 0 },
+    [100790] = { x = -77, y = 92 },
+    [100789] = { x = 77, y = 92 },
+    -- Engineering: Inventing (root 100843)
+    [100843] = { x = 0, y = 0 },
+    [100842] = { x = -104, y = 60 },
+    [100841] = { x = -1, y = 98 },
+    [100840] = { x = -100, y = 153 },
+    [100839] = { x = -31, y = 205 },
+    [100838] = { x = 31, y = 205 },
+    [100837] = { x = 106, y = 143 },
+    [100836] = { x = 104, y = 60 },
+}
 
 --------------------------------------------------------------------
 -- Helpers
@@ -62,7 +97,6 @@ local function GetNodeState(pathID)
     elseif pathState == Enum.ProfessionsSpecPathState.Progressing then
         return "progress"
     end
-    -- Locked — but check if root can be unlocked
     local nodeInfo = C_Traits.GetNodeInfo(configID, pathID)
     if nodeInfo and nodeInfo.canPurchaseRank then
         return "available"
@@ -71,7 +105,6 @@ local function GetNodeState(pathID)
 end
 
 local function GetNodeDisplayInfo(nodeInfo)
-    -- Walk entryIDs → definitionID → icon/name
     if not nodeInfo or not nodeInfo.entryIDs then return nil, nil, nil end
     for _, entryID in ipairs(nodeInfo.entryIDs) do
         local entryInfo = C_Traits.GetEntryInfo(configID, entryID)
@@ -96,25 +129,277 @@ local function GetNodeDisplayInfo(nodeInfo)
 end
 
 --------------------------------------------------------------------
--- Connection lines
+-- Radial fallback layout
 --------------------------------------------------------------------
-local function ClearLines()
-    for _, tex in ipairs(lineTextures) do
-        tex:Hide()
-        tex:ClearAllPoints()
-    end
-    wipe(lineTextures)
+local PRIMARY_ROTATION = { [1] = 0, [2] = 80, [3] = 60, [4] = 50, [5] = 45 }
+local SECONDARY_ROTATION = { [1] = 0, [2] = 60, [3] = 50, [4] = 40, [5] = 35 }
+
+local function GetRotationSpread(layer, numChildren)
+    local tbl = (layer == 1) and PRIMARY_ROTATION or SECONDARY_ROTATION
+    return tbl[math.min(numChildren, 5)] or 45
 end
 
-local function DrawLine(parent, x1, y1, x2, y2, color)
-    local line = parent:CreateLine(nil, "BACKGROUND")
-    line:SetThickness(LINE_THICKNESS)
-    line:SetStartPoint("CENTER", parent, "TOPLEFT", x1, -y1)
-    line:SetEndPoint("CENTER", parent, "TOPLEFT", x2, -y2)
-    line:SetColorTexture(color[1], color[2], color[3], color[4] or 0.6)
-    line:Show()
-    table.insert(lineTextures, line)
-    return line
+local function BuildTreeLayout(rootPathID)
+    local childrenOf = {}
+    local allNodes = {}
+    local function Traverse(pathID)
+        table.insert(allNodes, pathID)
+        local kids = C_ProfSpecs.GetChildrenForPath(pathID) or {}
+        childrenOf[pathID] = kids
+        for _, kid in ipairs(kids) do Traverse(kid) end
+    end
+    Traverse(rootPathID)
+
+    if #allNodes == 0 then return allNodes, childrenOf, {} end
+
+    -- Check saved positions
+    if SAVED_POSITIONS[rootPathID] then
+        local positions = {}
+        local allSaved = true
+        for _, pathID in ipairs(allNodes) do
+            local sp = SAVED_POSITIONS[pathID]
+            if sp then
+                positions[pathID] = { x = sp.x, y = sp.y }
+            else
+                allSaved = false
+                break
+            end
+        end
+        if allSaved then return allNodes, childrenOf, positions end
+    end
+
+    -- Radial fallback
+    local positions = {}
+    positions[rootPathID] = { x = 0, y = 0 }
+
+    local function PosKids(parentID, px, py, pRot, dist, layer)
+        local kids = childrenOf[parentID] or {}
+        local n = #kids
+        if n == 0 then return end
+        local spread = GetRotationSpread(layer, n)
+        local pivot = (n / 2) + 0.5
+        for i, childID in ipairs(kids) do
+            local offset = i - pivot
+            local cRot = pRot + (offset * spread)
+            local rad = cRot / 180 * math.pi
+            positions[childID] = {
+                x = px + math.sin(rad) * dist,
+                y = py + math.cos(rad) * dist,
+                rot = cRot,
+            }
+        end
+    end
+
+    PosKids(rootPathID, 0, 0, 0, 120, 1)
+    for _, pid in ipairs(childrenOf[rootPathID] or {}) do
+        local p = positions[pid]
+        if p then PosKids(pid, p.x, p.y, p.rot, 90, 2) end
+    end
+    local function Deeper(parentID)
+        for _, cid in ipairs(childrenOf[parentID] or {}) do
+            local p = positions[cid]
+            if p and #(childrenOf[cid] or {}) > 0 then
+                PosKids(cid, p.x, p.y, p.rot, 76, 2)
+                Deeper(cid)
+            end
+        end
+    end
+    for _, pid in ipairs(childrenOf[rootPathID] or {}) do Deeper(pid) end
+
+    return allNodes, childrenOf, positions
+end
+
+local function GetBounds(positions)
+    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+    for _, pos in pairs(positions) do
+        if pos.x < minX then minX = pos.x end
+        if pos.y < minY then minY = pos.y end
+        if pos.x > maxX then maxX = pos.x end
+        if pos.y > maxY then maxY = pos.y end
+    end
+    return minX, minY, maxX, maxY
+end
+
+--------------------------------------------------------------------
+-- Detail panel (right side)
+--------------------------------------------------------------------
+local function CreateDetailPanel(parent)
+    local dp = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    dp:SetWidth(DETAIL_WIDTH)
+    dp:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 0)
+    dp:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+    dp:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeSize = 1,
+    })
+    dp:SetBackdropColor(12/255, 12/255, 12/255, 0.95)
+    dp:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+
+    local pad = 12
+    local yOff = -pad
+
+    -- Node name
+    detailName = dp:CreateFontString(nil, "OVERLAY")
+    detailName:SetFont(ns.FONT, 14, "")
+    detailName:SetPoint("TOPLEFT", dp, "TOPLEFT", pad, yOff)
+    detailName:SetPoint("TOPRIGHT", dp, "TOPRIGHT", -pad, yOff)
+    detailName:SetTextColor(unpack(ns.COLORS.accent))
+    detailName:SetJustifyH("LEFT")
+    detailName:SetWordWrap(true)
+
+    -- Rank
+    detailRank = dp:CreateFontString(nil, "OVERLAY")
+    detailRank:SetFont(ns.FONT, 12, "")
+    detailRank:SetPoint("TOPLEFT", detailName, "BOTTOMLEFT", 0, -4)
+    detailRank:SetTextColor(0.9, 0.9, 0.9)
+
+    -- Separator
+    detailSep = dp:CreateTexture(nil, "ARTWORK")
+    detailSep:SetHeight(1)
+    detailSep:SetPoint("TOPLEFT", detailRank, "BOTTOMLEFT", 0, -6)
+    detailSep:SetPoint("RIGHT", dp, "RIGHT", -pad, 0)
+    detailSep:SetColorTexture(unpack(ns.COLORS.panelBorder))
+
+    -- Description
+    detailDesc = dp:CreateFontString(nil, "OVERLAY")
+    detailDesc:SetFont(ns.FONT, 11, "")
+    detailDesc:SetPoint("TOPLEFT", detailSep, "BOTTOMLEFT", 0, -6)
+    detailDesc:SetPoint("RIGHT", dp, "RIGHT", -pad, 0)
+    detailDesc:SetTextColor(0.75, 0.75, 0.75)
+    detailDesc:SetJustifyH("LEFT")
+    detailDesc:SetWordWrap(true)
+
+    -- Bonus header
+    detailBonusHeader = dp:CreateFontString(nil, "OVERLAY")
+    detailBonusHeader:SetFont(ns.FONT, 12, "")
+    detailBonusHeader:SetPoint("TOPLEFT", detailDesc, "BOTTOMLEFT", 0, -10)
+    detailBonusHeader:SetTextColor(unpack(ns.COLORS.accent))
+    detailBonusHeader:SetText("Bonuses:")
+
+    -- Status line (bottom)
+    detailStatus = dp:CreateFontString(nil, "OVERLAY")
+    detailStatus:SetFont(ns.FONT, 11, "")
+    detailStatus:SetPoint("BOTTOMLEFT", dp, "BOTTOMLEFT", pad, pad)
+    detailStatus:SetPoint("BOTTOMRIGHT", dp, "BOTTOMRIGHT", -pad, pad)
+    detailStatus:SetJustifyH("LEFT")
+    detailStatus:SetWordWrap(true)
+
+    return dp
+end
+
+local function ClearDetailPanel()
+    if not detailPanel then return end
+    detailName:SetText("Hover a node")
+    detailName:SetTextColor(0.5, 0.5, 0.5)
+    detailRank:SetText("")
+    detailSep:Hide()
+    detailDesc:SetText("")
+    detailBonusHeader:Hide()
+    for _, bl in ipairs(detailBonusLines) do bl:Hide() end
+    detailStatus:SetText("")
+end
+
+local function PopulateDetailPanel(pathID)
+    if not detailPanel or not configID then return end
+    local ni = C_Traits.GetNodeInfo(configID, pathID)
+    if not ni then return end
+
+    local icon, name, desc = GetNodeDisplayInfo(ni)
+    local state = GetNodeState(pathID)
+
+    -- Name
+    detailName:SetText(name or "Specialization")
+    detailName:SetTextColor(unpack(ns.COLORS.accent))
+
+    -- Rank
+    local cur = ni.activeRank or 0
+    local mx = ni.maxRanks or 0
+    if mx > 0 then
+        local rankColor = (cur >= mx) and "|cff4dff4d" or "|cffffffff"
+        detailRank:SetText("Rank: " .. rankColor .. cur .. "/" .. mx .. "|r")
+    else
+        detailRank:SetText("")
+    end
+
+    -- Separator
+    detailSep:Show()
+
+    -- Description
+    local pathDesc = C_ProfSpecs.GetDescriptionForPath(pathID)
+    detailDesc:SetText((pathDesc and pathDesc ~= "") and pathDesc or (desc or ""))
+
+    -- Perks
+    local perks = C_ProfSpecs.GetPerksForPath(pathID)
+    if perks and #perks > 0 then
+        detailBonusHeader:Show()
+        detailBonusHeader:ClearAllPoints()
+        detailBonusHeader:SetPoint("TOPLEFT", detailDesc, "BOTTOMLEFT", 0, -10)
+
+        local prevLine = detailBonusHeader
+        for i, perkInfo in ipairs(perks) do
+            local bl = detailBonusLines[i]
+            if not bl then
+                bl = detailPanel:CreateFontString(nil, "OVERLAY")
+                bl:SetFont(ns.FONT, 11, "")
+                bl:SetPoint("RIGHT", detailPanel, "RIGHT", -12, 0)
+                bl:SetJustifyH("LEFT")
+                bl:SetWordWrap(true)
+                detailBonusLines[i] = bl
+            end
+            bl:ClearAllPoints()
+            bl:SetPoint("TOPLEFT", prevLine, "BOTTOMLEFT", (prevLine == detailBonusHeader) and 4 or 0, -3)
+            bl:SetPoint("RIGHT", detailPanel, "RIGHT", -12, 0)
+
+            local perkState = C_ProfSpecs.GetStateForPerk(perkInfo.perkID, configID)
+            local unlockRank = C_ProfSpecs.GetUnlockRankForPerk(perkInfo.perkID)
+            local perkDesc = C_ProfSpecs.GetDescriptionForPerk(perkInfo.perkID)
+
+            if perkDesc and perkDesc ~= "" then
+                local prefix = ""
+                if perkState == Enum.ProfessionsSpecPerkState.Earned then
+                    prefix = "|cff4dff4d*|r "
+                    bl:SetTextColor(0.3, 0.9, 0.3)
+                else
+                    if unlockRank then
+                        prefix = "|cff666666[" .. unlockRank .. "]|r "
+                    end
+                    bl:SetTextColor(0.55, 0.55, 0.55)
+                end
+                bl:SetText(prefix .. perkDesc)
+                bl:Show()
+            else
+                bl:Hide()
+            end
+
+            prevLine = bl
+        end
+        -- Hide extra bonus lines
+        for j = #perks + 1, #detailBonusLines do
+            detailBonusLines[j]:Hide()
+        end
+    else
+        detailBonusHeader:Hide()
+        for _, bl in ipairs(detailBonusLines) do bl:Hide() end
+    end
+
+    -- Status
+    if state == "locked" then
+        local sourceText = C_ProfSpecs.GetSourceTextForPath(pathID, configID)
+        if sourceText and sourceText ~= "" then
+            detailStatus:SetText("|cffff4d4d" .. sourceText .. "|r")
+        else
+            detailStatus:SetText("|cff888888Locked|r")
+        end
+    elseif state == "available" and ni.canPurchaseRank then
+        detailStatus:SetText("|cff4dff4dClick to spend a point|r")
+    elseif state == "maxed" then
+        detailStatus:SetText("|cff4dff4dCompleted|r")
+    elseif state == "progress" then
+        detailStatus:SetText("|cffC8AA64In progress|r")
+    else
+        detailStatus:SetText("")
+    end
 end
 
 --------------------------------------------------------------------
@@ -145,7 +430,6 @@ local function CreateNodeFrame(parent, nodeID)
     f.lockIcon:SetTexture("Interface\\PetBattles\\PetBattle-LockIcon")
     f.lockIcon:Hide()
 
-    -- Glow for available nodes
     f.glow = f:CreateTexture(nil, "BACKGROUND", nil, -1)
     f.glow:SetSize(NODE_SIZE + 8, NODE_SIZE + 8)
     f.glow:SetPoint("CENTER")
@@ -154,76 +438,16 @@ local function CreateNodeFrame(parent, nodeID)
 
     f.nodeID = nodeID
 
-    -- Tooltip
+    -- Hover → detail panel
     f:SetScript("OnEnter", function(self)
-        if not self.nodeID or not configID then return end
-        local ni = C_Traits.GetNodeInfo(configID, self.nodeID)
-        if not ni then return end
-        local icon, name, desc = GetNodeDisplayInfo(ni)
-
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(name or "Specialization", 1, 0.82, 0)
-
-        -- Rank
-        local current = ni.activeRank or 0
-        local max = ni.maxRanks or 0
-        if max > 0 then
-            GameTooltip:AddLine("Rank: " .. current .. "/" .. max, 1, 1, 1)
+        if self.nodeID and configID then
+            PopulateDetailPanel(self.nodeID)
         end
-
-        -- Path description
-        local pathDesc = C_ProfSpecs.GetDescriptionForPath(self.nodeID)
-        if pathDesc and pathDesc ~= "" then
-            GameTooltip:AddLine(pathDesc, 0.85, 0.85, 0.85, true)
-        end
-
-        -- Perk bonuses
-        local perks = C_ProfSpecs.GetPerksForPath(self.nodeID)
-        if perks and #perks > 0 then
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("Bonuses:", 1, 0.82, 0)
-            for _, perkInfo in ipairs(perks) do
-                local perkState = C_ProfSpecs.GetStateForPerk(perkInfo.perkID, configID)
-                local unlockRank = C_ProfSpecs.GetUnlockRankForPerk(perkInfo.perkID)
-                local perkDesc = C_ProfSpecs.GetDescriptionForPerk(perkInfo.perkID)
-                if perkDesc and perkDesc ~= "" then
-                    local prefix = ""
-                    if perkState == Enum.ProfessionsSpecPerkState.Earned then
-                        prefix = "|cff4dff4d*|r "
-                    elseif unlockRank then
-                        prefix = "|cff888888[Rank " .. unlockRank .. "]|r "
-                    end
-                    local r, g, b = 0.7, 0.7, 0.7
-                    if perkState == Enum.ProfessionsSpecPerkState.Earned then
-                        r, g, b = 0.3, 0.9, 0.3
-                    end
-                    GameTooltip:AddLine(prefix .. perkDesc, r, g, b, true)
-                end
-            end
-        end
-
-        -- Status info
-        local state = GetNodeState(self.nodeID)
-        if state == "locked" then
-            local sourceText = C_ProfSpecs.GetSourceTextForPath(self.nodeID, configID)
-            if sourceText and sourceText ~= "" then
-                GameTooltip:AddLine(" ")
-                GameTooltip:AddLine(sourceText, 1, 0.3, 0.3, true)
-            end
-        elseif state == "available" and ni.canPurchaseRank then
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("Click to spend a point", 0.3, 0.9, 0.3)
-        end
-
-        GameTooltip:Show()
-
-        -- Highlight border
         self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
     end)
 
     f:SetScript("OnLeave", function(self)
-        GameTooltip:Hide()
-        -- Restore border color
+        ClearDetailPanel()
         local state = GetNodeState(self.nodeID)
         local colors = NODE_COLORS[state] or NODE_COLORS.locked
         self:SetBackdropBorderColor(unpack(colors))
@@ -233,12 +457,9 @@ local function CreateNodeFrame(parent, nodeID)
     f:SetScript("OnClick", function(self)
         if not self.nodeID or not configID then return end
         local ni = C_Traits.GetNodeInfo(configID, self.nodeID)
-        if not ni then return end
-
-        if ni.canPurchaseRank then
+        if ni and ni.canPurchaseRank then
             C_Traits.PurchaseRank(configID, self.nodeID)
             C_Traits.CommitConfig(configID)
-            -- Refresh happens via TRAIT_NODE_CHANGED event
         end
     end)
 
@@ -248,27 +469,17 @@ end
 local function UpdateNodeFrame(f, nodeID)
     if not configID then return end
     local ni = C_Traits.GetNodeInfo(configID, nodeID)
-    if not ni then
-        f:Hide()
-        return
-    end
+    if not ni then f:Hide(); return end
 
     f.nodeID = nodeID
 
-    -- Icon + name
     local icon, name, desc = GetNodeDisplayInfo(ni)
     f.icon:SetTexture(icon or 134400)
 
-    -- Rank display
     local current = ni.activeRank or 0
     local max = ni.maxRanks or 0
-    if max > 0 then
-        f.rankText:SetText(current .. "/" .. max)
-    else
-        f.rankText:SetText("")
-    end
+    f.rankText:SetText(max > 0 and (current .. "/" .. max) or "")
 
-    -- State-based visuals
     local state = GetNodeState(nodeID)
     local borderColor = NODE_COLORS[state] or NODE_COLORS.locked
     local bgColor = NODE_BG_COLORS[state] or NODE_BG_COLORS.locked
@@ -294,7 +505,7 @@ local function UpdateNodeFrame(f, nodeID)
         f.lockIcon:Hide()
         f.glow:Hide()
         f.rankText:SetTextColor(0.3, 0.9, 0.3)
-    else -- progress
+    else
         f.icon:SetDesaturated(false)
         f.icon:SetAlpha(1)
         f.lockIcon:Hide()
@@ -306,253 +517,165 @@ local function UpdateNodeFrame(f, nodeID)
 end
 
 --------------------------------------------------------------------
--- Tree rendering
+-- Tree box creation
 --------------------------------------------------------------------
-local function CollectTreeNodes(rootPathID)
-    -- BFS from root, collecting all nodes via C_ProfSpecs.GetChildrenForPath
-    local nodes = {}
-    local visited = {}
-    local queue = { rootPathID }
-    while #queue > 0 do
-        local pathID = table.remove(queue, 1)
-        if pathID and not visited[pathID] then
-            visited[pathID] = true
-            table.insert(nodes, pathID)
-            local children = C_ProfSpecs.GetChildrenForPath(pathID)
-            if children then
-                for _, childID in ipairs(children) do
-                    if not visited[childID] then
-                        table.insert(queue, childID)
-                    end
-                end
-            end
-        end
-    end
-    return nodes
+local function GetOrCreateTreeBox(index)
+    if treeBoxes[index] then return treeBoxes[index] end
+
+    local box = CreateFrame("Frame", nil, treeArea, "BackdropTemplate")
+    box:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeSize = 1,
+    })
+    box:SetBackdropColor(14/255, 14/255, 14/255, 0.92)
+    box:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+
+    box.title = box:CreateFontString(nil, "OVERLAY")
+    box.title:SetFont(ns.FONT, 12, "OUTLINE")
+    box.title:SetPoint("TOP", box, "TOP", 0, -5)
+    box.title:SetTextColor(unpack(ns.COLORS.accent))
+
+    -- Content frame for nodes (inside box, below title)
+    box.content = CreateFrame("Frame", nil, box)
+    box.content:SetPoint("TOPLEFT", box, "TOPLEFT", BOX_PAD, -(BOX_TITLE_H))
+    box.content:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -BOX_PAD, BOX_PAD)
+
+    treeBoxes[index] = box
+    treeBoxLines[index] = {}
+    return box
 end
 
-local function RenderTree()
-    if not activeTabID or not configID then return end
+--------------------------------------------------------------------
+-- Render all trees
+--------------------------------------------------------------------
+local function RenderAllTrees()
+    if not configID then return end
 
-    -- Clear existing
-    ClearLines()
-    for _, f in pairs(nodeFrames) do
-        f:Hide()
+    -- Hide everything
+    for _, f in pairs(nodeFrames) do f:Hide() end
+    for i, box in ipairs(treeBoxes) do
+        box:Hide()
+        for _, line in ipairs(treeBoxLines[i] or {}) do
+            line:Hide()
+            line:ClearAllPoints()
+        end
+        wipe(treeBoxLines[i] or {})
     end
 
-    -- Get root path for active tab
-    local rootPathID = C_ProfSpecs.GetRootPathForTab(activeTabID)
-    if not rootPathID then return end
+    specTabIDs = C_ProfSpecs.GetSpecTabIDsForSkillLine(skillLineID) or {}
+    if #specTabIDs == 0 then return end
 
-    -- Collect all nodes in tree
-    local allNodes = CollectTreeNodes(rootPathID)
-    if #allNodes == 0 then return end
-
-    -- Get positions from C_Traits.GetNodeInfo
-    local positions = {}
-    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
-    for _, pathID in ipairs(allNodes) do
-        local ni = C_Traits.GetNodeInfo(configID, pathID)
-        if ni and ni.isVisible then
-            positions[pathID] = { x = ni.posX, y = ni.posY }
-            if ni.posX < minX then minX = ni.posX end
-            if ni.posY < minY then minY = ni.posY end
-            if ni.posX > maxX then maxX = ni.posX end
-            if ni.posY > maxY then maxY = ni.posY end
+    -- Build trees
+    local trees = {}
+    for i, tabID in ipairs(specTabIDs) do
+        local rootPathID = C_ProfSpecs.GetRootPathForTab(tabID)
+        if rootPathID then
+            local allNodes, childrenOf, positions = BuildTreeLayout(rootPathID)
+            local tabInfo = C_ProfSpecs.GetTabInfo(tabID)
+            local minX, minY, maxX, maxY = GetBounds(positions)
+            table.insert(trees, {
+                tabID = tabID,
+                rootPathID = rootPathID,
+                allNodes = allNodes,
+                childrenOf = childrenOf,
+                positions = positions,
+                name = (tabInfo and tabInfo.name) or ("Spec " .. i),
+                minX = minX, maxX = maxX,
+                minY = minY, maxY = maxY,
+            })
         end
     end
+    if #trees == 0 then return end
 
-    -- Calculate scale to fit canvas
-    local canvasW = canvasFrame:GetWidth() - (CANVAS_PADDING * 2)
-    local canvasH = canvasFrame:GetHeight() - (CANVAS_PADDING * 2)
-    local treeW = maxX - minX
-    local treeH = maxY - minY
+    -- Create/update tree boxes, lay out left-to-right
+    local cursorX = 0
+    for idx, t in ipairs(trees) do
+        local box = GetOrCreateTreeBox(idx)
+        local tabState = C_ProfSpecs.GetStateForTab(t.tabID, configID)
+        local isLocked = (tabState == Enum.ProfessionsSpecTabState.Locked)
 
-    if treeW <= 0 then treeW = 1 end
-    if treeH <= 0 then treeH = 1 end
+        -- Box sizing from node bounds (1:1 pixels, no scaling)
+        local contentW = (t.maxX - t.minX) + NODE_SIZE
+        local contentH = (t.maxY - t.minY) + NODE_SIZE
+        local boxW = contentW + BOX_PAD * 2
+        local boxH = contentH + BOX_PAD + BOX_TITLE_H
 
-    local scaleX = canvasW / treeW
-    local scaleY = canvasH / treeH
-    local scale = math.min(scaleX, scaleY, 1)  -- don't scale up past 1:1
+        box:SetSize(math.max(boxW, 100), math.max(boxH, 80))
+        box:ClearAllPoints()
+        box:SetPoint("TOPLEFT", treeArea, "TOPLEFT", cursorX, 0)
+        box.title:SetText(t.name)
 
-    -- Center offset
-    local offsetX = CANVAS_PADDING + (canvasW - treeW * scale) / 2
-    local offsetY = CANVAS_PADDING + (canvasH - treeH * scale) / 2
+        if isLocked then
+            box.title:SetTextColor(0.4, 0.4, 0.4)
+            box:SetBackdropBorderColor(0.25, 0.25, 0.25, 1)
+        else
+            box.title:SetTextColor(unpack(ns.COLORS.accent))
+            box:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+        end
 
-    -- Helper: world pos → canvas pixel pos
-    local function ToCanvas(px, py)
-        return offsetX + (px - minX) * scale,
-               offsetY + (py - minY) * scale
-    end
+        -- Node position inside box content:
+        -- node CENTER at (pos.x - minX + NODE_SIZE/2, pos.y - minY + NODE_SIZE/2) from TOPLEFT of content
+        local function NodePos(pos)
+            return (pos.x - t.minX) + NODE_SIZE / 2,
+                   (pos.y - t.minY) + NODE_SIZE / 2
+        end
 
-    -- Set canvas content size
-    canvasContent:SetSize(canvasFrame:GetWidth(), canvasFrame:GetHeight())
+        -- Draw lines
+        local lines = treeBoxLines[idx]
+        for _, pathID in ipairs(t.allNodes) do
+            local pos = t.positions[pathID]
+            if pos then
+                local px, py = NodePos(pos)
+                for _, childID in ipairs(t.childrenOf[pathID] or {}) do
+                    local cp = t.positions[childID]
+                    if cp then
+                        local cx, cy = NodePos(cp)
+                        local line = box.content:CreateLine(nil, "BACKGROUND")
+                        line:SetThickness(LINE_THICKNESS)
+                        line:SetStartPoint("CENTER", box.content, "TOPLEFT", px, -py)
+                        line:SetEndPoint("CENTER", box.content, "TOPLEFT", cx, -cy)
 
-    -- Draw connection lines first (under nodes)
-    for _, pathID in ipairs(allNodes) do
-        local pos = positions[pathID]
-        if pos then
-            local ni = C_Traits.GetNodeInfo(configID, pathID)
-            if ni and ni.isVisible then
-                local px, py = ToCanvas(pos.x, pos.y)
-
-                -- Draw edges to children via visibleEdges
-                if ni.visibleEdges then
-                    for _, edge in ipairs(ni.visibleEdges) do
-                        local childPos = positions[edge.targetNode]
-                        if childPos then
-                            local cx, cy = ToCanvas(childPos.x, childPos.y)
-                            local lineColor
-                            if edge.isActive then
-                                lineColor = { 200/255, 170/255, 100/255, 0.7 }
-                            else
-                                lineColor = { 0.3, 0.3, 0.3, 0.4 }
-                            end
-                            DrawLine(canvasContent, px, py, cx, cy, lineColor)
+                        local cs = GetNodeState(childID)
+                        local ps = GetNodeState(pathID)
+                        if ps ~= "locked" and cs ~= "locked" then
+                            line:SetColorTexture(200/255, 170/255, 100/255, 0.7)
+                        elseif ps ~= "locked" or cs ~= "locked" then
+                            line:SetColorTexture(200/255, 170/255, 100/255, 0.35)
+                        else
+                            line:SetColorTexture(0.3, 0.3, 0.3, 0.3)
                         end
-                    end
-                end
-
-                -- Also draw to ProfSpecs children (some connections aren't in visibleEdges)
-                local children = C_ProfSpecs.GetChildrenForPath(pathID)
-                if children then
-                    for _, childID in ipairs(children) do
-                        local childPos = positions[childID]
-                        if childPos then
-                            -- Check if we already drew this via visibleEdges
-                            local alreadyDrawn = false
-                            if ni.visibleEdges then
-                                for _, edge in ipairs(ni.visibleEdges) do
-                                    if edge.targetNode == childID then
-                                        alreadyDrawn = true
-                                        break
-                                    end
-                                end
-                            end
-                            if not alreadyDrawn then
-                                local cx, cy = ToCanvas(childPos.x, childPos.y)
-                                local childState = GetNodeState(childID)
-                                local lineColor
-                                if childState ~= "locked" then
-                                    lineColor = { 200/255, 170/255, 100/255, 0.5 }
-                                else
-                                    lineColor = { 0.3, 0.3, 0.3, 0.3 }
-                                end
-                                DrawLine(canvasContent, px, py, cx, cy, lineColor)
-                            end
-                        end
+                        table.insert(lines, line)
                     end
                 end
             end
         end
-    end
 
-    -- Draw nodes on top
-    for _, pathID in ipairs(allNodes) do
-        local pos = positions[pathID]
-        if pos then
-            local ni = C_Traits.GetNodeInfo(configID, pathID)
-            if ni and ni.isVisible then
-                local px, py = ToCanvas(pos.x, pos.y)
-
+        -- Create/update nodes
+        for _, pathID in ipairs(t.allNodes) do
+            local pos = t.positions[pathID]
+            if pos then
+                local px, py = NodePos(pos)
                 local f = nodeFrames[pathID]
                 if not f then
-                    f = CreateNodeFrame(canvasContent, pathID)
+                    f = CreateNodeFrame(box.content, pathID)
                     nodeFrames[pathID] = f
+                else
+                    f:SetParent(box.content)
                 end
-
                 f:ClearAllPoints()
-                f:SetPoint("CENTER", canvasContent, "TOPLEFT", px, -py)
+                f:SetPoint("CENTER", box.content, "TOPLEFT", px, -py)
                 UpdateNodeFrame(f, pathID)
             end
         end
-    end
-end
 
---------------------------------------------------------------------
--- Tree tab bar
---------------------------------------------------------------------
-local function CreateTreeTabs()
-    if treeTabBar then
-        treeTabBar:Hide()
+        box:Show()
+        cursorX = cursorX + box:GetWidth() + BOX_GAP
     end
 
-    treeTabBar = CreateFrame("Frame", nil, parentFrame)
-    treeTabBar:SetHeight(TREE_TAB_HEIGHT)
-    treeTabBar:SetPoint("TOPLEFT", parentFrame, "TOPLEFT", 8, 0)
-    treeTabBar:SetPoint("TOPRIGHT", parentFrame, "TOPRIGHT", -8, 0)
-
-    -- Clear old tabs
-    for _, btn in ipairs(treeTabs) do
-        btn:Hide()
-    end
-    wipe(treeTabs)
-
-    if not skillLineID then return end
-
-    specTabIDs = C_ProfSpecs.GetSpecTabIDsForSkillLine(skillLineID) or {}
-
-    local xOff = 0
-    for i, tabID in ipairs(specTabIDs) do
-        local tabInfo = C_ProfSpecs.GetTabInfo(tabID)
-        if tabInfo then
-            local tabState = C_ProfSpecs.GetStateForTab(tabID, configID)
-
-            local btn = ns.CreateButton(treeTabBar, tabInfo.name or ("Spec " .. i), 0, TREE_TAB_HEIGHT - 4)
-            btn:SetPoint("TOPLEFT", treeTabBar, "TOPLEFT", xOff, -2)
-
-            -- Auto-width based on text
-            local textW = btn.label:GetStringWidth() + 20
-            btn:SetWidth(math.max(textW, 80))
-
-            btn.tabID = tabID
-            btn.tabState = tabState
-
-            -- Dim if locked
-            if tabState == Enum.ProfessionsSpecTabState.Locked then
-                btn.label:SetTextColor(0.4, 0.4, 0.4)
-            end
-
-            btn:SetScript("OnClick", function(self)
-                if self.tabState == Enum.ProfessionsSpecTabState.Locked then
-                    -- Check if unlockable
-                    if C_ProfSpecs.CanUnlockTab(self.tabID, configID) then
-                        -- First point purchase unlocks the tab
-                        local rootPath = C_ProfSpecs.GetRootPathForTab(self.tabID)
-                        if rootPath then
-                            local ni = C_Traits.GetNodeInfo(configID, rootPath)
-                            if ni and ni.canPurchaseRank then
-                                C_Traits.PurchaseRank(configID, rootPath)
-                                C_Traits.CommitConfig(configID)
-                            end
-                        end
-                    end
-                    return
-                end
-                activeTabID = self.tabID
-                ProfSpecs:RefreshTreeTabs()
-                RenderTree()
-            end)
-
-            table.insert(treeTabs, btn)
-            xOff = xOff + btn:GetWidth() + 4
-        end
-    end
-end
-
-function ProfSpecs:RefreshTreeTabs()
-    for _, btn in ipairs(treeTabs) do
-        local isActive = (btn.tabID == activeTabID)
-        local tabState = C_ProfSpecs.GetStateForTab(btn.tabID, configID)
-        btn.tabState = tabState
-
-        if isActive then
-            btn.label:SetTextColor(unpack(ns.COLORS.tabActive))
-        elseif tabState == Enum.ProfessionsSpecTabState.Locked then
-            btn.label:SetTextColor(0.4, 0.4, 0.4)
-        else
-            btn.label:SetTextColor(unpack(ns.COLORS.tabInactive))
-        end
+    -- Hide extra boxes
+    for i = #trees + 1, #treeBoxes do
+        treeBoxes[i]:Hide()
     end
 end
 
@@ -583,15 +706,15 @@ function ProfSpecs:Init(parent)
     initialized = true
     parentFrame = parent
 
-    -- Points bar
+    -- Points bar at the top
     pointsText = parent:CreateFontString(nil, "OVERLAY")
-    pointsText:SetFont(ns.FONT, 14, "")
-    pointsText:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -(TREE_TAB_HEIGHT + 4))
+    pointsText:SetFont(ns.FONT, 13, "")
+    pointsText:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -4)
     pointsText:SetTextColor(unpack(ns.COLORS.brightText))
 
-    -- Canvas area
+    -- Main canvas area
     canvasFrame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    canvasFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(TREE_TAB_HEIGHT + POINTS_BAR_HEIGHT + 4))
+    canvasFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(POINTS_BAR_HEIGHT + 4))
     canvasFrame:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
     canvasFrame:SetBackdrop({
         bgFile = "Interface\\BUTTONS\\WHITE8X8",
@@ -602,35 +725,34 @@ function ProfSpecs:Init(parent)
     canvasFrame:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
     canvasFrame:SetClipsChildren(true)
 
-    -- Inner content frame (nodes/lines attach here)
-    canvasContent = CreateFrame("Frame", nil, canvasFrame)
-    canvasContent:SetAllPoints()
+    -- Left: tree area (boxes go here)
+    treeArea = CreateFrame("Frame", nil, canvasFrame)
+    treeArea:SetPoint("TOPLEFT", canvasFrame, "TOPLEFT", 8, -8)
+    treeArea:SetPoint("BOTTOMRIGHT", canvasFrame, "BOTTOMRIGHT", -(DETAIL_WIDTH + 8), 8)
 
-    -- Event frame for refresh
-    local eventFrame = CreateFrame("Frame")
-    eventFrame:RegisterEvent("TRAIT_NODE_CHANGED")
-    eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-    eventFrame:RegisterEvent("SKILL_LINE_SPECS_RANKS_CHANGED")
-    eventFrame:RegisterEvent("SKILL_LINE_SPECS_UNLOCKED")
-    eventFrame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
-    eventFrame:SetScript("OnEvent", function(self, event, ...)
+    -- Right: detail panel
+    detailPanel = CreateDetailPanel(canvasFrame)
+    ClearDetailPanel()
+
+    -- Events
+    local ef = CreateFrame("Frame")
+    ef:RegisterEvent("TRAIT_NODE_CHANGED")
+    ef:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    ef:RegisterEvent("SKILL_LINE_SPECS_RANKS_CHANGED")
+    ef:RegisterEvent("SKILL_LINE_SPECS_UNLOCKED")
+    ef:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
+    ef:SetScript("OnEvent", function(self, event, ...)
         if not ProfSpecs:IsShown() then return end
         if event == "TRAIT_NODE_CHANGED" then
             local nodeID = ...
-            -- Quick update just this node if it exists
             if nodeFrames[nodeID] then
                 UpdateNodeFrame(nodeFrames[nodeID], nodeID)
             end
             UpdatePointsDisplay()
-        elseif event == "TRAIT_CONFIG_UPDATED" then
-            -- Full refresh
-            ProfSpecs:Refresh()
-        elseif event == "SKILL_LINE_SPECS_RANKS_CHANGED" then
-            ProfSpecs:Refresh()
-        elseif event == "SKILL_LINE_SPECS_UNLOCKED" then
-            ProfSpecs:Refresh()
         elseif event == "CURRENCY_DISPLAY_UPDATE" then
             UpdatePointsDisplay()
+        else
+            ProfSpecs:Refresh()
         end
     end)
 end
@@ -638,55 +760,30 @@ end
 function ProfSpecs:Show()
     if not initialized then return end
 
-    -- Get current profession skillLine
     local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
-    if profInfo and profInfo.professionID then
-        skillLineID = profInfo.professionID
-    else
-        skillLineID = nil
-    end
+    skillLineID = profInfo and profInfo.professionID or nil
 
     if not skillLineID or not C_ProfSpecs.SkillLineHasSpecialization(skillLineID) then
-        -- No specializations for this profession
         canvasFrame:Hide()
         pointsText:SetText("No specializations available for this profession.")
         pointsText:Show()
-        if treeTabBar then treeTabBar:Hide() end
         return
     end
 
     configID = C_ProfSpecs.GetConfigIDForSkillLine(skillLineID)
     C_Traits.StageConfig(configID)
 
-    -- Build tree tabs
-    CreateTreeTabs()
-    if treeTabBar then treeTabBar:Show() end
-
-    -- Select first unlocked tab (or first tab)
-    activeTabID = nil
-    for _, tabID in ipairs(specTabIDs) do
-        local tabState = C_ProfSpecs.GetStateForTab(tabID, configID)
-        if tabState ~= Enum.ProfessionsSpecTabState.Locked then
-            activeTabID = tabID
-            break
-        end
-    end
-    if not activeTabID and #specTabIDs > 0 then
-        activeTabID = specTabIDs[1]
-    end
-
-    self:RefreshTreeTabs()
     canvasFrame:Show()
     pointsText:Show()
     UpdatePointsDisplay()
-    RenderTree()
+    ClearDetailPanel()
+    RenderAllTrees()
 end
 
 function ProfSpecs:Hide()
     if not initialized then return end
     if canvasFrame then canvasFrame:Hide() end
     if pointsText then pointsText:Hide() end
-    if treeTabBar then treeTabBar:Hide() end
 end
 
 function ProfSpecs:IsShown()
@@ -699,8 +796,6 @@ function ProfSpecs:Refresh()
         configID = C_ProfSpecs.GetConfigIDForSkillLine(skillLineID)
         C_Traits.StageConfig(configID)
     end
-    CreateTreeTabs()
-    self:RefreshTreeTabs()
     UpdatePointsDisplay()
-    RenderTree()
+    RenderAllTrees()
 end

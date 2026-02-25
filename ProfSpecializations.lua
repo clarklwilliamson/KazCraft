@@ -18,13 +18,15 @@ local DETAIL_WIDTH = 280     -- right-side detail panel
 -- Node border colors by state
 local NODE_COLORS = {
     locked     = { 0.35, 0.35, 0.35, 1 },
-    available  = { 200/255, 170/255, 100/255, 1 },
-    progress   = { 0.6, 0.75, 0.55, 1 },
+    selectable = { 200/255, 170/255, 100/255, 1 },  -- can unlock (locked but purchasable)
+    available  = { 200/255, 170/255, 100/255, 1 },   -- can spend points
+    progress   = { 0.6, 0.75, 0.55, 1 },             -- progressing, no points to spend
     maxed      = { 0.3, 0.85, 0.3, 1 },
 }
 
 local NODE_BG_COLORS = {
     locked     = { 0.06, 0.06, 0.06, 0.9 },
+    selectable = { 0.10, 0.09, 0.06, 0.95 },
     available  = { 0.10, 0.09, 0.06, 0.95 },
     progress   = { 0.08, 0.10, 0.06, 0.95 },
     maxed      = { 0.06, 0.10, 0.06, 0.95 },
@@ -138,18 +140,32 @@ local SAVED_POSITIONS = {
 --------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------
-local function GetNodeState(pathID)
+-- Track which trees are tab-locked (set per render cycle)
+local lockedTreeRoots = {}  -- rootPathID → true
+
+local function GetNodeState(pathID, treeLocked)
     if not configID or not pathID then return "locked" end
+    if treeLocked then return "locked" end
+
     local pathState = C_ProfSpecs.GetStateForPath(pathID, configID)
+
     if pathState == Enum.ProfessionsSpecPathState.Completed then
         return "maxed"
     elseif pathState == Enum.ProfessionsSpecPathState.Progressing then
-        return "progress"
+        -- Progressing: check if we can actually spend a point right now
+        local spendEntryID = C_ProfSpecs.GetSpendEntryForPath(pathID)
+        if spendEntryID and C_Traits.CanPurchaseRank(configID, pathID, spendEntryID) then
+            return "available"  -- can spend points
+        end
+        return "progress"  -- progressing but can't spend right now
     end
-    local nodeInfo = C_Traits.GetNodeInfo(configID, pathID)
-    if nodeInfo and nodeInfo.canPurchaseRank then
-        return "available"
+
+    -- Path is Locked: check if we can unlock it
+    local unlockEntryID = C_ProfSpecs.GetUnlockEntryForPath(pathID)
+    if unlockEntryID and C_Traits.CanPurchaseRank(configID, pathID, unlockEntryID) then
+        return "selectable"  -- locked but ready to unlock
     end
+
     return "locked"
 end
 
@@ -440,12 +456,16 @@ local function PopulateDetailPanel(pathID)
         else
             detailStatus:SetText("|cff888888Locked|r")
         end
-    elseif state == "available" and ni.canPurchaseRank then
+    elseif state == "selectable" then
+        detailStatus:SetText("|cffC8AA64Click to unlock|r")
+    elseif state == "available" then
         detailStatus:SetText("|cff4dff4dClick to spend a point|r")
     elseif state == "maxed" then
         detailStatus:SetText("|cff4dff4dCompleted|r")
     elseif state == "progress" then
-        detailStatus:SetText("|cffC8AA64In progress|r")
+        local cur = ni.activeRank or 0
+        local mx = ni.maxRanks or 0
+        detailStatus:SetText("|cffC8AA64In progress (" .. cur .. "/" .. mx .. ")|r")
     else
         detailStatus:SetText("")
     end
@@ -497,30 +517,46 @@ local function CreateNodeFrame(parent, nodeID)
 
     f:SetScript("OnLeave", function(self)
         ClearDetailPanel()
-        local state = GetNodeState(self.nodeID)
+        local state = GetNodeState(self.nodeID, self.treeLocked)
         local colors = NODE_COLORS[state] or NODE_COLORS.locked
         self:SetBackdropBorderColor(unpack(colors))
     end)
 
-    -- Click to spend
+    -- Click to stage spend or unlock (NOT committed until Apply)
     f:SetScript("OnClick", function(self)
         if not self.nodeID or not configID then return end
-        local ni = C_Traits.GetNodeInfo(configID, self.nodeID)
-        if ni and ni.canPurchaseRank then
-            C_Traits.PurchaseRank(configID, self.nodeID)
-            C_Traits.CommitConfig(configID)
+        if InCombatLockdown() then return end
+
+        local pathState = C_ProfSpecs.GetStateForPath(self.nodeID, configID)
+
+        if pathState == Enum.ProfessionsSpecPathState.Locked then
+            local unlockEntryID = C_ProfSpecs.GetUnlockEntryForPath(self.nodeID)
+            if unlockEntryID and C_Traits.CanPurchaseRank(configID, self.nodeID, unlockEntryID) then
+                C_Traits.PurchaseRank(configID, self.nodeID, unlockEntryID)
+            end
+        elseif pathState == Enum.ProfessionsSpecPathState.Progressing then
+            local spendEntryID = C_ProfSpecs.GetSpendEntryForPath(self.nodeID)
+            if spendEntryID and C_Traits.CanPurchaseRank(configID, self.nodeID, spendEntryID) then
+                C_Traits.PurchaseRank(configID, self.nodeID, spendEntryID)
+            end
+        end
+
+        -- Update apply button state
+        if ns.ProfSpecs.UpdateApplyButton then
+            ns.ProfSpecs.UpdateApplyButton()
         end
     end)
 
     return f
 end
 
-local function UpdateNodeFrame(f, nodeID)
+local function UpdateNodeFrame(f, nodeID, treeLocked)
     if not configID then return end
     local ni = C_Traits.GetNodeInfo(configID, nodeID)
     if not ni then f:Hide(); return end
 
     f.nodeID = nodeID
+    f.treeLocked = treeLocked or false
 
     local icon, name, desc = GetNodeDisplayInfo(ni)
     f.icon:SetTexture(icon or 134400)
@@ -529,7 +565,7 @@ local function UpdateNodeFrame(f, nodeID)
     local max = ni.maxRanks or 0
     f.rankText:SetText(max > 0 and (current .. "/" .. max) or "")
 
-    local state = GetNodeState(nodeID)
+    local state = GetNodeState(nodeID, treeLocked)
     local borderColor = NODE_COLORS[state] or NODE_COLORS.locked
     local bgColor = NODE_BG_COLORS[state] or NODE_BG_COLORS.locked
 
@@ -542,7 +578,15 @@ local function UpdateNodeFrame(f, nodeID)
         f.lockIcon:Show()
         f.glow:Hide()
         f.rankText:SetTextColor(0.4, 0.4, 0.4)
+    elseif state == "selectable" then
+        -- Locked but ready to unlock — bright with glow
+        f.icon:SetDesaturated(false)
+        f.icon:SetAlpha(0.85)
+        f.lockIcon:Hide()
+        f.glow:Show()
+        f.rankText:SetTextColor(unpack(ns.COLORS.accent))
     elseif state == "available" then
+        -- Progressing and can spend — bronze glow
         f.icon:SetDesaturated(false)
         f.icon:SetAlpha(1)
         f.lockIcon:Hide()
@@ -555,6 +599,7 @@ local function UpdateNodeFrame(f, nodeID)
         f.glow:Hide()
         f.rankText:SetTextColor(0.3, 0.9, 0.3)
     else
+        -- progress: in progress but can't spend right now
         f.icon:SetDesaturated(false)
         f.icon:SetAlpha(1)
         f.lockIcon:Hide()
@@ -749,7 +794,7 @@ local function RenderAllTrees()
                 f:ClearAllPoints()
                 f:SetPoint("CENTER", box.content, "TOPLEFT", px, -py)
                 f:SetFrameLevel(box.content:GetFrameLevel() + 3)
-                UpdateNodeFrame(f, pathID)
+                UpdateNodeFrame(f, pathID, isLocked)
             end
         end
 
@@ -766,8 +811,8 @@ local function RenderAllTrees()
                         line:SetStartPoint("CENTER", parentFrame)
                         line:SetEndPoint("CENTER", childFrame)
 
-                        local cs = GetNodeState(childID)
-                        local ps = GetNodeState(pathID)
+                        local cs = GetNodeState(childID, isLocked)
+                        local ps = GetNodeState(pathID, isLocked)
                         if ps ~= "locked" and cs ~= "locked" then
                             line:SetColorTexture(200/255, 170/255, 100/255, 0.8)
                         elseif ps ~= "locked" or cs ~= "locked" then
@@ -837,10 +882,111 @@ function ProfSpecs:Init(parent)
     canvasFrame:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
     canvasFrame:SetClipsChildren(true)
 
+    -- Bottom bar for Apply/Reset buttons
+    local BOTTOM_BAR_H = 32
+    local bottomBar = CreateFrame("Frame", nil, canvasFrame)
+    bottomBar:SetHeight(BOTTOM_BAR_H)
+    bottomBar:SetPoint("BOTTOMLEFT", canvasFrame, "BOTTOMLEFT", 8, 4)
+    bottomBar:SetPoint("BOTTOMRIGHT", canvasFrame, "BOTTOMRIGHT", -(DETAIL_WIDTH + 8), 4)
+
+    -- Apply Changes button (always visible, lights up when staged changes)
+    local applyBtn = CreateFrame("Button", nil, bottomBar, "BackdropTemplate")
+    applyBtn:SetSize(140, 26)
+    applyBtn:SetPoint("RIGHT", bottomBar, "RIGHT", 0, 0)
+    applyBtn:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeSize = 1,
+    })
+    applyBtn.text = applyBtn:CreateFontString(nil, "OVERLAY")
+    applyBtn.text:SetFont(ns.FONT, 12, "OUTLINE")
+    applyBtn.text:SetPoint("CENTER")
+    applyBtn.text:SetText("Apply Changes")
+    applyBtn:SetScript("OnClick", function()
+        if not configID then return end
+        if InCombatLockdown() then return end
+        if not C_Traits.ConfigHasStagedChanges(configID) then return end
+        C_Traits.CommitConfig(configID)
+    end)
+
+    -- Undo button (always visible, lights up when staged changes)
+    local undoBtn = CreateFrame("Button", nil, bottomBar, "BackdropTemplate")
+    undoBtn:SetSize(80, 26)
+    undoBtn:SetPoint("RIGHT", applyBtn, "LEFT", -6, 0)
+    undoBtn:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeSize = 1,
+    })
+    undoBtn.text = undoBtn:CreateFontString(nil, "OVERLAY")
+    undoBtn.text:SetFont(ns.FONT, 12, "OUTLINE")
+    undoBtn.text:SetPoint("CENTER")
+    undoBtn.text:SetText("Undo")
+    undoBtn:SetScript("OnClick", function()
+        if not configID then return end
+        if not C_Traits.ConfigHasStagedChanges(configID) then return end
+        C_Traits.RollbackConfig(configID)
+        ProfSpecs:Refresh()
+    end)
+
+    -- Dim/lit state helpers
+    local function SetButtonDim(btn)
+        btn:SetBackdropColor(0.08, 0.08, 0.08, 0.8)
+        btn:SetBackdropBorderColor(0.25, 0.25, 0.25, 1)
+        btn.text:SetTextColor(0.35, 0.35, 0.35)
+        btn:SetScript("OnEnter", nil)
+        btn:SetScript("OnLeave", nil)
+    end
+
+    local function SetApplyLit()
+        applyBtn:SetBackdropColor(0.08, 0.14, 0.06, 1)
+        applyBtn:SetBackdropBorderColor(0.3, 0.85, 0.3, 1)
+        applyBtn.text:SetTextColor(0.3, 0.9, 0.3)
+        applyBtn:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(0.4, 1, 0.4, 1)
+            self.text:SetTextColor(0.4, 1, 0.4)
+        end)
+        applyBtn:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(0.3, 0.85, 0.3, 1)
+            self.text:SetTextColor(0.3, 0.9, 0.3)
+        end)
+    end
+
+    local function SetUndoLit()
+        undoBtn:SetBackdropColor(0.14, 0.08, 0.06, 1)
+        undoBtn:SetBackdropBorderColor(0.7, 0.4, 0.3, 1)
+        undoBtn.text:SetTextColor(0.85, 0.5, 0.4)
+        undoBtn:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(0.9, 0.5, 0.4, 1)
+            self.text:SetTextColor(1, 0.6, 0.5)
+        end)
+        undoBtn:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(0.7, 0.4, 0.3, 1)
+            self.text:SetTextColor(0.85, 0.5, 0.4)
+        end)
+    end
+
+    -- Update button states based on staged changes
+    function ProfSpecs.UpdateApplyButton()
+        if not configID then
+            SetButtonDim(applyBtn)
+            SetButtonDim(undoBtn)
+            return
+        end
+        local hasChanges = C_Traits.ConfigHasStagedChanges(configID)
+        if hasChanges then
+            SetApplyLit()
+            SetUndoLit()
+        else
+            SetButtonDim(applyBtn)
+            SetButtonDim(undoBtn)
+        end
+    end
+
     -- Left: tree area (boxes go here)
     treeArea = CreateFrame("Frame", nil, canvasFrame)
     treeArea:SetPoint("TOPLEFT", canvasFrame, "TOPLEFT", 8, -8)
-    treeArea:SetPoint("BOTTOMRIGHT", canvasFrame, "BOTTOMRIGHT", -(DETAIL_WIDTH + 8), 8)
+    treeArea:SetPoint("BOTTOMRIGHT", canvasFrame, "BOTTOMRIGHT", -(DETAIL_WIDTH + 8), BOTTOM_BAR_H + 8)
 
     -- Right: detail panel
     detailPanel = CreateDetailPanel(canvasFrame)
@@ -856,11 +1002,8 @@ function ProfSpecs:Init(parent)
     ef:SetScript("OnEvent", function(self, event, ...)
         if not ProfSpecs:IsShown() then return end
         if event == "TRAIT_NODE_CHANGED" then
-            local nodeID = ...
-            if nodeFrames[nodeID] then
-                UpdateNodeFrame(nodeFrames[nodeID], nodeID)
-            end
-            UpdatePointsDisplay()
+            -- Full refresh: spending a point can unlock neighboring nodes
+            ProfSpecs:Refresh()
         elseif event == "CURRENCY_DISPLAY_UPDATE" then
             UpdatePointsDisplay()
         else
@@ -890,6 +1033,7 @@ function ProfSpecs:Show()
     UpdatePointsDisplay()
     ClearDetailPanel()
     RenderAllTrees()
+    ProfSpecs.UpdateApplyButton()
 end
 
 function ProfSpecs:Hide()
@@ -910,4 +1054,5 @@ function ProfSpecs:Refresh()
     end
     UpdatePointsDisplay()
     RenderAllTrees()
+    ProfSpecs.UpdateApplyButton()
 end

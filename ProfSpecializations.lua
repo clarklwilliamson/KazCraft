@@ -9,9 +9,9 @@ ns.ProfSpecs = ProfSpecs
 local NODE_SIZE = 48
 local NODE_ICON_SIZE = 36
 local LINE_THICKNESS = 2
-local BOX_PAD = 14           -- padding inside each tree box
-local BOX_TITLE_H = 22      -- title bar height inside box
-local BOX_GAP = 8            -- gap between tree boxes
+local BOX_PAD = 8            -- padding inside each tree box
+local BOX_TITLE_H = 28      -- title bar height inside box
+local BOX_GAP = 4            -- gap between tree boxes
 local POINTS_BAR_HEIGHT = 24
 local DETAIL_WIDTH = 280     -- right-side detail panel
 
@@ -59,6 +59,23 @@ local treeBoxes = {}        -- list of box frames (reused)
 local treeBoxLines = {}     -- boxIdx → {line textures}
 
 --------------------------------------------------------------------
+-- Hand-tuned box layout (from KazSpecLayout /ksl dump)
+-- rootPathID → { x, y } box position relative to tree area origin
+-- If present, boxes use these positions instead of left-to-right flow.
+--------------------------------------------------------------------
+local SAVED_BOX_LAYOUT = {
+    -- Engineering (3 trees, single row)
+    [100765] = { x = 0, y = 0 },
+    [100791] = { x = 365, y = 0 },
+    [100843] = { x = 530, y = 0 },
+    -- Enchanting (4 trees, 2x2 grid — top row: 99890+100008, bottom row: 100040+99940)
+    [99890] = { x = 3, y = 0 },
+    [100008] = { x = 321, y = 0 },
+    [100040] = { x = 0, y = 175 },
+    [99940] = { x = 325, y = 175 },
+}
+
+--------------------------------------------------------------------
 -- Hand-tuned node positions (from KazSpecLayout /ksl dump)
 -- pathID → { x, y } relative to tree root (0,0)
 --------------------------------------------------------------------
@@ -84,6 +101,38 @@ local SAVED_POSITIONS = {
     [100838] = { x = 31, y = 205 },
     [100837] = { x = 106, y = 143 },
     [100836] = { x = 104, y = 60 },
+
+    -- Enchanting: Supplementary Shattering (root 100040)
+    [100040] = { x = 0, y = 0 },
+    [100039] = { x = -96, y = 76 },
+    [100038] = { x = 2, y = 76 },
+    [100037] = { x = 104, y = 72 },
+    -- Enchanting: Designated Disenchanter (root 99890)
+    [99890] = { x = 0, y = 0 },
+    [99889] = { x = -83, y = 87 },
+    [99888] = { x = -3, y = 88 },
+    [99887] = { x = 90, y = 87 },
+    -- Enchanting: Everlasting Enchantments (root 100008)
+    [100008] = { x = 0, y = 0 },
+    [100007] = { x = -88, y = 103 },
+    [100006] = { x = -188, y = 29 },
+    [100005] = { x = -182, y = 105 },
+    [100004] = { x = -176, y = 196 },
+    [100003] = { x = -2, y = 103 },
+    [100002] = { x = -45, y = 198 },
+    [100001] = { x = 45, y = 198 },
+    [100000] = { x = 91, y = 101 },
+    [99999] = { x = 168, y = 195 },
+    [99998] = { x = 182, y = 50 },
+    -- Enchanting: Ephemerals, Enrichments, and Equipment (root 99940)
+    [99940] = { x = 0, y = 0 },
+    [99939] = { x = -103, y = 3 },
+    [99938] = { x = -2, y = 110 },
+    [99937] = { x = -99, y = 114 },
+    [99936] = { x = -96, y = 196 },
+    [99935] = { x = 103, y = 3 },
+    [99934] = { x = 102, y = 108 },
+    [99933] = { x = 197, y = 0 },
 }
 
 --------------------------------------------------------------------
@@ -541,6 +590,11 @@ local function GetOrCreateTreeBox(index)
     box.content:SetPoint("TOPLEFT", box, "TOPLEFT", BOX_PAD, -(BOX_TITLE_H))
     box.content:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -BOX_PAD, BOX_PAD)
 
+    -- Line layer between backdrop and node icons
+    box.lineLayer = CreateFrame("Frame", nil, box.content)
+    box.lineLayer:SetAllPoints()
+    box.lineLayer:SetFrameLevel(box.content:GetFrameLevel() + 1)
+
     treeBoxes[index] = box
     treeBoxLines[index] = {}
     return box
@@ -588,22 +642,86 @@ local function RenderAllTrees()
     end
     if #trees == 0 then return end
 
-    -- Create/update tree boxes, lay out left-to-right
-    local cursorX = 0
+    -- Compute box sizes first, then arrange
+    local boxSizes = {}  -- idx → { w, h }
+    for idx, t in ipairs(trees) do
+        local contentW = (t.maxX - t.minX) + NODE_SIZE
+        local contentH = (t.maxY - t.minY) + NODE_SIZE
+        local boxW = math.max(contentW + BOX_PAD * 2, 100)
+        local boxH = math.max(contentH + BOX_PAD + BOX_TITLE_H, 80)
+        boxSizes[idx] = { w = boxW, h = boxH }
+    end
+
+    -- Determine box arrangement: saved layout (for ordering) or left-to-right
+    -- Saved layout Y values are used to cluster into rows, X for column order
+    -- Then auto-pack tightly using actual box sizes
+    local hasSavedBoxLayout = SAVED_BOX_LAYOUT[trees[1].rootPathID] ~= nil
+    local boxPositions = {}  -- idx → { x, y }
+
+    if hasSavedBoxLayout then
+        -- Build sorted list with saved positions for row/col clustering
+        local sorted = {}
+        for idx, t in ipairs(trees) do
+            local sb = SAVED_BOX_LAYOUT[t.rootPathID] or { x = 0, y = 0 }
+            table.insert(sorted, { idx = idx, sx = sb.x, sy = sb.y })
+        end
+        -- Sort by Y then X to determine row/col order
+        table.sort(sorted, function(a, b)
+            if math.abs(a.sy - b.sy) > 80 then return a.sy < b.sy end
+            return a.sx < b.sx
+        end)
+        -- Cluster into rows (boxes within 80px Y of each other = same row)
+        local rows = {}
+        local curRow = { sorted[1] }
+        local curRowY = sorted[1].sy
+        for i = 2, #sorted do
+            if math.abs(sorted[i].sy - curRowY) <= 80 then
+                table.insert(curRow, sorted[i])
+            else
+                table.insert(rows, curRow)
+                curRow = { sorted[i] }
+                curRowY = sorted[i].sy
+            end
+        end
+        table.insert(rows, curRow)
+
+        -- Auto-pack: each row starts after tallest box in previous row + gap
+        local rowY = 0
+        for _, row in ipairs(rows) do
+            -- Sort columns within row by saved X
+            table.sort(row, function(a, b) return a.sx < b.sx end)
+            local colX = 0
+            local rowMaxH = 0
+            for _, entry in ipairs(row) do
+                local sz = boxSizes[entry.idx]
+                boxPositions[entry.idx] = { x = colX, y = rowY }
+                colX = colX + sz.w + BOX_GAP
+                if sz.h > rowMaxH then rowMaxH = sz.h end
+            end
+            rowY = rowY + rowMaxH + BOX_GAP
+        end
+    else
+        -- Simple left-to-right flow
+        local cursorX = 0
+        for idx in ipairs(trees) do
+            boxPositions[idx] = { x = cursorX, y = 0 }
+            cursorX = cursorX + boxSizes[idx].w + BOX_GAP
+        end
+    end
+
+    -- Create/update tree boxes with computed positions
     for idx, t in ipairs(trees) do
         local box = GetOrCreateTreeBox(idx)
         local tabState = C_ProfSpecs.GetStateForTab(t.tabID, configID)
         local isLocked = (tabState == Enum.ProfessionsSpecTabState.Locked)
 
-        -- Box sizing from node bounds (1:1 pixels, no scaling)
-        local contentW = (t.maxX - t.minX) + NODE_SIZE
-        local contentH = (t.maxY - t.minY) + NODE_SIZE
-        local boxW = contentW + BOX_PAD * 2
-        local boxH = contentH + BOX_PAD + BOX_TITLE_H
-
-        box:SetSize(math.max(boxW, 100), math.max(boxH, 80))
+        local sz = boxSizes[idx]
+        box:SetSize(sz.w, sz.h)
         box:ClearAllPoints()
-        box:SetPoint("TOPLEFT", treeArea, "TOPLEFT", cursorX, 0)
+
+        local bp = boxPositions[idx]
+        box:SetPoint("TOPLEFT", treeArea, "TOPLEFT", bp.x, -bp.y)
+
         box.title:SetText(t.name)
 
         if isLocked then
@@ -621,7 +739,7 @@ local function RenderAllTrees()
                    (pos.y - t.minY) + NODE_SIZE / 2
         end
 
-        -- Draw lines
+        -- Draw lines on lineLayer (visible between backdrop and nodes)
         local lines = treeBoxLines[idx]
         for _, pathID in ipairs(t.allNodes) do
             local pos = t.positions[pathID]
@@ -631,7 +749,7 @@ local function RenderAllTrees()
                     local cp = t.positions[childID]
                     if cp then
                         local cx, cy = NodePos(cp)
-                        local line = box.content:CreateLine(nil, "BACKGROUND")
+                        local line = box.lineLayer:CreateLine(nil, "ARTWORK", nil, -1)
                         line:SetThickness(LINE_THICKNESS)
                         line:SetStartPoint("CENTER", box.content, "TOPLEFT", px, -py)
                         line:SetEndPoint("CENTER", box.content, "TOPLEFT", cx, -cy)
@@ -665,12 +783,12 @@ local function RenderAllTrees()
                 end
                 f:ClearAllPoints()
                 f:SetPoint("CENTER", box.content, "TOPLEFT", px, -py)
+                f:SetFrameLevel(box.content:GetFrameLevel() + 3)
                 UpdateNodeFrame(f, pathID)
             end
         end
 
         box:Show()
-        cursorX = cursorX + box:GetWidth() + BOX_GAP
     end
 
     -- Hide extra boxes

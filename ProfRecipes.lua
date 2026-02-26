@@ -2333,25 +2333,20 @@ function ProfRecipes:RefreshDetail()
         detail.sourceFrame:Hide()
     end
 
-    -- TSM cost / profit
-    local hasTSM = TSM_API and TSM_API.GetCustomPriceValue
+    -- TSM cost / profit (via KazCraft's standalone reader or TSM_API fallback)
+    local hasTSM = ns.TSMData and ns.TSMData:IsAvailable()
     if hasTSM and schematic then
         -- Get the crafted item
         local outputItemID = schematic.outputItemID
-        local itemString = outputItemID and ("i:" .. outputItemID) or nil
         local craftCost, sellValue
 
-        -- Crafting cost: sum up reagent costs via TSM
-        if itemString then
-            local ok1, val1 = pcall(TSM_API.GetCustomPriceValue, "Crafting", itemString)
-            if ok1 and val1 then craftCost = val1 end
-
-            local ok2, val2 = pcall(TSM_API.GetCustomPriceValue, "DBMarket", itemString)
-            if ok2 and val2 then sellValue = val2 end
+        -- Market sell value
+        if outputItemID then
+            sellValue = ns.TSMData:GetPrice(outputItemID, "DBMarket")
         end
 
-        -- If no Crafting source, manually sum reagent costs
-        if not craftCost and schematic.reagentSlotSchematics then
+        -- Crafting cost: sum reagent costs
+        if schematic.reagentSlotSchematics then
             local total = 0
             local missing = false
             for _, slot in ipairs(schematic.reagentSlotSchematics) do
@@ -2361,9 +2356,8 @@ function ProfRecipes:RefreshDetail()
                     if reagents and reagents[1] then
                         local rItemID = reagents[1].itemID
                         if rItemID then
-                            local rStr = "i:" .. rItemID
-                            local ok, val = pcall(TSM_API.GetCustomPriceValue, "DBMinBuyout", rStr)
-                            if ok and val and val > 0 then
+                            local val = ns.TSMData:GetPrice(rItemID, "DBMinBuyout")
+                            if val and val > 0 then
                                 total = total + (val * qty)
                             else
                                 missing = true

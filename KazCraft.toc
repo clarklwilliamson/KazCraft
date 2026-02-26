@@ -10,6 +10,7 @@
 ## X-Category: Kaz
 ## X-Flavor: Mainline
 
+TSMData.lua
 Util.lua
 Data.lua
 Core.lua

@@ -211,10 +211,10 @@ function Data:GetMaterialList(charKey)
         mat.have = C_Item.GetItemCount(itemID, true, false, true, true)
         mat.short = math.max(0, mat.need - mat.have)
 
-        -- TSM price (soft dependency)
+        -- TSM price via KazCraft's standalone reader (or TSM_API fallback)
         mat.price = 0
-        if TSM_API and TSM_API.GetCustomPriceValue then
-            local price = TSM_API.GetCustomPriceValue("DBMinBuyout", "i:" .. itemID)
+        if ns.TSMData then
+            local price = ns.TSMData:GetPrice(itemID, "DBMinBuyout")
             if price then
                 mat.price = price
             end

@@ -1296,6 +1296,9 @@ local function CreateRightPanel(parent)
         local qty = tonumber(detail.qtyBox:GetText()) or 1
         if qty < 1 then qty = 1 end
         local applyConc = detail.concCheck:GetChecked() and true or false
+        if currentTransaction then
+            currentTransaction:SetApplyConcentration(applyConc)
+        end
         ns.lastCraftedRecipeID = nil -- don't decrement queue for manual crafts
         if currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Salvage) then
             currentTransaction:CraftSalvage(qty)
@@ -1317,6 +1320,9 @@ local function CreateRightPanel(parent)
         local qty = tonumber(detail.qtyBox:GetText()) or 1
         if qty < 1 then qty = 1 end
         local applyConc = detail.concCheck:GetChecked() and true or false
+        if currentTransaction then
+            currentTransaction:SetApplyConcentration(applyConc)
+        end
         ns.lastCraftedRecipeID = nil
         if currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Salvage) then
             currentTransaction:CraftSalvage(qty)
@@ -1640,6 +1646,7 @@ function ProfRecipes:RefreshDetail()
         if selectedRecipeID ~= lastTransactionRecipeID then
             currentSchematic = ProfessionsUtil.GetRecipeSchematic(selectedRecipeID, isRecraft)
             currentTransaction = CreateProfessionsRecipeTransaction(currentSchematic)
+            currentTransaction:SetRecraft(isRecraft)
             lastTransactionRecipeID = selectedRecipeID
             if not isRecraft then
                 pcall(Professions.AllocateAllBasicReagents, currentTransaction, useBest and true or false)
@@ -1881,6 +1888,7 @@ function ProfRecipes:RefreshDetail()
                         currentSchematic = ProfessionsUtil.GetRecipeSchematic(origRecipeID, true)
                     end
                     currentTransaction = CreateProfessionsRecipeTransaction(currentSchematic)
+                    currentTransaction:SetRecraft(true)
                     currentTransaction:SetRecraftAllocation(itemGUID)
                     local bestQ = KazCraftDB and KazCraftDB.settings and KazCraftDB.settings.useBestQuality
                     pcall(Professions.AllocateAllBasicReagents, currentTransaction, bestQ and true or false)

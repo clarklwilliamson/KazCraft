@@ -6,10 +6,8 @@ ns.ProfRecipes = ProfRecipes
 local LEFT_WIDTH = 300
 local RECIPE_ROW_HEIGHT = 22
 local REAGENT_ROW_HEIGHT = 26
-local QUEUE_ROW_HEIGHT = 24
 local MAX_VISIBLE_ROWS = 28
 local MAX_REAGENT_ROWS = 10
-local MAX_QUEUE_ROWS = 8
 
 -- Difficulty colors
 local DIFFICULTY_COLORS = {
@@ -29,8 +27,6 @@ local recipeScrollFrame, recipeContent
 local detailFrame
 local recipeRows = {}
 local reagentRows = {}
-local queueSection = {}
-local queueRows = {}
 
 -- Data
 local displayList = {}      -- flattened list: { type, depth, catID, recipeID, info, collapsed, ... }
@@ -928,58 +924,6 @@ local function CreateReagentSlotBox(parent, index)
     return box
 end
 
-local function CreateQueueRowSmall(parent, index)
-    local row = CreateFrame("Frame", nil, parent)
-    row:SetHeight(QUEUE_ROW_HEIGHT)
-    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * QUEUE_ROW_HEIGHT)
-    row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -(index - 1) * QUEUE_ROW_HEIGHT)
-    row:Hide()
-
-    row.bg = row:CreateTexture(nil, "BACKGROUND")
-    row.bg:SetAllPoints()
-    row.bg:SetColorTexture(1, 1, 1, (index % 2 == 0) and 0.03 or 0)
-
-    row.icon = row:CreateTexture(nil, "ARTWORK")
-    row.icon:SetSize(18, 18)
-    row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
-
-    row.nameText = row:CreateFontString(nil, "OVERLAY")
-    row.nameText:SetFont(ns.FONT, 12, "")
-    row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
-    row.nameText:SetPoint("RIGHT", row, "RIGHT", -72, 0)
-    row.nameText:SetJustifyH("LEFT")
-    row.nameText:SetWordWrap(false)
-    row.nameText:SetTextColor(unpack(ns.COLORS.brightText))
-
-    row.qtyText = row:CreateFontString(nil, "OVERLAY")
-    row.qtyText:SetFont(ns.FONT, 12, "")
-    row.qtyText:SetPoint("RIGHT", row, "RIGHT", -52, 0)
-    row.qtyText:SetWidth(24)
-    row.qtyText:SetJustifyH("CENTER")
-    row.qtyText:SetTextColor(unpack(ns.COLORS.brightText))
-
-    -- [-] [+] [x] buttons
-    local function MiniBtn(parent, text, offsetX, defaultColor, hoverColor)
-        local btn = CreateFrame("Button", nil, parent)
-        btn:SetSize(16, 16)
-        btn:SetPoint("RIGHT", parent, "RIGHT", offsetX, 0)
-        btn.t = btn:CreateFontString(nil, "OVERLAY")
-        btn.t:SetFont(ns.FONT, 14, "")
-        btn.t:SetPoint("CENTER")
-        btn.t:SetText(text)
-        btn.t:SetTextColor(unpack(defaultColor))
-        btn:SetScript("OnEnter", function(self) self.t:SetTextColor(unpack(hoverColor)) end)
-        btn:SetScript("OnLeave", function(self) self.t:SetTextColor(unpack(defaultColor)) end)
-        return btn
-    end
-
-    row.minusBtn = MiniBtn(row, "-", -36, ns.COLORS.btnDefault, ns.COLORS.btnHover)
-    row.plusBtn  = MiniBtn(row, "+", -20, ns.COLORS.btnDefault, ns.COLORS.btnHover)
-    row.removeBtn = MiniBtn(row, "x", -4, ns.COLORS.closeDefault, ns.COLORS.closeHover)
-
-    return row
-end
-
 local function CreateRightPanel(parent)
     rightPanel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", 0, 0)
@@ -1352,7 +1296,9 @@ local function CreateRightPanel(parent)
         end
 
         ns.Data:AddToQueue(selectedRecipeID, qty)
-        ProfRecipes:RefreshQueue()
+        if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
+            ns.ProfessionUI:RefreshAll()
+        end
         if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
 
         -- Report missing materials
@@ -1383,37 +1329,6 @@ local function CreateRightPanel(parent)
             print("|cff00ccffKazCraft|r: Queued " .. qty .. "x " .. recipeName .. " — all materials available!")
         end
     end)
-
-    -- ── Queue (above craft controls) ──
-    detail.queueHeader = rightPanel:CreateFontString(nil, "OVERLAY")
-    detail.queueHeader:SetFont(ns.FONT, 12, "")
-    detail.queueHeader:SetTextColor(unpack(ns.COLORS.headerText))
-    -- anchored dynamically
-
-    -- Craft Queue / Clear buttons (right of header, anchored dynamically)
-    detail.queueCraftAllBtn = ns.CreateButton(rightPanel, "Craft Queue", 80, 20)
-    detail.queueCraftAllBtn:Hide()
-    detail.queueCraftAllBtn:SetScript("OnClick", function()
-        ProfRecipes:CraftQueue()
-    end)
-
-    detail.queueClearBtn = ns.CreateButton(rightPanel, "Clear", 50, 20)
-    detail.queueClearBtn:Hide()
-    detail.queueClearBtn:SetScript("OnClick", function()
-        ns.Data:ClearQueue()
-        ProfRecipes:RefreshQueue()
-        if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
-    end)
-
-    detail.queueFrame = CreateFrame("Frame", nil, rightPanel)
-    detail.queueFrame:SetPoint("LEFT", rightPanel, "LEFT", 12, 0)
-    detail.queueFrame:SetPoint("RIGHT", rightPanel, "RIGHT", -12, 0)
-    detail.queueFrame:SetHeight(MAX_QUEUE_ROWS * QUEUE_ROW_HEIGHT)
-    -- anchored dynamically
-
-    for i = 1, MAX_QUEUE_ROWS do
-        queueRows[i] = CreateQueueRowSmall(detail.queueFrame, i)
-    end
 
     -- No-selection message
     detail.emptyText = detailFrame:CreateFontString(nil, "OVERLAY")
@@ -1633,10 +1548,6 @@ function ProfRecipes:RefreshDetail()
         detail.tsmProfitLabel:Hide()
         detail.tsmProfitValue:Hide()
         detail.controlFrame:Hide()
-        detail.queueHeader:Hide()
-        detail.queueFrame:Hide()
-        detail.queueCraftAllBtn:Hide()
-        detail.queueClearBtn:Hide()
         detail.favBtn:Hide()
         return
     end
@@ -2526,192 +2437,8 @@ function ProfRecipes:RefreshDetail()
         detail.craftAllBtn.label:SetTextColor(unpack(ns.COLORS.ctrlText))
     end
 
-    -- Queue section
-    ProfRecipes:RefreshQueue()
 end
 
---------------------------------------------------------------------
--- Craft entire queue sequentially
---------------------------------------------------------------------
--- CraftRecipe is protected — must be called from a hardware event
--- (button click). We batch the full qty for the first queue entry
--- per click. When that batch finishes, the button updates to show
--- the next entry so the user clicks again.
---------------------------------------------------------------------
-local queueBatchRecipeID = nil  -- recipeID currently being batched
-
-function ProfRecipes:CraftQueue()
-    if isCrafting then
-        print("|cff00ccffKazCraft|r: Already crafting.")
-        return
-    end
-
-    local queue = ns.Data:GetCharacterQueue()
-    if #queue == 0 then
-        print("|cff00ccffKazCraft|r: Queue is empty.")
-        return
-    end
-
-    -- Skip uncached entries
-    while #queue > 0 do
-        local entry = queue[1]
-        local cached = KazCraftDB.recipeCache[entry.recipeID]
-        if cached then break end
-        print("|cff00ccffKazCraft|r: Recipe " .. entry.recipeID .. " not cached, skipping.")
-        ns.Data:RemoveFromQueue(1)
-        queue = ns.Data:GetCharacterQueue()
-    end
-    if #queue == 0 then
-        print("|cff00ccffKazCraft|r: Queue is empty.")
-        self:RefreshQueue()
-        return
-    end
-
-    local entry = queue[1]
-    local cached = KazCraftDB.recipeCache[entry.recipeID]
-    local qty = entry.quantity
-
-    queueBatchRecipeID = entry.recipeID
-    ns.lastCraftedRecipeID = entry.recipeID
-    local applyConc = ProfRecipes.GetConcentrationChecked and ProfRecipes.GetConcentrationChecked() or false
-
-    detail.queueCraftAllBtn.label:SetText("Crafting...")
-    detail.queueCraftAllBtn:Disable()
-    detail.queueCraftAllBtn.label:SetTextColor(unpack(ns.COLORS.mutedText))
-
-    print("|cff00ccffKazCraft|r: Crafting " .. qty .. "x " .. (cached.recipeName or "?") .. "...")
-    C_TradeSkillUI.CraftRecipe(entry.recipeID, qty, {}, nil, nil, applyConc)
-end
-
-function ProfRecipes:OnQueueCraftComplete()
-    -- Re-tag lastCraftedRecipeID for ongoing batch so DecrementQueue keeps working
-    if queueBatchRecipeID then
-        local queue = ns.Data:GetCharacterQueue()
-        if #queue > 0 and queue[1].recipeID == queueBatchRecipeID then
-            -- Still working on same batch — re-arm for next decrement
-            ns.lastCraftedRecipeID = queueBatchRecipeID
-            self:RefreshQueue()
-            return
-        end
-    end
-
-    -- Current batch done (entry was removed from queue)
-    queueBatchRecipeID = nil
-    local queue = ns.Data:GetCharacterQueue()
-
-    if #queue == 0 then
-        print("|cff00ccffKazCraft|r: Queue complete!")
-    else
-        local next = queue[1]
-        local cached = KazCraftDB.recipeCache[next.recipeID]
-        local name = cached and cached.recipeName or ("Recipe " .. next.recipeID)
-        print("|cff00ccffKazCraft|r: Next: " .. next.quantity .. "x " .. name .. " — click Craft Queue")
-    end
-
-    -- Re-enable button for next entry
-    if detail.queueCraftAllBtn then
-        detail.queueCraftAllBtn.label:SetText("Craft Queue")
-        detail.queueCraftAllBtn:Enable()
-        detail.queueCraftAllBtn.label:SetTextColor(unpack(ns.COLORS.ctrlText))
-    end
-    self:RefreshQueue()
-    if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
-end
-
-function ProfRecipes:StopQueueCraft()
-    queueBatchRecipeID = nil
-    if detail.queueCraftAllBtn then
-        detail.queueCraftAllBtn.label:SetText("Craft Queue")
-        detail.queueCraftAllBtn:Enable()
-        detail.queueCraftAllBtn.label:SetTextColor(unpack(ns.COLORS.ctrlText))
-    end
-    self:RefreshQueue()
-    if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
-end
-
---------------------------------------------------------------------
--- Refresh queue section in detail panel
---------------------------------------------------------------------
-function ProfRecipes:RefreshQueue()
-    if not initialized or not detail.queueFrame then return end
-
-    local queue = ns.Data:GetCharacterQueue()
-    local count = #queue
-
-    if count == 0 then
-        detail.queueHeader:Hide()
-        detail.queueFrame:Hide()
-        detail.queueCraftAllBtn:Hide()
-        detail.queueClearBtn:Hide()
-        for _, row in ipairs(queueRows) do row:Hide() end
-        return
-    end
-
-    -- Anchor queue above craft controls
-    detail.queueHeader:ClearAllPoints()
-    detail.queueHeader:SetPoint("BOTTOMLEFT", detail.controlFrame, "TOPLEFT", 0, math.min(count, MAX_QUEUE_ROWS) * QUEUE_ROW_HEIGHT + 16)
-    detail.queueHeader:SetText("QUEUE (" .. count .. ")")
-    detail.queueHeader:Show()
-
-    -- Craft Queue + Clear buttons right of header
-    detail.queueCraftAllBtn:ClearAllPoints()
-    detail.queueCraftAllBtn:SetPoint("LEFT", detail.queueHeader, "RIGHT", 8, 0)
-    detail.queueCraftAllBtn:Show()
-
-    detail.queueClearBtn:ClearAllPoints()
-    detail.queueClearBtn:SetPoint("LEFT", detail.queueCraftAllBtn, "RIGHT", 4, 0)
-    detail.queueClearBtn:Show()
-
-    detail.queueFrame:ClearAllPoints()
-    detail.queueFrame:SetPoint("TOPLEFT", detail.queueHeader, "BOTTOMLEFT", 0, -4)
-    detail.queueFrame:SetPoint("RIGHT", rightPanel, "RIGHT", -12, 0)
-    detail.queueFrame:SetHeight(math.max(1, math.min(count, MAX_QUEUE_ROWS) * QUEUE_ROW_HEIGHT))
-    detail.queueFrame:Show()
-
-    for i = 1, math.max(count, #queueRows) do
-        local row = queueRows[i]
-        if not row and i <= count then
-            row = CreateQueueRowSmall(detail.queueFrame, i)
-            queueRows[i] = row
-        end
-        if row then
-            if i <= count then
-                local entry = queue[i]
-                local cached = KazCraftDB.recipeCache[entry.recipeID]
-
-                row.icon:SetTexture(cached and cached.icon or 134400)
-                row.nameText:SetText(cached and cached.recipeName or ("Recipe " .. entry.recipeID))
-                row.qtyText:SetText("x" .. entry.quantity)
-
-                local idx = i
-                row.minusBtn:SetScript("OnClick", function()
-                    ns.Data:AdjustQuantity(idx, -1)
-                    ProfRecipes:RefreshQueue()
-                    if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
-                end)
-                row.plusBtn:SetScript("OnClick", function()
-                    ns.Data:AdjustQuantity(idx, 1)
-                    ProfRecipes:RefreshQueue()
-                    if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
-                end)
-                row.removeBtn:SetScript("OnClick", function()
-                    ns.Data:RemoveFromQueue(idx)
-                    ProfRecipes:RefreshQueue()
-                    if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
-                end)
-
-                row:Show()
-            else
-                row:Hide()
-            end
-        end
-    end
-
-    -- Update footer
-    if ns.ProfFrame then
-        ns.ProfFrame:UpdateFooter()
-    end
-end
 
 --------------------------------------------------------------------
 -- Init / Show / Hide / Refresh (tab interface)

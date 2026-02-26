@@ -104,10 +104,6 @@ function handlers.UPDATE_TRADESKILL_CAST_STOPPED()
     if ns.ProfFrame then
         ns.ProfFrame:OnCraftStopped()
     end
-    -- Stop queue crafting on interruption
-    if ns.ProfRecipes and ns.ProfRecipes.StopQueueCraft then
-        ns.ProfRecipes:StopQueueCraft()
-    end
 end
 
 function handlers.CRAFTING_DETAILS_UPDATE()
@@ -145,20 +141,24 @@ function handlers.BAG_UPDATE_DELAYED()
 end
 
 function handlers.TRADE_SKILL_ITEM_CRAFTED_RESULT()
-    -- Decrement the queued recipe we initiated via [Craft Next] or [Craft Queue]
+    -- Decrement the queued recipe we initiated via [Craft Queue]
     if ns.lastCraftedRecipeID then
-        ns.Data:DecrementQueue(ns.lastCraftedRecipeID)
+        local craftedID = ns.lastCraftedRecipeID
+        ns.Data:DecrementQueue(craftedID)
         ns.lastCraftedRecipeID = nil
+
+        -- Re-arm if batch still going (same recipe still in queue)
+        local queue = ns.Data:GetCharacterQueue()
+        if #queue > 0 and queue[1].recipeID == craftedID then
+            ns.lastCraftedRecipeID = craftedID
+        end
+
         if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
             ns.ProfessionUI:RefreshAll()
         end
     end
     if ns.ProfFrame then
         ns.ProfFrame:OnCraftComplete()
-    end
-    -- Chain next craft if queue crafting is active
-    if ns.ProfRecipes then
-        ns.ProfRecipes:OnQueueCraftComplete()
     end
 end
 

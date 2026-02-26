@@ -44,6 +44,8 @@ local MAX_OPTIONAL_SLOTS = 5
 local MAX_FINISHING_SLOTS = 3
 local SLOT_BOX_SIZE = 40
 local SLOT_BOX_SPACING = 6
+local MAX_SPEC_NODE_ROWS = 8
+local SPEC_NODE_ROW_HEIGHT = 20
 
 --------------------------------------------------------------------
 -- Category tree → flat display list
@@ -493,9 +495,9 @@ local function UpdateRecipeRow(row, entry, index)
                 ns.ProfessionUI:SetSelectedRecipe(entry.recipeID)
             end
             -- Notify CraftSim so its spec info / module windows update
-            if CraftSim and CraftSim.INIT and CraftSim.INIT.TriggerModuleUpdate then
-                CraftSim.INIT.currentRecipeID = entry.recipeID
-                CraftSim.INIT:TriggerModuleUpdate(false)
+            if CraftSimLib and CraftSimLib.INIT and CraftSimLib.INIT.TriggerModuleUpdate then
+                CraftSimLib.INIT.currentRecipeID = entry.recipeID
+                CraftSimLib.INIT:TriggerModuleUpdate(false)
             end
         end)
     end
@@ -1158,6 +1160,52 @@ local function CreateRightPanel(parent)
     detail.sourceText:SetJustifyH("LEFT")
     detail.sourceText:SetWordWrap(true)
     detail.sourceText:SetTextColor(unpack(ns.COLORS.brightText))
+
+    -- ── CraftSim Specialization Info ──
+    detail.specHeader = detailFrame:CreateFontString(nil, "OVERLAY")
+    detail.specHeader:SetFont(ns.FONT, 12, "")
+    detail.specHeader:SetText("SPECIALIZATIONS")
+    detail.specHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    detail.specHeader:Hide()
+
+    detail.specStatsText = detailFrame:CreateFontString(nil, "OVERLAY")
+    detail.specStatsText:SetFont(ns.FONT, 11, "")
+    detail.specStatsText:SetPoint("TOPLEFT", detail.specHeader, "BOTTOMLEFT", 0, -4)
+    detail.specStatsText:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+    detail.specStatsText:SetJustifyH("LEFT")
+    detail.specStatsText:SetTextColor(unpack(ns.COLORS.brightText))
+    detail.specStatsText:Hide()
+
+    detail.specNodeFrame = CreateFrame("Frame", nil, detailFrame)
+    detail.specNodeFrame:SetHeight(MAX_SPEC_NODE_ROWS * SPEC_NODE_ROW_HEIGHT)
+    detail.specNodeFrame:SetPoint("LEFT", detailFrame, "LEFT", 8, 0)
+    detail.specNodeFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+    detail.specNodeFrame:Hide()
+
+    detail.specNodeRows = {}
+    for i = 1, MAX_SPEC_NODE_ROWS do
+        local row = CreateFrame("Frame", nil, detail.specNodeFrame)
+        row:SetHeight(SPEC_NODE_ROW_HEIGHT)
+        row:SetPoint("TOPLEFT", detail.specNodeFrame, "TOPLEFT", 0, -(i - 1) * SPEC_NODE_ROW_HEIGHT)
+        row:SetPoint("TOPRIGHT", detail.specNodeFrame, "TOPRIGHT", 0, -(i - 1) * SPEC_NODE_ROW_HEIGHT)
+
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(16, 16)
+        row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+
+        row.nameText = row:CreateFontString(nil, "OVERLAY")
+        row.nameText:SetFont(ns.FONT, 11, "")
+        row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+        row.nameText:SetJustifyH("LEFT")
+
+        row.rankText = row:CreateFontString(nil, "OVERLAY")
+        row.rankText:SetFont(ns.FONT, 11, "")
+        row.rankText:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.rankText:SetJustifyH("RIGHT")
+
+        row:Hide()
+        detail.specNodeRows[i] = row
+    end
 
     -- TSM cost / profit (above craft controls)
     detail.tsmCostLabel = rightPanel:CreateFontString(nil, "OVERLAY")
@@ -2331,6 +2379,145 @@ function ProfRecipes:RefreshDetail()
         lastAnchor = detail.sourceFrame
     else
         detail.sourceFrame:Hide()
+    end
+
+    -- CraftSim Specialization Info (cached per recipe)
+    -- CraftSim uses a local namespace; we access it via CraftSimLib global
+    local specData = nil
+    if CraftSimLib and selectedRecipeID then
+        -- Use cache if same recipe
+        if ProfRecipes._specCacheID == selectedRecipeID and ProfRecipes._specCacheData then
+            specData = ProfRecipes._specCacheData
+        else
+            -- Try CraftSim's tracked recipe first
+            local rd = CraftSimLib.INIT and CraftSimLib.INIT.currentRecipeData
+            if rd and rd.recipeID == selectedRecipeID and rd.specializationData then
+                specData = rd.specializationData
+            elseif CraftSimLib.RecipeData then
+                -- Create our own RecipeData (CraftSim doesn't track KC's selection)
+                local ok, newRd = pcall(function()
+                    return CraftSimLib.RecipeData({ recipeID = selectedRecipeID })
+                end)
+                if ok and newRd and newRd.specializationData then
+                    specData = newRd.specializationData
+                end
+            end
+            ProfRecipes._specCacheID = selectedRecipeID
+            ProfRecipes._specCacheData = specData
+        end
+    end
+
+    if specData and specData.isImplemented ~= false then
+        -- Stats summary line
+        local statsLines = {}
+        local ps = specData.professionStats
+        local mps = specData.maxProfessionStats
+        if ps and mps then
+            if ps.skill and ps.skill.value and ps.skill.value > 0 then
+                table.insert(statsLines, string.format("Skill: |cffffffff%d|r / %d",
+                    ps.skill.value, mps.skill and mps.skill.value or 0))
+            end
+            if ps.multicraft and ps.multicraft.value and ps.multicraft.value > 0 then
+                table.insert(statsLines, string.format("MC: |cffffffff%d|r / %d",
+                    ps.multicraft.value, mps.multicraft and mps.multicraft.value or 0))
+            end
+            if ps.ingenuity and ps.ingenuity.value and ps.ingenuity.value > 0 then
+                table.insert(statsLines, string.format("Ing: |cffffffff%d|r / %d",
+                    ps.ingenuity.value, mps.ingenuity and mps.ingenuity.value or 0))
+            end
+            if ps.resourcefulness and ps.resourcefulness.value and ps.resourcefulness.value > 0 then
+                table.insert(statsLines, string.format("Res: |cffffffff%d|r / %d",
+                    ps.resourcefulness.value, mps.resourcefulness and mps.resourcefulness.value or 0))
+            end
+        end
+
+        detail.specHeader:ClearAllPoints()
+        detail.specHeader:SetPoint("TOPLEFT", lastAnchor, "BOTTOMLEFT", 0, -8)
+        detail.specHeader:Show()
+
+        if #statsLines > 0 then
+            detail.specStatsText:SetText(table.concat(statsLines, "  "))
+            detail.specStatsText:ClearAllPoints()
+            detail.specStatsText:SetPoint("TOPLEFT", detail.specHeader, "BOTTOMLEFT", 0, -4)
+            detail.specStatsText:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+            detail.specStatsText:Show()
+        else
+            detail.specStatsText:Hide()
+        end
+
+        -- Node list — sort: active first, then by rank descending
+        local nodeList = {}
+        for _, nd in pairs(specData.nodeData) do
+            table.insert(nodeList, nd)
+        end
+        table.sort(nodeList, function(a, b)
+            if a.active ~= b.active then return a.active end
+            if a.active and b.active then
+                if a.rank == a.maxRank and b.rank ~= b.maxRank then return true end
+                if b.rank == b.maxRank and a.rank ~= a.maxRank then return false end
+                return a.rank > b.rank
+            end
+            return false
+        end)
+
+        local nodeCount = math.min(#nodeList, MAX_SPEC_NODE_ROWS)
+        for i = 1, nodeCount do
+            local nd = nodeList[i]
+            local row = detail.specNodeRows[i]
+            row.icon:SetTexture(nd.icon or 134400)
+            if nd.active then
+                row.nameText:SetText(nd.name or "?")
+                row.nameText:SetTextColor(unpack(ns.COLORS.brightText))
+                local rankColor = (nd.rank == nd.maxRank) and "|cff4ecc4e" or "|cffffffff"
+                row.rankText:SetText(string.format("(%s%d|r/%d)", rankColor, nd.rank, nd.maxRank))
+                row.rankText:SetTextColor(unpack(ns.COLORS.mutedText))
+                row.icon:SetDesaturated(false)
+            else
+                row.nameText:SetText(nd.name or "?")
+                row.nameText:SetTextColor(0.5, 0.5, 0.5)
+                row.rankText:SetText(string.format("(-/%d)", nd.maxRank))
+                row.rankText:SetTextColor(0.5, 0.5, 0.5)
+                row.icon:SetDesaturated(true)
+            end
+
+            -- Tooltip on hover
+            row:EnableMouse(true)
+            row.nodeData = nd
+            row:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                if nd.GetTooltipText then
+                    GameTooltip:SetText(nd.name or "Specialization", 1, 0.82, 0)
+                    local tt = nd:GetTooltipText()
+                    if tt and tt ~= "" then
+                        GameTooltip:AddLine(tt, 1, 1, 1, true)
+                    end
+                else
+                    GameTooltip:SetText(nd.name or "Specialization", 1, 0.82, 0)
+                end
+                GameTooltip:Show()
+            end)
+            row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            row:Show()
+        end
+        for i = nodeCount + 1, MAX_SPEC_NODE_ROWS do
+            detail.specNodeRows[i]:Hide()
+        end
+
+        detail.specNodeFrame:ClearAllPoints()
+        local nodeAnchor = detail.specStatsText:IsShown() and detail.specStatsText or detail.specHeader
+        detail.specNodeFrame:SetPoint("TOPLEFT", nodeAnchor, "BOTTOMLEFT", 0, -4)
+        detail.specNodeFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+        detail.specNodeFrame:SetHeight(math.max(1, nodeCount * SPEC_NODE_ROW_HEIGHT))
+        detail.specNodeFrame:Show()
+
+        lastAnchor = detail.specNodeFrame
+    else
+        detail.specHeader:Hide()
+        detail.specStatsText:Hide()
+        detail.specNodeFrame:Hide()
+        for i = 1, MAX_SPEC_NODE_ROWS do
+            detail.specNodeRows[i]:Hide()
+        end
     end
 
     -- TSM cost / profit (via KazCraft's standalone reader or TSM_API fallback)

@@ -1082,6 +1082,17 @@ function AHBrowse:Init(contentFrame)
         AHBrowse:DoSearch()
     end)
 
+    -- Shift-click item → extract name, populate search, auto-fire
+    hooksecurefunc("HandleModifiedItemClick", function(link)
+        if not searchBox:IsVisible() then return end
+        if not link then return end
+        local name = C_Item.GetItemNameByID(link) or link:match("%[(.-)%]")
+        if name then
+            searchBox:SetText(name)
+            AHBrowse:DoSearch()
+        end
+    end)
+
     -- Filter button
     local filterBtn = ns.CreateButton(container, "Filter", 66, 24)
     filterBtn:SetPoint("TOPRIGHT", container, "TOPRIGHT", -74, -4)

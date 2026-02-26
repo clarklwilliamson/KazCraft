@@ -2573,12 +2573,11 @@ function ProfRecipes:CraftNextInQueue()
         return
     end
 
-    local qty = entry.quantity
     ns.lastCraftedRecipeID = entry.recipeID
     local applyConc = ProfRecipes.GetConcentrationChecked and ProfRecipes.GetConcentrationChecked() or false
 
-    print("|cff00ccffKazCraft|r: Crafting " .. qty .. "x " .. (cached.recipeName or "?") .. "...")
-    C_TradeSkillUI.CraftRecipe(entry.recipeID, qty, {}, nil, nil, applyConc)
+    print("|cff00ccffKazCraft|r: Crafting " .. (cached.recipeName or "?") .. " (" .. entry.quantity .. " remaining)...")
+    C_TradeSkillUI.CraftRecipe(entry.recipeID, 1, {}, nil, nil, applyConc)
 end
 
 function ProfRecipes:StopQueueCraft()

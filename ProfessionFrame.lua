@@ -394,6 +394,11 @@ local function CreateMainFrame()
         f.icon:SetSize(EQUIP_SIZE - 4, EQUIP_SIZE - 4)
         f.icon:SetPoint("CENTER")
 
+        f.qualityPip = f:CreateTexture(nil, "OVERLAY", nil, 2)
+        f.qualityPip:SetSize(12, 12)
+        f.qualityPip:SetPoint("TOPLEFT", f, "TOPLEFT", -3, 3)
+        f.qualityPip:Hide()
+
         f.slotID = nil
 
         f:SetScript("OnEnter", function(self)
@@ -436,10 +441,20 @@ local function CreateMainFrame()
                     slot.icon:SetTexture(tex)
                     slot.icon:SetDesaturated(false)
                     slot.icon:SetAlpha(1)
+                    -- Quality pip from equipped item
+                    local link = GetInventoryItemLink("player", invSlot)
+                    local quality = link and C_TradeSkillUI.GetItemCraftedQualityByItemInfo(link) or nil
+                    if quality and quality > 0 then
+                        slot.qualityPip:SetAtlas("Professions-Icon-Quality-Tier" .. quality .. "-Small", false)
+                        slot.qualityPip:Show()
+                    else
+                        slot.qualityPip:Hide()
+                    end
                 else
                     slot.icon:SetTexture(134400)  -- question mark
                     slot.icon:SetDesaturated(true)
                     slot.icon:SetAlpha(0.3)
+                    slot.qualityPip:Hide()
                 end
                 slot:ClearAllPoints()
                 slot:SetPoint("RIGHT", wowBtn, "LEFT", -(EQUIP_GAP + (i - 1) * (EQUIP_SIZE + EQUIP_GAP)), 0)

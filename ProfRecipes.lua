@@ -1006,7 +1006,7 @@ local function CreateRightPanel(parent)
     -- Quality pip overlay on recipe output icon
     detail.iconQualityPip = detailFrame:CreateTexture(nil, "OVERLAY", nil, 2)
     detail.iconQualityPip:SetSize(16, 16)
-    detail.iconQualityPip:SetPoint("BOTTOMRIGHT", detail.icon, "BOTTOMRIGHT", 2, -2)
+    detail.iconQualityPip:SetPoint("TOPLEFT", detail.icon, "TOPLEFT", -2, 2)
     detail.iconQualityPip:Hide()
 
     detail.subtypeText = detailFrame:CreateFontString(nil, "OVERLAY")
@@ -1777,7 +1777,7 @@ function ProfRecipes:RefreshDetail()
                     if not rBox.qualityPip then
                         rBox.qualityPip = rBox:CreateTexture(nil, "OVERLAY", nil, 2)
                         rBox.qualityPip:SetSize(14, 14)
-                        rBox.qualityPip:SetPoint("BOTTOMRIGHT", rBox, "BOTTOMRIGHT", 2, -2)
+                        rBox.qualityPip:SetPoint("TOPLEFT", rBox, "TOPLEFT", -2, 2)
                     end
                     rBox.qualityPip:SetAtlas(ns.GetQualityAtlas(inputQuality), false)
                     rBox.qualityPip:Show()
@@ -2249,7 +2249,7 @@ function ProfRecipes:RefreshDetail()
                     if not outBox.qualityPip then
                         outBox.qualityPip = outBox:CreateTexture(nil, "OVERLAY", nil, 2)
                         outBox.qualityPip:SetSize(14, 14)
-                        outBox.qualityPip:SetPoint("BOTTOMRIGHT", outBox, "BOTTOMRIGHT", 2, -2)
+                        outBox.qualityPip:SetPoint("TOPLEFT", outBox, "TOPLEFT", -2, 2)
                     end
                     outBox.qualityPip:SetAtlas(ns.GetQualityAtlas(qTier), false)
                     outBox.qualityPip:Show()

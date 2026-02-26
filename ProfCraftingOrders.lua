@@ -675,6 +675,30 @@ local function CreateDetailPanel(parent)
     content.rewardsText:SetTextColor(unpack(ns.COLORS.brightText))
     content.rewardsText:Hide()
 
+    -- Recipe source info (unlearned recipes — vendor, zone, cost)
+    content.recipeSourceFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
+    content.recipeSourceFrame:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeSize = 1,
+    })
+    content.recipeSourceFrame:SetBackdropColor(0.12, 0.08, 0.02, 0.9)
+    content.recipeSourceFrame:SetBackdropBorderColor(0.6, 0.45, 0.1, 0.8)
+    content.recipeSourceFrame:Hide()
+
+    content.recipeSourceLabel = content.recipeSourceFrame:CreateFontString(nil, "OVERLAY")
+    content.recipeSourceLabel:SetFont(ns.FONT, 11, "")
+    content.recipeSourceLabel:SetPoint("TOPLEFT", content.recipeSourceFrame, "TOPLEFT", 8, -6)
+    content.recipeSourceLabel:SetTextColor(0.9, 0.3, 0.3)
+
+    content.recipeSourceText = content.recipeSourceFrame:CreateFontString(nil, "OVERLAY")
+    content.recipeSourceText:SetFont(ns.FONT, 11, "")
+    content.recipeSourceText:SetPoint("TOPLEFT", content.recipeSourceLabel, "BOTTOMLEFT", 0, -4)
+    content.recipeSourceText:SetPoint("RIGHT", content.recipeSourceFrame, "RIGHT", -8, 0)
+    content.recipeSourceText:SetTextColor(0.9, 0.75, 0.3)
+    content.recipeSourceText:SetJustifyH("LEFT")
+    content.recipeSourceText:SetWordWrap(true)
+
     -- Action buttons (at bottom of detail panel)
     local btnArea = CreateFrame("Frame", nil, f)
     btnArea:SetHeight(40)
@@ -1656,14 +1680,33 @@ function ProfOrders:RefreshList()
                 -- Bucket view
                 row.isBucket = true
                 row.subText:SetText(data.numAvailable .. " orders")
+                row.subText:SetTextColor(unpack(ns.COLORS.mutedText))
                 row.tipText:SetText(FormatGold(data.tipAmountMax))
                 row.timeText:SetText("")
+                row.nameText:SetTextColor(unpack(ns.COLORS.brightText))
             else
                 -- Flat order view
                 row.isBucket = false
-                row.subText:SetText(GetReagentStateName(data.reagentState))
                 row.tipText:SetText(FormatGold(data.tipAmount))
                 row.timeText:SetText(FormatTimeLeft(data.expirationTime))
+
+                -- Check if recipe is learned
+                local isLearned = true
+                if data.spellID then
+                    local recipeInfo = C_TradeSkillUI.GetRecipeInfo(data.spellID)
+                    if recipeInfo and not recipeInfo.learned then
+                        isLearned = false
+                    end
+                end
+
+                if not isLearned then
+                    row.subText:SetText("|cffcc3333Recipe Unlearned|r")
+                    row.nameText:SetTextColor(0.6, 0.6, 0.6)
+                else
+                    row.subText:SetText(GetReagentStateName(data.reagentState))
+                    row.subText:SetTextColor(unpack(ns.COLORS.mutedText))
+                    row.nameText:SetTextColor(unpack(ns.COLORS.brightText))
+                end
             end
 
             -- Selection highlight
@@ -1881,6 +1924,44 @@ function ProfOrders:RefreshDetail()
     else
         content.rewardsLabel:Hide()
         content.rewardsText:Hide()
+    end
+
+    -- Recipe source info (for unlearned recipes)
+    local isLearned = true
+    if order.spellID then
+        local recipeInfo = C_TradeSkillUI.GetRecipeInfo(order.spellID)
+        if recipeInfo and not recipeInfo.learned then
+            isLearned = false
+        end
+    end
+
+    if not isLearned and order.spellID then
+        local sourceText = C_TradeSkillUI.GetRecipeSourceText(order.spellID)
+        content.recipeSourceLabel:SetText("Recipe Unlearned")
+        content.recipeSourceText:SetText(sourceText or "Source unknown")
+
+        -- Position below last visible section
+        content.recipeSourceFrame:ClearAllPoints()
+        local anchor
+        if content.rewardsText:IsShown() then
+            anchor = content.rewardsText
+        elseif content.notesText:IsShown() then
+            anchor = content.notesText
+        elseif content.rewardsLabel:IsShown() then
+            anchor = content.rewardsLabel
+        else
+            anchor = content.reagentValue
+        end
+        content.recipeSourceFrame:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -8, -8)
+        content.recipeSourceFrame:SetPoint("RIGHT", content, "RIGHT", 0, 0)
+        -- Size to fit content
+        content.recipeSourceFrame:SetHeight(200)
+        content.recipeSourceFrame:Show()
+        local labelH = content.recipeSourceLabel:GetStringHeight() or 12
+        local textH = content.recipeSourceText:GetStringHeight() or 14
+        content.recipeSourceFrame:SetHeight(labelH + textH + 20)
+    else
+        content.recipeSourceFrame:Hide()
     end
 
     -- Update action buttons

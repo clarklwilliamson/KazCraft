@@ -1335,6 +1335,7 @@ end
 -- Crafting tier client-side filter
 --------------------------------------------------------------------
 local function NeedsCraftTierFilter()
+    if not filterState.craftTiers then return false end
     for k, v in pairs(FILTER_DEFAULTS.craftTiers) do
         if filterState.craftTiers[k] ~= v then return true end
     end

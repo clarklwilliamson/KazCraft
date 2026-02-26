@@ -1469,6 +1469,7 @@ function ProfOrders:Init(parent)
     eventFrame:RegisterEvent("CRAFTINGORDERS_CLAIMED_ORDER_UPDATED")
     eventFrame:RegisterEvent("CRAFTINGORDERS_UNEXPECTED_ERROR")
     eventFrame:RegisterEvent("CRAFTINGORDERS_UPDATE_CUSTOMER_NAME")
+    eventFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
     eventFrame:SetScript("OnEvent", function(_, event, ...)
         ProfOrders:OnEvent(event, ...)
     end)
@@ -1902,12 +1903,36 @@ function ProfOrders:RefreshDetail()
     if order.npcOrderRewards and #order.npcOrderRewards > 0 then
         local rewardsStr = ""
         for _, reward in ipairs(order.npcOrderRewards) do
-            if reward.itemLink then
-                rewardsStr = rewardsStr .. reward.itemLink
-                if reward.count and reward.count > 1 then
-                    rewardsStr = rewardsStr .. " x" .. reward.count
+            local rewardLine
+            if reward.itemLink and reward.itemLink ~= "" then
+                -- Try to resolve item name + icon from the link
+                local name, _, _, _, _, _, _, _, _, icon = C_Item.GetItemInfo(reward.itemLink)
+                if name then
+                    rewardLine = (icon and ("|T" .. icon .. ":0|t ") or "") .. name
+                else
+                    -- Item not cached — request it, show itemID as placeholder
+                    local itemID = GetItemInfoInstant(reward.itemLink)
+                    if itemID then
+                        C_Item.RequestLoadItemDataByID(itemID)
+                        rewardLine = "Item:" .. itemID
+                    end
                 end
-                rewardsStr = rewardsStr .. "\n"
+            end
+            if not rewardLine and reward.currencyType then
+                -- Currency reward (e.g., Artisan's Acuity)
+                local info = C_CurrencyInfo.GetCurrencyInfo(reward.currencyType)
+                if info then
+                    local icon = info.iconFileID and ("|T" .. info.iconFileID .. ":0|t ") or ""
+                    rewardLine = icon .. info.name
+                else
+                    rewardLine = "Currency " .. reward.currencyType
+                end
+            end
+            if rewardLine then
+                if reward.count and reward.count > 1 then
+                    rewardLine = rewardLine .. " x" .. reward.count
+                end
+                rewardsStr = rewardsStr .. rewardLine .. "\n"
             end
         end
         content.rewardsLabel:ClearAllPoints()
@@ -2211,5 +2236,11 @@ function ProfOrders:OnEvent(event, ...)
 
     elseif event == "CRAFTINGORDERS_UNEXPECTED_ERROR" then
         print("|cffc8aa64KazCraft:|r Crafting orders error occurred.")
+
+    elseif event == "GET_ITEM_INFO_RECEIVED" then
+        -- Reward item data loaded — refresh detail if viewing an order
+        if selectedOrder then
+            self:RefreshDetail()
+        end
     end
 end

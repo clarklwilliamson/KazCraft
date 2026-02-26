@@ -6,7 +6,7 @@
 ## Version: 2.0.0
 ## SavedVariables: KazCraftDB
 ## RequiredDeps: KazGUILib
-## OptionalDeps: CraftSim, TradeSkillMaster, TradeSkillMaster_AppHelper
+## OptionalDeps: CraftSim, TradeSkillMaster
 ## X-Category: Kaz
 ## X-Flavor: Mainline
 

@@ -659,10 +659,6 @@ function ProfFrame:UpdateFooter()
     else
         footer.costText:SetText("")
     end
-    -- Update Blizzard frame Craft Queue button
-    if ProfessionsFrame and ProfessionsFrame._kazCraftQueueBtn and ProfessionsFrame._kazCraftQueueBtn._update then
-        ProfessionsFrame._kazCraftQueueBtn._update()
-    end
 end
 
 --------------------------------------------------------------------
@@ -778,9 +774,6 @@ function ProfFrame:EnsureBlizzardSwitchButton()
     if not ProfessionsFrame then return end
     if ProfessionsFrame._kazButton then return end
 
-    local craftingPage = ProfessionsFrame.CraftingPage
-
-    -- KazCraft switch button (right side)
     local btn = ns.CreateButton(ProfessionsFrame, "KazCraft", 70, 22)
     btn:SetPoint("BOTTOMRIGHT", ProfessionsFrame, "BOTTOMRIGHT", -100, 6)
     btn:SetFrameStrata("DIALOG")
@@ -797,61 +790,6 @@ function ProfFrame:EnsureBlizzardSwitchButton()
         end
     end)
     ProfessionsFrame._kazButton = btn
-
-    -- Craft Queue button (left of Create All on Blizzard's bottom bar)
-    if craftingPage and craftingPage.CreateAllButton then
-        local cqBtn = CreateFrame("Button", nil, craftingPage, "UIPanelButtonTemplate")
-        cqBtn:SetSize(100, 22)
-        cqBtn:SetPoint("RIGHT", craftingPage.CreateAllButton, "LEFT", -8, 0)
-        cqBtn:SetText("Craft Queue")
-        cqBtn:SetFrameStrata("DIALOG")
-        cqBtn:SetFrameLevel(500)
-        cqBtn:SetScript("OnClick", function()
-            local queue = ns.Data:GetCharacterQueue()
-            if #queue == 0 then
-                print("|cff00ccffKazCraft|r: Queue is empty.")
-                return
-            end
-            -- Skip uncached
-            while #queue > 0 do
-                local entry = queue[1]
-                local cached = KazCraftDB.recipeCache[entry.recipeID]
-                if cached then break end
-                print("|cff00ccffKazCraft|r: Recipe " .. entry.recipeID .. " not cached, skipping.")
-                ns.Data:RemoveFromQueue(1)
-                queue = ns.Data:GetCharacterQueue()
-            end
-            if #queue == 0 then
-                print("|cff00ccffKazCraft|r: Queue is empty.")
-                return
-            end
-
-            local entry = queue[1]
-            local cached = KazCraftDB.recipeCache[entry.recipeID]
-            local qty = entry.quantity
-            ns.lastCraftedRecipeID = entry.recipeID
-
-            print("|cff00ccffKazCraft|r: Crafting " .. qty .. "x " .. (cached.recipeName or "?") .. "...")
-            C_TradeSkillUI.CraftRecipe(entry.recipeID, qty, {}, nil, nil, false)
-        end)
-
-        -- Update button text with queue count
-        local function UpdateCraftQueueBtn()
-            local queue = ns.Data:GetCharacterQueue()
-            local count = 0
-            for _, e in ipairs(queue) do count = count + e.quantity end
-            if count > 0 then
-                cqBtn:SetText("Craft Queue [" .. count .. "]")
-                cqBtn:Enable()
-            else
-                cqBtn:SetText("Craft Queue")
-                cqBtn:Disable()
-            end
-        end
-        cqBtn._update = UpdateCraftQueueBtn
-        ProfessionsFrame._kazCraftQueueBtn = cqBtn
-        UpdateCraftQueueBtn()
-    end
 end
 
 --------------------------------------------------------------------

@@ -60,6 +60,7 @@ local FILTER_DEFAULTS = {
 }
 
 local filterState = {}
+local UpdateFilterBtnGlow  -- forward declare
 
 local function SaveFilterState()
     -- Save to DB (convert enum keys to numbers for serialization)
@@ -132,7 +133,7 @@ local function LoadFilterState()
 end
 
 -- Check if any filter deviates from defaults; glow the Filter button gold
-local function UpdateFilterBtnGlow()
+UpdateFilterBtnGlow = function()
     if not filterBtn then return end
     local active = false
     if filterState.uncollectedOnly or filterState.usableOnly

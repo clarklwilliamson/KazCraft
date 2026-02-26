@@ -495,9 +495,10 @@ local function UpdateRecipeRow(row, entry, index)
                 ns.ProfessionUI:SetSelectedRecipe(entry.recipeID)
             end
             -- Notify CraftSim so its spec info / module windows update
+            -- pcall: CraftSim reads Blizzard's schematic form which may be stale
             if CraftSimLib and CraftSimLib.INIT and CraftSimLib.INIT.TriggerModuleUpdate then
                 CraftSimLib.INIT.currentRecipeID = entry.recipeID
-                CraftSimLib.INIT:TriggerModuleUpdate(false)
+                pcall(CraftSimLib.INIT.TriggerModuleUpdate, CraftSimLib.INIT, false)
             end
         end)
     end

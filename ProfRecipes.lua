@@ -2533,10 +2533,15 @@ end
 --------------------------------------------------------------------
 -- Craft entire queue sequentially
 --------------------------------------------------------------------
-local queueCrafting = false
+-- CraftRecipe is protected — must be called from a hardware event
+-- (button click). We batch the full qty for the first queue entry
+-- per click. When that batch finishes, the button updates to show
+-- the next entry so the user clicks again.
+--------------------------------------------------------------------
+local queueBatchRecipeID = nil  -- recipeID currently being batched
 
 function ProfRecipes:CraftQueue()
-    if queueCrafting or isCrafting then
+    if isCrafting then
         print("|cff00ccffKazCraft|r: Already crafting.")
         return
     end
@@ -2547,40 +2552,63 @@ function ProfRecipes:CraftQueue()
         return
     end
 
-    queueCrafting = true
-    detail.queueCraftAllBtn.label:SetText("Crafting...")
-    detail.queueCraftAllBtn:Disable()
-    detail.queueCraftAllBtn.label:SetTextColor(unpack(ns.COLORS.mutedText))
-
-    self:CraftNextInQueue()
-end
-
-function ProfRecipes:CraftNextInQueue()
-    local queue = ns.Data:GetCharacterQueue()
-    if #queue == 0 or not queueCrafting then
-        self:StopQueueCraft()
+    -- Skip uncached entries
+    while #queue > 0 do
+        local entry = queue[1]
+        local cached = KazCraftDB.recipeCache[entry.recipeID]
+        if cached then break end
+        print("|cff00ccffKazCraft|r: Recipe " .. entry.recipeID .. " not cached, skipping.")
+        ns.Data:RemoveFromQueue(1)
+        queue = ns.Data:GetCharacterQueue()
+    end
+    if #queue == 0 then
+        print("|cff00ccffKazCraft|r: Queue is empty.")
+        self:RefreshQueue()
         return
     end
 
     local entry = queue[1]
     local cached = KazCraftDB.recipeCache[entry.recipeID]
-    if not cached then
-        print("|cff00ccffKazCraft|r: Recipe " .. entry.recipeID .. " not cached, skipping.")
-        ns.Data:RemoveFromQueue(1)
-        self:RefreshQueue()
-        self:CraftNextInQueue()
-        return
-    end
+    local qty = entry.quantity
 
+    queueBatchRecipeID = entry.recipeID
     ns.lastCraftedRecipeID = entry.recipeID
     local applyConc = ProfRecipes.GetConcentrationChecked and ProfRecipes.GetConcentrationChecked() or false
 
-    print("|cff00ccffKazCraft|r: Crafting " .. (cached.recipeName or "?") .. " (" .. entry.quantity .. " remaining)...")
-    C_TradeSkillUI.CraftRecipe(entry.recipeID, 1, {}, nil, nil, applyConc)
+    detail.queueCraftAllBtn.label:SetText("Crafting...")
+    detail.queueCraftAllBtn:Disable()
+    detail.queueCraftAllBtn.label:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    print("|cff00ccffKazCraft|r: Crafting " .. qty .. "x " .. (cached.recipeName or "?") .. "...")
+    C_TradeSkillUI.CraftRecipe(entry.recipeID, qty, {}, nil, nil, applyConc)
 end
 
-function ProfRecipes:StopQueueCraft()
-    queueCrafting = false
+function ProfRecipes:OnQueueCraftComplete()
+    -- Re-tag lastCraftedRecipeID for ongoing batch so DecrementQueue keeps working
+    if queueBatchRecipeID then
+        local queue = ns.Data:GetCharacterQueue()
+        if #queue > 0 and queue[1].recipeID == queueBatchRecipeID then
+            -- Still working on same batch — re-arm for next decrement
+            ns.lastCraftedRecipeID = queueBatchRecipeID
+            self:RefreshQueue()
+            return
+        end
+    end
+
+    -- Current batch done (entry was removed from queue)
+    queueBatchRecipeID = nil
+    local queue = ns.Data:GetCharacterQueue()
+
+    if #queue == 0 then
+        print("|cff00ccffKazCraft|r: Queue complete!")
+    else
+        local next = queue[1]
+        local cached = KazCraftDB.recipeCache[next.recipeID]
+        local name = cached and cached.recipeName or ("Recipe " .. next.recipeID)
+        print("|cff00ccffKazCraft|r: Next: " .. next.quantity .. "x " .. name .. " — click Craft Queue")
+    end
+
+    -- Re-enable button for next entry
     if detail.queueCraftAllBtn then
         detail.queueCraftAllBtn.label:SetText("Craft Queue")
         detail.queueCraftAllBtn:Enable()
@@ -2590,18 +2618,15 @@ function ProfRecipes:StopQueueCraft()
     if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
 end
 
-function ProfRecipes:OnQueueCraftComplete()
-    if not queueCrafting then return end
-
-    local queue = ns.Data:GetCharacterQueue()
-    if #queue == 0 then
-        print("|cff00ccffKazCraft|r: Queue complete!")
-        self:StopQueueCraft()
-        return
+function ProfRecipes:StopQueueCraft()
+    queueBatchRecipeID = nil
+    if detail.queueCraftAllBtn then
+        detail.queueCraftAllBtn.label:SetText("Craft Queue")
+        detail.queueCraftAllBtn:Enable()
+        detail.queueCraftAllBtn.label:SetTextColor(unpack(ns.COLORS.ctrlText))
     end
-
-    -- Chain directly from event handler (timers break secure execution path)
-    ProfRecipes:CraftNextInQueue()
+    self:RefreshQueue()
+    if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
 end
 
 --------------------------------------------------------------------

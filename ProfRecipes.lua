@@ -950,7 +950,7 @@ local function CreateRightPanel(parent)
     rightPanel:SetBackdropColor(unpack(ns.COLORS.panelBg))
     rightPanel:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
 
-    -- Detail content (direct child, no scroll)
+    -- Detail content (direct child, full area)
     detailFrame = CreateFrame("Frame", nil, rightPanel)
     detailFrame:SetPoint("TOPLEFT", rightPanel, "TOPLEFT", 4, -4)
     detailFrame:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -4, 4)
@@ -1340,6 +1340,10 @@ local function CreateRightPanel(parent)
     detail.simSkillText:SetFont(ns.FONT, 12, "")
     detail.simSkillText:SetTextColor(unpack(ns.COLORS.mutedText))
 
+    detail.simCostText = detail.simFrame:CreateFontString(nil, "OVERLAY")
+    detail.simCostText:SetFont(ns.FONT, 12, "")
+    detail.simCostText:SetTextColor(unpack(ns.COLORS.brightText))
+
     detail.simProfitText = detail.simFrame:CreateFontString(nil, "OVERLAY")
     detail.simProfitText:SetFont(ns.FONT, 12, "")
 
@@ -1351,11 +1355,12 @@ local function CreateRightPanel(parent)
     detail.simOptBtn = ns.CreateButton(detail.simFrame, "Optimize", 70, 22)
     detail.simOptBtn:SetScript("OnClick", function()
         if not simRecipeData or not CraftSimLib then return end
+
+        -- Phase 1: Optimize quality reagent tiers (synchronous)
         local ok, result = pcall(function()
             return CraftSimLib.REAGENT_OPTIMIZATION:OptimizeReagentAllocation(simRecipeData)
         end)
         if ok and result and result.reagents then
-            -- Apply optimal allocation to our editboxes
             local rowIdx = 0
             for _, reagent in pairs(result.reagents) do
                 if reagent.hasQuality then
@@ -1372,6 +1377,40 @@ local function CreateRightPanel(parent)
                     end
                 end
             end
+        end
+
+        -- Phase 2: Optimize finishing reagents (async — uses CraftSim's profit-based picker)
+        local hasFinishing = simRecipeData.reagentData and simRecipeData.reagentData.finishingReagentSlots
+            and #simRecipeData.reagentData.finishingReagentSlots > 0
+        if hasFinishing and simRecipeData.OptimizeFinishingReagents then
+            pcall(function()
+                simRecipeData:OptimizeFinishingReagents({
+                    finally = function()
+                        -- Read CraftSim's optimal finishing selections and update our dropdowns
+                        local dropIdx = 0
+                        for _, slot in ipairs(simRecipeData.reagentData.finishingReagentSlots) do
+                            dropIdx = dropIdx + 1
+                            local dd = simFinishingDrops[dropIdx]
+                            if dd and dd:IsShown() and slot.activeReagent then
+                                local optItemID = slot.activeReagent.item:GetItemID()
+                                -- Find the matching option label
+                                if dd.optItemIDs then
+                                    for idx, iid in ipairs(dd.optItemIDs) do
+                                        if iid == optItemID then
+                                            dd:SetSelected(dd.options[idx])
+                                            break
+                                        end
+                                    end
+                                end
+                            elseif dd and dd:IsShown() then
+                                dd:SetSelected("None")
+                            end
+                        end
+                        ProfRecipes:RefreshSimResults()
+                    end,
+                })
+            end)
+        else
             ProfRecipes:RefreshSimResults()
         end
     end)
@@ -2726,8 +2765,11 @@ function ProfRecipes:RefreshDetail()
     -- ── SIM Panel ──
     ProfRecipes:RefreshSimPanel(schematic, lastAnchor)
 
-    -- TSM cost / profit (via KazCraft's standalone reader or TSM_API fallback)
+    -- TSM cost / profit — hide when sim panel is active (sim has better data)
     local hasTSM = ns.TSMData and ns.TSMData:IsAvailable()
+    if detail.simFrame:IsShown() then
+        hasTSM = false -- sim panel handles cost/profit display
+    end
     if hasTSM and schematic then
         -- Get the crafted item
         local outputItemID = schematic.outputItemID
@@ -3034,8 +3076,11 @@ function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
     detail.simSkillText:ClearAllPoints()
     detail.simSkillText:SetPoint("TOPLEFT", detail.simQualityText, "BOTTOMLEFT", 0, -2)
 
+    detail.simCostText:ClearAllPoints()
+    detail.simCostText:SetPoint("TOPLEFT", detail.simSkillText, "BOTTOMLEFT", 0, -2)
+
     detail.simProfitText:ClearAllPoints()
-    detail.simProfitText:SetPoint("TOPLEFT", detail.simSkillText, "BOTTOMLEFT", 0, -2)
+    detail.simProfitText:SetPoint("TOPLEFT", detail.simCostText, "BOTTOMLEFT", 0, -2)
 
     detail.simConcText:ClearAllPoints()
     detail.simConcText:SetPoint("TOPLEFT", detail.simProfitText, "BOTTOMLEFT", 0, -2)
@@ -3059,7 +3104,7 @@ function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
     if showFinishing then
         totalH = totalH + 12 + 4 + 24 + 6 -- label + gap + dropdown + gap
     end
-    totalH = totalH + 12 + 4 + 14 + 2 + 14 + 2 + 14 + 2 + 14 + 6 + 22 + 8 -- result section
+    totalH = totalH + 12 + 4 + 14 + 2 + 14 + 2 + 14 + 2 + 14 + 2 + 14 + 6 + 22 + 8 -- result section (header + quality + skill + cost + profit + conc + buttons)
     detail.simFrame:SetHeight(totalH)
 
     detail.simFrame:Show()
@@ -3155,6 +3200,14 @@ function ProfRecipes:RefreshSimResults()
         detail.simSkillText:SetText("Skill: " .. totalSkill .. " / " .. opInfo.baseDifficulty)
     else
         detail.simSkillText:SetText("Skill: —")
+    end
+
+    -- Craft cost via CraftSim
+    local craftCost = simRecipeData.priceData and simRecipeData.priceData.craftingCosts
+    if craftCost and craftCost > 0 then
+        detail.simCostText:SetText("Cost: " .. ns.FormatGold(craftCost))
+    else
+        detail.simCostText:SetText("Cost: —")
     end
 
     -- Profit via CraftSim

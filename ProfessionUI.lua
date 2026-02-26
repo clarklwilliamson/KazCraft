@@ -481,6 +481,13 @@ function ProfUI:IsShown()
     return mainFrame and mainFrame:IsShown()
 end
 
+function ProfUI:SetSelectedRecipe(recipeID)
+    selectedRecipeID = recipeID
+    if recipeID and not KazCraftDB.recipeCache[recipeID] then
+        ns.Data:CacheSchematic(recipeID, ns.currentProfName)
+    end
+end
+
 -- Hook recipe selection from Blizzard's profession list
 EventRegistry:RegisterCallback("ProfessionsRecipeListMixin.Event.OnRecipeSelected", function(_, recipeInfo)
     if not recipeInfo then return end

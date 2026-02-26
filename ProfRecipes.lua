@@ -488,6 +488,10 @@ local function UpdateRecipeRow(row, entry, index)
             end
             ProfRecipes:RefreshRows()
             ProfRecipes:RefreshDetail()
+            -- Sync selection to docked queue panel
+            if ns.ProfessionUI then
+                ns.ProfessionUI:SetSelectedRecipe(entry.recipeID)
+            end
             -- Notify CraftSim so its spec info / module windows update
             if CraftSim and CraftSim.INIT and CraftSim.INIT.TriggerModuleUpdate then
                 CraftSim.INIT.currentRecipeID = entry.recipeID

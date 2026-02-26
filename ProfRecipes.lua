@@ -492,6 +492,11 @@ local function UpdateRecipeRow(row, entry, index)
             end
             ProfRecipes:RefreshRows()
             ProfRecipes:RefreshDetail()
+            -- Notify CraftSim so its spec info / module windows update
+            if CraftSim and CraftSim.INIT and CraftSim.INIT.TriggerModuleUpdate then
+                CraftSim.INIT.currentRecipeID = entry.recipeID
+                CraftSim.INIT:TriggerModuleUpdate(false)
+            end
         end)
     end
 
@@ -1310,40 +1315,33 @@ local function CreateRightPanel(parent)
         end
     end)
 
-    -- Craft All button
+    -- Craft All button (crafts qty from box, same as Craft)
     detail.craftAllBtn = ns.CreateButton(detail.controlFrame, "Craft All", 70, 24)
     detail.craftAllBtn:SetPoint("LEFT", detail.craftBtn, "RIGHT", 4, 0)
     detail.craftAllBtn:SetScript("OnClick", function()
         if not selectedRecipeID or isCrafting then return end
+        local qty = tonumber(detail.qtyBox:GetText()) or 1
+        if qty < 1 then qty = 1 end
         local applyConc = detail.concCheck:GetChecked() and true or false
         ns.lastCraftedRecipeID = nil
         if currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Salvage) then
-            currentTransaction:CraftSalvage(1)
+            currentTransaction:CraftSalvage(qty)
         elseif currentTransaction and currentTransaction:IsRecraft() then
             currentTransaction:RecraftRecipe()
         elseif currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Enchant) then
             local enchantItem = currentTransaction:GetEnchantAllocation()
             if enchantItem then
-                -- For vellums, craft count = available vellums; for gear, always 1
-                local itemID = enchantItem:GetItemID()
-                local count = itemID and ItemUtil.GetCraftingReagentCount(itemID) or 1
-                if count < 1 then count = 1 end
-                currentTransaction:CraftEnchant(selectedRecipeID, count)
+                currentTransaction:CraftEnchant(selectedRecipeID, qty)
             end
         else
-            local info = C_TradeSkillUI.GetRecipeInfo(selectedRecipeID)
-            local count = info and info.numAvailable or 0
-            if count > 0 then
-                local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
-                C_TradeSkillUI.CraftRecipe(selectedRecipeID, count, reagentInfoTbl, nil, nil, applyConc)
-            end
+            local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
+            C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty, reagentInfoTbl, nil, nil, applyConc)
         end
     end)
 
-    -- +Queue button (hidden for now — queue UI coming later)
+    -- +Queue button
     detail.queueBtn = ns.CreateButton(detail.controlFrame, "+Queue", 70, 24)
     detail.queueBtn:SetPoint("LEFT", detail.craftAllBtn, "RIGHT", 4, 0)
-    detail.queueBtn:Hide()
     detail.queueBtn:SetScript("OnClick", function()
         if not selectedRecipeID then return end
         local qty = tonumber(detail.qtyBox:GetText()) or 1
@@ -1356,6 +1354,34 @@ local function CreateRightPanel(parent)
         ns.Data:AddToQueue(selectedRecipeID, qty)
         ProfRecipes:RefreshQueue()
         if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
+
+        -- Report missing materials
+        local mats = ns.Data:GetMaterialList(ns.charKey)
+        local missing = {}
+        for _, mat in ipairs(mats) do
+            if mat.short > 0 and not mat.soulbound then
+                table.insert(missing, mat)
+            end
+        end
+        if #missing > 0 then
+            local recipeName = KazCraftDB.recipeCache[selectedRecipeID] and KazCraftDB.recipeCache[selectedRecipeID].recipeName or "Recipe"
+            print("|cff00ccffKazCraft|r: Queued " .. qty .. "x " .. recipeName .. " — missing materials:")
+            local totalCost = 0
+            for _, mat in ipairs(missing) do
+                local priceStr = ""
+                if mat.price > 0 then
+                    priceStr = " (" .. C_CurrencyInfo.GetCoinTextureString(mat.short * mat.price) .. ")"
+                end
+                print("  |cffff6666Need " .. mat.short .. "x|r " .. mat.itemName .. priceStr)
+                totalCost = totalCost + (mat.short * mat.price)
+            end
+            if totalCost > 0 then
+                print("  |cffffd100Total cost:|r " .. C_CurrencyInfo.GetCoinTextureString(totalCost))
+            end
+        else
+            local recipeName = KazCraftDB.recipeCache[selectedRecipeID] and KazCraftDB.recipeCache[selectedRecipeID].recipeName or "Recipe"
+            print("|cff00ccffKazCraft|r: Queued " .. qty .. "x " .. recipeName .. " — all materials available!")
+        end
     end)
 
     -- ── Queue (above craft controls) ──
@@ -1363,6 +1389,21 @@ local function CreateRightPanel(parent)
     detail.queueHeader:SetFont(ns.FONT, 12, "")
     detail.queueHeader:SetTextColor(unpack(ns.COLORS.headerText))
     -- anchored dynamically
+
+    -- Craft Queue / Clear buttons (right of header, anchored dynamically)
+    detail.queueCraftAllBtn = ns.CreateButton(rightPanel, "Craft Queue", 80, 20)
+    detail.queueCraftAllBtn:Hide()
+    detail.queueCraftAllBtn:SetScript("OnClick", function()
+        ProfRecipes:CraftQueue()
+    end)
+
+    detail.queueClearBtn = ns.CreateButton(rightPanel, "Clear", 50, 20)
+    detail.queueClearBtn:Hide()
+    detail.queueClearBtn:SetScript("OnClick", function()
+        ns.Data:ClearQueue()
+        ProfRecipes:RefreshQueue()
+        if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
+    end)
 
     detail.queueFrame = CreateFrame("Frame", nil, rightPanel)
     detail.queueFrame:SetPoint("LEFT", rightPanel, "LEFT", 12, 0)
@@ -1594,6 +1635,8 @@ function ProfRecipes:RefreshDetail()
         detail.controlFrame:Hide()
         detail.queueHeader:Hide()
         detail.queueFrame:Hide()
+        detail.queueCraftAllBtn:Hide()
+        detail.queueClearBtn:Hide()
         detail.favBtn:Hide()
         return
     end
@@ -2466,23 +2509,103 @@ function ProfRecipes:RefreshDetail()
     local craftable = info.numAvailable or 0
     if craftable > 0 then
         detail.craftAllBtn.label:SetText("Craft All: " .. craftable)
-        detail.craftAllBtn:Enable()
     else
         detail.craftAllBtn.label:SetText("Craft All")
-        detail.craftAllBtn:Disable()
     end
 
-    -- Enable/disable craft button
+    -- Enable/disable craft buttons
     if isCrafting then
         detail.craftBtn:Disable()
         detail.craftAllBtn:Disable()
+        detail.craftBtn.label:SetTextColor(unpack(ns.COLORS.mutedText))
+        detail.craftAllBtn.label:SetTextColor(unpack(ns.COLORS.mutedText))
     else
         detail.craftBtn:Enable()
+        detail.craftAllBtn:Enable()
+        detail.craftBtn.label:SetTextColor(unpack(ns.COLORS.ctrlText))
+        detail.craftAllBtn.label:SetTextColor(unpack(ns.COLORS.ctrlText))
     end
 
-    -- Queue section (hidden for now)
-    detail.queueHeader:Hide()
-    detail.queueFrame:Hide()
+    -- Queue section
+    ProfRecipes:RefreshQueue()
+end
+
+--------------------------------------------------------------------
+-- Craft entire queue sequentially
+--------------------------------------------------------------------
+local queueCrafting = false
+
+function ProfRecipes:CraftQueue()
+    if queueCrafting or isCrafting then
+        print("|cff00ccffKazCraft|r: Already crafting.")
+        return
+    end
+
+    local queue = ns.Data:GetCharacterQueue()
+    if #queue == 0 then
+        print("|cff00ccffKazCraft|r: Queue is empty.")
+        return
+    end
+
+    queueCrafting = true
+    detail.queueCraftAllBtn.label:SetText("Crafting...")
+    detail.queueCraftAllBtn:Disable()
+    detail.queueCraftAllBtn.label:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    self:CraftNextInQueue()
+end
+
+function ProfRecipes:CraftNextInQueue()
+    local queue = ns.Data:GetCharacterQueue()
+    if #queue == 0 or not queueCrafting then
+        self:StopQueueCraft()
+        return
+    end
+
+    local entry = queue[1]
+    local cached = KazCraftDB.recipeCache[entry.recipeID]
+    if not cached then
+        print("|cff00ccffKazCraft|r: Recipe " .. entry.recipeID .. " not cached, skipping.")
+        ns.Data:RemoveFromQueue(1)
+        self:RefreshQueue()
+        -- Try next
+        C_Timer.After(0.1, function() ProfRecipes:CraftNextInQueue() end)
+        return
+    end
+
+    local qty = entry.quantity
+    ns.lastCraftedRecipeID = entry.recipeID
+    local applyConc = ProfRecipes.GetConcentrationChecked and ProfRecipes.GetConcentrationChecked() or false
+
+    print("|cff00ccffKazCraft|r: Crafting " .. qty .. "x " .. (cached.recipeName or "?") .. "...")
+    C_TradeSkillUI.CraftRecipe(entry.recipeID, qty, {}, nil, nil, applyConc)
+end
+
+function ProfRecipes:StopQueueCraft()
+    queueCrafting = false
+    if detail.queueCraftAllBtn then
+        detail.queueCraftAllBtn.label:SetText("Craft Queue")
+        detail.queueCraftAllBtn:Enable()
+        detail.queueCraftAllBtn.label:SetTextColor(unpack(ns.COLORS.ctrlText))
+    end
+    self:RefreshQueue()
+    if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
+end
+
+function ProfRecipes:OnQueueCraftComplete()
+    if not queueCrafting then return end
+
+    local queue = ns.Data:GetCharacterQueue()
+    if #queue == 0 then
+        print("|cff00ccffKazCraft|r: Queue complete!")
+        self:StopQueueCraft()
+        return
+    end
+
+    -- Small delay before next craft to let UI settle
+    C_Timer.After(0.3, function()
+        ProfRecipes:CraftNextInQueue()
+    end)
 end
 
 --------------------------------------------------------------------
@@ -2494,11 +2617,29 @@ function ProfRecipes:RefreshQueue()
     local queue = ns.Data:GetCharacterQueue()
     local count = #queue
 
+    if count == 0 then
+        detail.queueHeader:Hide()
+        detail.queueFrame:Hide()
+        detail.queueCraftAllBtn:Hide()
+        detail.queueClearBtn:Hide()
+        for _, row in ipairs(queueRows) do row:Hide() end
+        return
+    end
+
     -- Anchor queue above craft controls
     detail.queueHeader:ClearAllPoints()
     detail.queueHeader:SetPoint("BOTTOMLEFT", detail.controlFrame, "TOPLEFT", 0, math.min(count, MAX_QUEUE_ROWS) * QUEUE_ROW_HEIGHT + 16)
     detail.queueHeader:SetText("QUEUE (" .. count .. ")")
     detail.queueHeader:Show()
+
+    -- Craft Queue + Clear buttons right of header
+    detail.queueCraftAllBtn:ClearAllPoints()
+    detail.queueCraftAllBtn:SetPoint("LEFT", detail.queueHeader, "RIGHT", 8, 0)
+    detail.queueCraftAllBtn:Show()
+
+    detail.queueClearBtn:ClearAllPoints()
+    detail.queueClearBtn:SetPoint("LEFT", detail.queueCraftAllBtn, "RIGHT", 4, 0)
+    detail.queueClearBtn:Show()
 
     detail.queueFrame:ClearAllPoints()
     detail.queueFrame:SetPoint("TOPLEFT", detail.queueHeader, "BOTTOMLEFT", 0, -4)

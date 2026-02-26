@@ -104,6 +104,10 @@ function handlers.UPDATE_TRADESKILL_CAST_STOPPED()
     if ns.ProfFrame then
         ns.ProfFrame:OnCraftStopped()
     end
+    -- Stop queue crafting on interruption
+    if ns.ProfRecipes and ns.ProfRecipes.StopQueueCraft then
+        ns.ProfRecipes:StopQueueCraft()
+    end
 end
 
 function handlers.CRAFTING_DETAILS_UPDATE()
@@ -141,7 +145,7 @@ function handlers.BAG_UPDATE_DELAYED()
 end
 
 function handlers.TRADE_SKILL_ITEM_CRAFTED_RESULT()
-    -- Decrement the queued recipe we initiated via [Craft Next]
+    -- Decrement the queued recipe we initiated via [Craft Next] or [Craft Queue]
     if ns.lastCraftedRecipeID then
         ns.Data:DecrementQueue(ns.lastCraftedRecipeID)
         ns.lastCraftedRecipeID = nil
@@ -151,6 +155,10 @@ function handlers.TRADE_SKILL_ITEM_CRAFTED_RESULT()
     end
     if ns.ProfFrame then
         ns.ProfFrame:OnCraftComplete()
+    end
+    -- Chain next craft if queue crafting is active
+    if ns.ProfRecipes then
+        ns.ProfRecipes:OnQueueCraftComplete()
     end
 end
 

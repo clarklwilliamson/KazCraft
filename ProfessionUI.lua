@@ -292,23 +292,38 @@ local function CreateMainFrame()
     mainFrame.totalText:SetPoint("LEFT", footer, "LEFT", 8, 0)
     mainFrame.totalText:SetTextColor(unpack(ns.COLORS.mutedText))
 
-    -- Craft Next button
-    craftBtn = ns.CreateButton(footer, "Craft Next", 80, 22)
+    -- Craft Queue button — batches full qty for first entry per click
+    craftBtn = ns.CreateButton(footer, "Craft Queue", 90, 22)
     craftBtn:SetPoint("RIGHT", footer, "RIGHT", -6, 0)
     craftBtn:SetScript("OnClick", function()
         local queue = ns.Data:GetCharacterQueue()
         if #queue == 0 then
-            print("|cffc8aa64KazCraft:|r Queue is empty.")
+            print("|cff00ccffKazCraft|r: Queue is empty.")
             return
         end
+        -- Skip uncached
+        while #queue > 0 do
+            local entry = queue[1]
+            local cached = KazCraftDB.recipeCache[entry.recipeID]
+            if cached then break end
+            print("|cff00ccffKazCraft|r: Recipe " .. entry.recipeID .. " not cached, skipping.")
+            ns.Data:RemoveFromQueue(1)
+            queue = ns.Data:GetCharacterQueue()
+        end
+        if #queue == 0 then
+            print("|cff00ccffKazCraft|r: Queue is empty.")
+            ProfUI:RefreshAll()
+            return
+        end
+
         local entry = queue[1]
         local cached = KazCraftDB.recipeCache[entry.recipeID]
-        if not cached then
-            print("|cffc8aa64KazCraft:|r Recipe not cached. Open the profession again.")
-            return
-        end
+        local qty = entry.quantity
         ns.lastCraftedRecipeID = entry.recipeID
-        C_TradeSkillUI.CraftRecipe(entry.recipeID, 1)
+        local applyConc = ns.ProfRecipes and ns.ProfRecipes.GetConcentrationChecked and ns.ProfRecipes.GetConcentrationChecked() or false
+
+        print("|cff00ccffKazCraft|r: Crafting " .. qty .. "x " .. (cached.recipeName or "?") .. "...")
+        C_TradeSkillUI.CraftRecipe(entry.recipeID, qty, {}, nil, nil, applyConc)
     end)
 
     -- Save/restore position
@@ -434,15 +449,15 @@ function ProfUI:Show()
 
     -- Update header
     local charName = ns.charKey and ns.charKey:match("^(.-)%-") or "?"
-    headerText:SetText("KazCraft — " .. charName .. " — " .. (ns.currentProfName or "?"))
+    headerText:SetText("Queue — " .. (ns.currentProfName or "?"))
 
-    -- Anchor to ProfessionsFrame
+    -- Dock to KC's ProfFrame
     mainFrame:ClearAllPoints()
-    if ProfessionsFrame and ProfessionsFrame:IsShown() then
-        mainFrame:SetPoint("TOPLEFT", ProfessionsFrame, "TOPRIGHT", 2, 0)
-        mainFrame:SetHeight(ProfessionsFrame:GetHeight())
+    local kcFrame = _G["KazCraftProfFrame2"]
+    if kcFrame and kcFrame:IsShown() then
+        mainFrame:SetPoint("TOPLEFT", kcFrame, "TOPRIGHT", 2, 0)
+        mainFrame:SetHeight(kcFrame:GetHeight())
     else
-        -- Fallback: use saved position or center
         local pos = KazCraftDB.profPosition
         if pos and pos[1] then
             mainFrame:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])

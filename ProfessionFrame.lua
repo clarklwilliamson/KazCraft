@@ -600,6 +600,11 @@ function ProfFrame:Show()
     mainFrame:SetScript("OnUpdate", OnProximityUpdate)
 
     mainFrame:Show()
+
+    -- Show queue panel docked to our right
+    if ns.ProfessionUI then
+        ns.ProfessionUI:Show()
+    end
 end
 
 function ProfFrame:Hide()
@@ -610,6 +615,9 @@ function ProfFrame:Hide()
     if expansionMenu then expansionMenu:Hide() end
     if mainFrame and mainFrame:IsShown() then
         mainFrame:Hide()
+    end
+    if ns.ProfessionUI then
+        ns.ProfessionUI:Hide()
     end
 end
 

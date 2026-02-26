@@ -1008,7 +1008,10 @@ local function CreateCraftSimPanel(parent)
     f.queueWorkBtn:SetScript("OnClick", function()
         if HasCraftSim() then
             CraftSimLib.CRAFTQ:QueueWorkOrders()
-            C_Timer.After(0.5, function() ProfOrders:RefreshCraftSimQueue() end)
+            -- CraftSim populates queue async — refresh several times to catch it
+            C_Timer.After(0.3, function() ProfOrders:RefreshCraftSimQueue() end)
+            C_Timer.After(0.8, function() ProfOrders:RefreshCraftSimQueue() end)
+            C_Timer.After(1.5, function() ProfOrders:RefreshCraftSimQueue() end)
         end
     end)
 
@@ -1385,11 +1388,26 @@ function ProfOrders:RefreshCraftSimQueue()
     end
 end
 
+local craftSimLastCount = 0
+
 local function ShowCraftSimQueue()
     if not craftSimPanel then return false end
     if HasCraftSim() then
         craftSimPanel:Show()
         ProfOrders:RefreshCraftSimQueue()
+        -- Poll for external queue changes (CraftSim buttons, etc.)
+        craftSimLastCount = #(CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {})
+        craftSimPanel:SetScript("OnUpdate", function(self, elapsed)
+            self._pollElapsed = (self._pollElapsed or 0) + elapsed
+            if self._pollElapsed < 2 then return end
+            self._pollElapsed = 0
+            if not HasCraftSim() then return end
+            local curCount = #(CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {})
+            if curCount ~= craftSimLastCount then
+                craftSimLastCount = curCount
+                ProfOrders:RefreshCraftSimQueue()
+            end
+        end)
         -- Hide CraftSim's own floating CraftQueue window to avoid duplication
         if CraftSimLib.CRAFTQ.frame and CraftSimLib.CRAFTQ.frame.frame then
             CraftSimLib.CRAFTQ.frame.frame:Hide()
@@ -1405,6 +1423,7 @@ end
 
 local function HideCraftSimQueue()
     if craftSimPanel then
+        craftSimPanel:SetScript("OnUpdate", nil)
         craftSimPanel:Hide()
     end
 end

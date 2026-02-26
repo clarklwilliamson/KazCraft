@@ -2568,8 +2568,7 @@ function ProfRecipes:CraftNextInQueue()
         print("|cff00ccffKazCraft|r: Recipe " .. entry.recipeID .. " not cached, skipping.")
         ns.Data:RemoveFromQueue(1)
         self:RefreshQueue()
-        -- Try next
-        C_Timer.After(0.1, function() ProfRecipes:CraftNextInQueue() end)
+        self:CraftNextInQueue()
         return
     end
 
@@ -2601,10 +2600,8 @@ function ProfRecipes:OnQueueCraftComplete()
         return
     end
 
-    -- Small delay before next craft to let UI settle
-    C_Timer.After(0.3, function()
-        ProfRecipes:CraftNextInQueue()
-    end)
+    -- Chain directly from event handler (timers break secure execution path)
+    ProfRecipes:CraftNextInQueue()
 end
 
 --------------------------------------------------------------------

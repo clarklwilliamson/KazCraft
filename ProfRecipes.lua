@@ -1255,9 +1255,22 @@ local function CreateRightPanel(parent)
         row.icon:SetSize(18, 18)
         row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
 
+        -- Invisible overlay for shift-tooltip on reagent icon
+        row.iconBtn = CreateFrame("Button", nil, row)
+        row.iconBtn:SetAllPoints(row.icon)
+        row.iconBtn:SetFrameLevel(row:GetFrameLevel() + 5)
+        row.iconBtn.itemID = nil
+        row.iconBtn:SetScript("OnEnter", function(self)
+            if self.itemID then
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetItemByID(self.itemID)
+                GameTooltip:Show()
+            end
+        end)
+        row.iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
         -- Three editboxes for R1/R2/R3 quantities
         row.edits = {}
-        local tierLabels = { "\226\151\134", "\226\151\134\226\151\134", "\226\151\134\226\151\134\226\151\134" } -- ◆, ◆◆, ◆◆◆
         for t = 1, 3 do
             local eb = CreateFrame("EditBox", nil, row, "BackdropTemplate")
             eb:SetSize(28, 18)
@@ -1315,8 +1328,8 @@ local function CreateRightPanel(parent)
 
     -- ── Sim Result section ──
     detail.simDivider = detail.simFrame:CreateFontString(nil, "OVERLAY")
-    detail.simDivider:SetFont(ns.FONT, 10, "")
-    detail.simDivider:SetText("── Result ──")
+    detail.simDivider:SetFont(ns.FONT, 12, "")
+    detail.simDivider:SetText("RESULT")
     detail.simDivider:SetTextColor(unpack(ns.COLORS.headerText))
 
     detail.simQualityText = detail.simFrame:CreateFontString(nil, "OVERLAY")
@@ -1361,6 +1374,31 @@ local function CreateRightPanel(parent)
             end
             ProfRecipes:RefreshSimResults()
         end
+    end)
+
+    -- Apply button — writes sim allocation back to the real transaction
+    detail.simApplyBtn = ns.CreateButton(detail.simFrame, "Apply", 60, 22)
+    detail.simApplyBtn:SetScript("OnClick", function()
+        ProfRecipes:ApplySimToTransaction()
+    end)
+
+    -- +Queue button — applies sim allocation then queues the recipe
+    detail.simQueueBtn = ns.CreateButton(detail.simFrame, "+Queue", 70, 22)
+    detail.simQueueBtn:SetScript("OnClick", function()
+        if not selectedRecipeID then return end
+        ProfRecipes:ApplySimToTransaction()
+        local qty = tonumber(detail.qtyBox:GetText()) or 1
+        if qty < 1 then qty = 1 end
+        if not KazCraftDB.recipeCache[selectedRecipeID] then
+            ns.Data:CacheSchematic(selectedRecipeID, ns.currentProfName)
+        end
+        ns.Data:AddToQueue(selectedRecipeID, qty)
+        if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
+            ns.ProfessionUI:RefreshAll()
+        end
+        if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
+        local recipeName = KazCraftDB.recipeCache[selectedRecipeID] and KazCraftDB.recipeCache[selectedRecipeID].recipeName or "Recipe"
+        print("|cff00ccffKazCraft|r: Queued " .. qty .. "x " .. recipeName .. " (sim allocation)")
     end)
 
     -- TSM cost / profit (above craft controls)
@@ -2864,11 +2902,12 @@ function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
         row.slotData = slot
         row.slotIndex = qs.slotIndex
 
-        -- Icon from first reagent tier
+        -- Icon from first reagent tier + tooltip itemID
         local firstR = slot.reagents and slot.reagents[1]
         if firstR then
             local _, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(firstR.itemID)
             row.icon:SetTexture(itemIcon or 134400)
+            row.iconBtn.itemID = firstR.itemID
             if not itemIcon then
                 C_Item.RequestLoadItemDataByID(firstR.itemID)
             end
@@ -3003,6 +3042,12 @@ function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
 
     detail.simOptBtn:ClearAllPoints()
     detail.simOptBtn:SetPoint("TOPLEFT", detail.simConcText, "BOTTOMLEFT", 0, -6)
+
+    detail.simApplyBtn:ClearAllPoints()
+    detail.simApplyBtn:SetPoint("LEFT", detail.simOptBtn, "RIGHT", 6, 0)
+
+    detail.simQueueBtn:ClearAllPoints()
+    detail.simQueueBtn:SetPoint("LEFT", detail.simApplyBtn, "RIGHT", 6, 0)
 
     -- Set total height
     local totalH = 6 -- top pad
@@ -3148,6 +3193,71 @@ function ProfRecipes:RefreshSimResults()
             row.totalText:SetText(totalColor .. "= " .. total .. "/" .. needed .. "|r")
         end
     end
+end
+
+--------------------------------------------------------------------
+-- Sim Panel — apply sim allocation to real transaction
+--------------------------------------------------------------------
+function ProfRecipes:ApplySimToTransaction()
+    if not currentTransaction or not currentSchematic then return end
+    if not currentSchematic.reagentSlotSchematics then return end
+
+    local hasProfTemplates = (Professions and Professions.GetReagentInputMode) and true or false
+    if not hasProfTemplates then return end
+
+    -- Apply quality reagent allocations from sim editboxes
+    local rowIdx = 0
+    for slotIndex, slot in ipairs(currentSchematic.reagentSlotSchematics) do
+        if slot.reagentType == Enum.CraftingReagentType.Basic then
+            local inputMode = Professions.GetReagentInputMode(slot)
+            if inputMode == Professions.ReagentInputMode.Quality then
+                rowIdx = rowIdx + 1
+                local row = simReagentRows[rowIdx]
+                if row and row:IsShown() then
+                    currentTransaction:ClearAllocations(slotIndex)
+                    for t = 1, math.min(3, #slot.reagents) do
+                        local qty = tonumber(row.edits[t]:GetText()) or 0
+                        if qty > 0 then
+                            currentTransaction:OverwriteAllocation(slotIndex, slot.reagents[t], qty)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Apply finishing reagent selections from sim dropdowns
+    for i = 1, SIM_FINISHING_SLOTS do
+        local dd = simFinishingDrops[i]
+        if dd:IsShown() and dd.slotData then
+            local sel = dd:GetSelected()
+            -- Find matching slot in schematic
+            for slotIndex, slot in ipairs(currentSchematic.reagentSlotSchematics) do
+                if slot == dd.slotData then
+                    currentTransaction:ClearAllocations(slotIndex)
+                    if sel and sel ~= "None" and dd.optItemIDs then
+                        for idx, opt in ipairs(dd.options) do
+                            if opt == sel and dd.optItemIDs[idx] and dd.optItemIDs[idx] > 0 then
+                                -- Find matching reagent in slot
+                                for _, r in ipairs(slot.reagents) do
+                                    if r.itemID == dd.optItemIDs[idx] then
+                                        currentTransaction:OverwriteAllocation(slotIndex, r, 1)
+                                        break
+                                    end
+                                end
+                                break
+                            end
+                        end
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    -- Refresh detail to show updated allocation
+    ProfRecipes:RefreshDetail()
+    print("|cff00ccffKazCraft|r: Sim allocation applied")
 end
 
 --------------------------------------------------------------------

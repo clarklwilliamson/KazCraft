@@ -36,6 +36,7 @@ local lastSearchCatNode = nil
 -- Detail overlay
 local detailOverlay
 local filterPanel
+local filterBtn
 
 -- Filter state defaults
 local FILTER_DEFAULTS = {
@@ -79,6 +80,7 @@ local function SaveFilterState()
         saved.craftTiers[k] = v
     end
     KazCraftDB.ahFilters = saved
+    UpdateFilterBtnGlow()
 end
 
 local function LoadFilterState()
@@ -126,6 +128,36 @@ local function LoadFilterState()
         for k, v in pairs(FILTER_DEFAULTS.craftTiers) do
             filterState.craftTiers[k] = v
         end
+    end
+end
+
+-- Check if any filter deviates from defaults; glow the Filter button gold
+local function UpdateFilterBtnGlow()
+    if not filterBtn then return end
+    local active = false
+    if filterState.uncollectedOnly or filterState.usableOnly
+       or filterState.currentExpansionOnly or filterState.upgradesOnly then
+        active = true
+    end
+    if not active and filterState.minLevel then active = true end
+    if not active and filterState.maxLevel then active = true end
+    if not active then
+        for k, v in pairs(FILTER_DEFAULTS.qualities) do
+            if filterState.qualities[k] ~= v then active = true; break end
+        end
+    end
+    if not active then
+        for k, v in pairs(FILTER_DEFAULTS.craftTiers) do
+            if filterState.craftTiers[k] ~= v then active = true; break end
+        end
+    end
+    filterBtn._active = active
+    if active then
+        filterBtn.label:SetTextColor(unpack(ns.COLORS.tabActive))
+        filterBtn:SetBackdropBorderColor(unpack(ns.COLORS.tabActive))
+    else
+        filterBtn.label:SetTextColor(unpack(ns.COLORS.btnDefault))
+        filterBtn:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
     end
 end
 
@@ -1094,7 +1126,7 @@ function AHBrowse:Init(contentFrame)
     end)
 
     -- Filter button
-    local filterBtn = ns.CreateButton(container, "Filter", 66, 24)
+    filterBtn = ns.CreateButton(container, "Filter", 66, 24)
     filterBtn:SetPoint("TOPRIGHT", container, "TOPRIGHT", -74, -4)
     filterBtn:SetScript("OnClick", function()
         searchBox:ClearFocus()
@@ -1104,6 +1136,15 @@ function AHBrowse:Init(contentFrame)
             else
                 filterPanel:Show()
             end
+        end
+    end)
+    filterBtn:SetScript("OnLeave", function(self)
+        if self._active then
+            self.label:SetTextColor(unpack(ns.COLORS.tabActive))
+            self:SetBackdropBorderColor(unpack(ns.COLORS.tabActive))
+        else
+            self.label:SetTextColor(unpack(ns.COLORS.btnDefault))
+            self:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
         end
     end)
 
@@ -1127,6 +1168,9 @@ function AHBrowse:Init(contentFrame)
     if filterState.maxLevel then
         filterPanel.maxLevelBox:SetText(tostring(filterState.maxLevel))
     end
+
+    -- Set initial glow state from persisted filters
+    UpdateFilterBtnGlow()
 
     -- Sortable column headers
     local colHeaders = CreateFrame("Frame", nil, container)

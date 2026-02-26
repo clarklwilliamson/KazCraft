@@ -46,6 +46,13 @@ local SLOT_BOX_SIZE = 40
 local SLOT_BOX_SPACING = 6
 local MAX_SPEC_NODE_ROWS = 8
 local SPEC_NODE_ROW_HEIGHT = 20
+local MAX_SIM_REAGENT_ROWS = 8
+local SIM_FINISHING_SLOTS = 3
+
+-- Sim panel state
+local simRecipeData = nil     -- CraftSim.RecipeData for simulation
+local simReagentRows = {}     -- UI rows for quality reagent editing
+local simFinishingDrops = {}  -- Dropdown frames for finishing reagents
 
 --------------------------------------------------------------------
 -- Category tree → flat display list
@@ -1206,6 +1213,156 @@ local function CreateRightPanel(parent)
         detail.specNodeRows[i] = row
     end
 
+    -- ── SIM Panel ──
+    detail.simFrame = CreateFrame("Frame", nil, detailFrame, "BackdropTemplate")
+    detail.simFrame:SetPoint("LEFT", detailFrame, "LEFT", 8, 0)
+    detail.simFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+    detail.simFrame:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeSize = 1,
+    })
+    detail.simFrame:SetBackdropColor(22/255, 22/255, 22/255, 0.95)
+    detail.simFrame:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+    detail.simFrame:Hide()
+
+    detail.simHeader = detail.simFrame:CreateFontString(nil, "OVERLAY")
+    detail.simHeader:SetFont(ns.FONT, 12, "")
+    detail.simHeader:SetText("SIM")
+    detail.simHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    detail.simHeader:SetPoint("TOPLEFT", detail.simFrame, "TOPLEFT", 8, -6)
+
+    -- Reagent quality label
+    detail.simReagentLabel = detail.simFrame:CreateFontString(nil, "OVERLAY")
+    detail.simReagentLabel:SetFont(ns.FONT, 11, "")
+    detail.simReagentLabel:SetText("Reagent Quality:")
+    detail.simReagentLabel:SetTextColor(unpack(ns.COLORS.mutedText))
+    detail.simReagentLabel:SetPoint("TOPLEFT", detail.simHeader, "BOTTOMLEFT", 0, -6)
+
+    -- Container for reagent rows
+    detail.simReagentFrame = CreateFrame("Frame", nil, detail.simFrame)
+    detail.simReagentFrame:SetPoint("TOPLEFT", detail.simReagentLabel, "BOTTOMLEFT", 0, -4)
+    detail.simReagentFrame:SetPoint("RIGHT", detail.simFrame, "RIGHT", -8, 0)
+    detail.simReagentFrame:SetHeight(MAX_SIM_REAGENT_ROWS * 24)
+
+    for i = 1, MAX_SIM_REAGENT_ROWS do
+        local row = CreateFrame("Frame", nil, detail.simReagentFrame)
+        row:SetHeight(22)
+        row:SetPoint("TOPLEFT", detail.simReagentFrame, "TOPLEFT", 0, -(i - 1) * 24)
+        row:SetPoint("RIGHT", detail.simReagentFrame, "RIGHT", 0, 0)
+
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(18, 18)
+        row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+
+        -- Three editboxes for R1/R2/R3 quantities
+        row.edits = {}
+        local tierLabels = { "\226\151\134", "\226\151\134\226\151\134", "\226\151\134\226\151\134\226\151\134" } -- ◆, ◆◆, ◆◆◆
+        for t = 1, 3 do
+            local eb = CreateFrame("EditBox", nil, row, "BackdropTemplate")
+            eb:SetSize(28, 18)
+            if t == 1 then
+                eb:SetPoint("LEFT", row.icon, "RIGHT", 8, 0)
+            else
+                eb:SetPoint("LEFT", row.edits[t - 1], "RIGHT", 4, 0)
+            end
+            eb:SetBackdrop({
+                bgFile = "Interface\\BUTTONS\\WHITE8X8",
+                edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+                edgeSize = 1,
+            })
+            eb:SetBackdropColor(unpack(ns.COLORS.searchBg))
+            local tierColors = { {1,1,1}, {0.3,1,0.3}, {0.3,0.6,1} }
+            eb:SetBackdropBorderColor(tierColors[t][1], tierColors[t][2], tierColors[t][3], 0.5)
+            eb:SetFont(ns.FONT, 11, "")
+            eb:SetTextColor(unpack(ns.COLORS.brightText))
+            eb:SetJustifyH("CENTER")
+            eb:SetAutoFocus(false)
+            eb:SetNumeric(true)
+            eb:SetMaxLetters(3)
+            eb:SetText("0")
+            eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+            eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+            eb:SetScript("OnEditFocusLost", function() ProfRecipes:RefreshSimResults() end)
+            row.edits[t] = eb
+        end
+
+        -- Total label
+        row.totalText = row:CreateFontString(nil, "OVERLAY")
+        row.totalText:SetFont(ns.FONT, 11, "")
+        row.totalText:SetPoint("LEFT", row.edits[3], "RIGHT", 6, 0)
+        row.totalText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+        row:Hide()
+        simReagentRows[i] = row
+    end
+
+    -- Finishing reagent label
+    detail.simFinishingLabel = detail.simFrame:CreateFontString(nil, "OVERLAY")
+    detail.simFinishingLabel:SetFont(ns.FONT, 11, "")
+    detail.simFinishingLabel:SetText("Finishing:")
+    detail.simFinishingLabel:SetTextColor(unpack(ns.COLORS.mutedText))
+    detail.simFinishingLabel:Hide()
+
+    -- Finishing dropdowns
+    for i = 1, SIM_FINISHING_SLOTS do
+        local dd = KazGUI:CreateDropdown(detail.simFrame, 140, {"None"}, "None", function()
+            ProfRecipes:RefreshSimResults()
+        end)
+        dd:Hide()
+        simFinishingDrops[i] = dd
+    end
+
+    -- ── Sim Result section ──
+    detail.simDivider = detail.simFrame:CreateFontString(nil, "OVERLAY")
+    detail.simDivider:SetFont(ns.FONT, 10, "")
+    detail.simDivider:SetText("── Result ──")
+    detail.simDivider:SetTextColor(unpack(ns.COLORS.headerText))
+
+    detail.simQualityText = detail.simFrame:CreateFontString(nil, "OVERLAY")
+    detail.simQualityText:SetFont(ns.FONT, 12, "")
+    detail.simQualityText:SetTextColor(unpack(ns.COLORS.brightText))
+
+    detail.simSkillText = detail.simFrame:CreateFontString(nil, "OVERLAY")
+    detail.simSkillText:SetFont(ns.FONT, 12, "")
+    detail.simSkillText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    detail.simProfitText = detail.simFrame:CreateFontString(nil, "OVERLAY")
+    detail.simProfitText:SetFont(ns.FONT, 12, "")
+
+    detail.simConcText = detail.simFrame:CreateFontString(nil, "OVERLAY")
+    detail.simConcText:SetFont(ns.FONT, 12, "")
+    detail.simConcText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    -- Optimize button
+    detail.simOptBtn = ns.CreateButton(detail.simFrame, "Optimize", 70, 22)
+    detail.simOptBtn:SetScript("OnClick", function()
+        if not simRecipeData or not CraftSimLib then return end
+        local ok, result = pcall(function()
+            return CraftSimLib.REAGENT_OPTIMIZATION:OptimizeReagentAllocation(simRecipeData)
+        end)
+        if ok and result and result.reagents then
+            -- Apply optimal allocation to our editboxes
+            local rowIdx = 0
+            for _, reagent in pairs(result.reagents) do
+                if reagent.hasQuality then
+                    rowIdx = rowIdx + 1
+                    local row = simReagentRows[rowIdx]
+                    if row and row:IsShown() then
+                        for t = 1, 3 do
+                            local qty = 0
+                            if reagent.items and reagent.items[t] then
+                                qty = reagent.items[t].quantity or 0
+                            end
+                            row.edits[t]:SetText(tostring(qty))
+                        end
+                    end
+                end
+            end
+            ProfRecipes:RefreshSimResults()
+        end
+    end)
+
     -- TSM cost / profit (above craft controls)
     detail.tsmCostLabel = rightPanel:CreateFontString(nil, "OVERLAY")
     detail.tsmCostLabel:SetFont(ns.FONT, 12, "")
@@ -1606,6 +1763,8 @@ function ProfRecipes:RefreshDetail()
         detail.tsmProfitValue:Hide()
         detail.controlFrame:Hide()
         detail.favBtn:Hide()
+        detail.simFrame:Hide()
+        simRecipeData = nil
         return
     end
 
@@ -2526,6 +2685,9 @@ function ProfRecipes:RefreshDetail()
         end
     end
 
+    -- ── SIM Panel ──
+    ProfRecipes:RefreshSimPanel(schematic, lastAnchor)
+
     -- TSM cost / profit (via KazCraft's standalone reader or TSM_API fallback)
     local hasTSM = ns.TSMData and ns.TSMData:IsAvailable()
     if hasTSM and schematic then
@@ -2630,6 +2792,363 @@ function ProfRecipes:RefreshDetail()
 
 end
 
+--------------------------------------------------------------------
+-- Sim Panel — populate UI & create CraftSim RecipeData
+--------------------------------------------------------------------
+function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
+    if not CraftSimLib or not schematic or not selectedRecipeID then
+        detail.simFrame:Hide()
+        simRecipeData = nil
+        return
+    end
+
+    -- Determine if recipe has quality reagents or finishing reagent slots
+    local qualitySlots = {}
+    local finishSlots = {}
+    if schematic.reagentSlotSchematics then
+        local hasProfTemplates = (Professions and Professions.GetReagentInputMode) and true or false
+        for slotIndex, slot in ipairs(schematic.reagentSlotSchematics) do
+            if slot.reagentType == Enum.CraftingReagentType.Basic and hasProfTemplates then
+                local inputMode = Professions.GetReagentInputMode(slot)
+                if inputMode == Professions.ReagentInputMode.Quality then
+                    table.insert(qualitySlots, { slotIndex = slotIndex, slot = slot })
+                end
+            elseif slot.reagentType == Enum.CraftingReagentType.Finishing then
+                table.insert(finishSlots, { slotIndex = slotIndex, slot = slot })
+            end
+        end
+    end
+
+    if #qualitySlots == 0 and #finishSlots == 0 then
+        detail.simFrame:Hide()
+        simRecipeData = nil
+        return
+    end
+
+    -- Create/refresh CraftSim RecipeData for simulation
+    local isNewRecipe = not simRecipeData or simRecipeData.recipeID ~= selectedRecipeID
+    if isNewRecipe then
+        local ok, rd = pcall(function()
+            return CraftSimLib.RecipeData({ recipeID = selectedRecipeID })
+        end)
+        if ok and rd then
+            simRecipeData = rd
+        else
+            detail.simFrame:Hide()
+            simRecipeData = nil
+            return
+        end
+    end
+
+    -- Anchor sim panel below detailAnchor (which is the last detail element)
+    detail.simFrame:ClearAllPoints()
+    detail.simFrame:SetPoint("TOPLEFT", detailAnchor, "BOTTOMLEFT", -8, -10)
+    detail.simFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+
+    -- Populate quality reagent rows
+    local reagentRowCount = math.min(#qualitySlots, MAX_SIM_REAGENT_ROWS)
+    local showReagents = reagentRowCount > 0
+
+    if showReagents then
+        detail.simReagentLabel:Show()
+        detail.simReagentFrame:Show()
+    else
+        detail.simReagentLabel:Hide()
+        detail.simReagentFrame:Hide()
+    end
+
+    for i = 1, reagentRowCount do
+        local qs = qualitySlots[i]
+        local slot = qs.slot
+        local row = simReagentRows[i]
+        row.slotData = slot
+        row.slotIndex = qs.slotIndex
+
+        -- Icon from first reagent tier
+        local firstR = slot.reagents and slot.reagents[1]
+        if firstR then
+            local _, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(firstR.itemID)
+            row.icon:SetTexture(itemIcon or 134400)
+            if not itemIcon then
+                C_Item.RequestLoadItemDataByID(firstR.itemID)
+            end
+        end
+
+        -- Pre-populate from current transaction allocation (only on recipe change)
+        local needed = slot.quantityRequired or 0
+        for t = 1, 3 do
+            if isNewRecipe then
+                local allocated = 0
+                if currentTransaction and slot.reagents[t] then
+                    local allocs = currentTransaction:GetAllocations(qs.slotIndex)
+                    if allocs and type(allocs.GetQuantityAllocated) == "function" then
+                        allocated = allocs:GetQuantityAllocated(slot.reagents[t])
+                    end
+                end
+                row.edits[t]:SetText(tostring(allocated))
+            end
+            -- Hide T3 edit if only 2 tiers exist
+            if t > #slot.reagents then
+                row.edits[t]:Hide()
+            else
+                row.edits[t]:Show()
+            end
+        end
+
+        local total = 0
+        for t = 1, math.min(3, #slot.reagents) do
+            total = total + (tonumber(row.edits[t]:GetText()) or 0)
+        end
+        local totalColor = (total == needed) and "|cff4dff4d" or "|cffff4d4d"
+        row.totalText:SetText(totalColor .. "= " .. total .. "/" .. needed .. "|r")
+        row:Show()
+    end
+    for i = reagentRowCount + 1, MAX_SIM_REAGENT_ROWS do
+        simReagentRows[i]:Hide()
+    end
+    detail.simReagentFrame:SetHeight(math.max(1, reagentRowCount * 24))
+
+    -- Finishing reagent dropdowns
+    local showFinishing = #finishSlots > 0
+    if showFinishing then
+        detail.simFinishingLabel:ClearAllPoints()
+        if showReagents then
+            detail.simFinishingLabel:SetPoint("TOPLEFT", detail.simReagentFrame, "BOTTOMLEFT", 0, -6)
+        else
+            detail.simFinishingLabel:SetPoint("TOPLEFT", detail.simHeader, "BOTTOMLEFT", 0, -6)
+        end
+        detail.simFinishingLabel:Show()
+
+        for i = 1, math.min(#finishSlots, SIM_FINISHING_SLOTS) do
+            local fs = finishSlots[i]
+            local dd = simFinishingDrops[i]
+            dd.slotData = fs.slot
+
+            -- Build options list from slot reagents
+            local opts = { "None" }
+            local optItemIDs = { 0 }
+            for _, r in ipairs(fs.slot.reagents) do
+                local itemName = C_Item.GetItemInfo(r.itemID)
+                if not itemName then
+                    C_Item.RequestLoadItemDataByID(r.itemID)
+                    itemName = "Item:" .. r.itemID
+                end
+                table.insert(opts, itemName)
+                table.insert(optItemIDs, r.itemID)
+            end
+            dd:SetOptions(opts)
+            dd.optItemIDs = optItemIDs
+
+            -- Set default from current transaction (only on recipe change)
+            if isNewRecipe then
+                local currentName = "None"
+                if currentTransaction then
+                    local allocs = currentTransaction:GetAllocations(fs.slotIndex)
+                    if allocs then
+                        for _, r in ipairs(fs.slot.reagents) do
+                            if allocs.GetQuantityAllocated and allocs:GetQuantityAllocated(r) > 0 then
+                                local rName = C_Item.GetItemInfo(r.itemID)
+                                if rName then currentName = rName end
+                                break
+                            end
+                        end
+                    end
+                end
+                dd:SetSelected(currentName)
+            end
+
+            dd:ClearAllPoints()
+            if i == 1 then
+                dd:SetPoint("TOPLEFT", detail.simFinishingLabel, "BOTTOMLEFT", 0, -4)
+            else
+                dd:SetPoint("LEFT", simFinishingDrops[i - 1], "RIGHT", 6, 0)
+            end
+            dd:Show()
+        end
+        for i = #finishSlots + 1, SIM_FINISHING_SLOTS do
+            simFinishingDrops[i]:Hide()
+        end
+    else
+        detail.simFinishingLabel:Hide()
+        for i = 1, SIM_FINISHING_SLOTS do
+            simFinishingDrops[i]:Hide()
+        end
+    end
+
+    -- Result section anchoring
+    local resultAnchor
+    if showFinishing then
+        resultAnchor = simFinishingDrops[1]
+    elseif showReagents then
+        resultAnchor = detail.simReagentFrame
+    else
+        resultAnchor = detail.simHeader
+    end
+
+    detail.simDivider:ClearAllPoints()
+    detail.simDivider:SetPoint("TOPLEFT", resultAnchor, "BOTTOMLEFT", 0, -8)
+    detail.simDivider:SetPoint("RIGHT", detail.simFrame, "RIGHT", -8, 0)
+
+    detail.simQualityText:ClearAllPoints()
+    detail.simQualityText:SetPoint("TOPLEFT", detail.simDivider, "BOTTOMLEFT", 0, -4)
+
+    detail.simSkillText:ClearAllPoints()
+    detail.simSkillText:SetPoint("TOPLEFT", detail.simQualityText, "BOTTOMLEFT", 0, -2)
+
+    detail.simProfitText:ClearAllPoints()
+    detail.simProfitText:SetPoint("TOPLEFT", detail.simSkillText, "BOTTOMLEFT", 0, -2)
+
+    detail.simConcText:ClearAllPoints()
+    detail.simConcText:SetPoint("TOPLEFT", detail.simProfitText, "BOTTOMLEFT", 0, -2)
+
+    detail.simOptBtn:ClearAllPoints()
+    detail.simOptBtn:SetPoint("TOPLEFT", detail.simConcText, "BOTTOMLEFT", 0, -6)
+
+    -- Set total height
+    local totalH = 6 -- top pad
+    totalH = totalH + 14 -- header
+    totalH = totalH + 6 -- gap
+    if showReagents then
+        totalH = totalH + 12 + (reagentRowCount * 24) + 6 -- label + rows + gap
+    end
+    if showFinishing then
+        totalH = totalH + 12 + 4 + 24 + 6 -- label + gap + dropdown + gap
+    end
+    totalH = totalH + 12 + 4 + 14 + 2 + 14 + 2 + 14 + 2 + 14 + 6 + 22 + 8 -- result section
+    detail.simFrame:SetHeight(totalH)
+
+    detail.simFrame:Show()
+
+    -- Run initial sim calculation
+    ProfRecipes:RefreshSimResults()
+end
+
+--------------------------------------------------------------------
+-- Sim Panel — recalculate results from current editbox values
+--------------------------------------------------------------------
+function ProfRecipes:RefreshSimResults()
+    if not simRecipeData or not CraftSimLib then return end
+
+    -- Build reagent list from editboxes
+    local reagentList = {}
+    for i = 1, MAX_SIM_REAGENT_ROWS do
+        local row = simReagentRows[i]
+        if not row:IsShown() then break end
+        local slot = row.slotData
+        if slot and slot.reagents then
+            for t = 1, math.min(3, #slot.reagents) do
+                local qty = tonumber(row.edits[t]:GetText()) or 0
+                if qty > 0 and slot.reagents[t] then
+                    table.insert(reagentList, {
+                        itemID = slot.reagents[t].itemID,
+                        quantity = qty,
+                    })
+                end
+            end
+        end
+    end
+
+    -- Apply reagents to sim RecipeData
+    local ok = pcall(function()
+        simRecipeData:SetReagents(reagentList)
+    end)
+    if not ok then return end
+
+    -- Apply finishing reagents from dropdowns
+    local finishingIDs = {}
+    for i = 1, SIM_FINISHING_SLOTS do
+        local dd = simFinishingDrops[i]
+        if dd:IsShown() and dd.optItemIDs then
+            local sel = dd:GetSelected()
+            if sel and sel ~= "None" then
+                -- Find matching itemID
+                for idx, opt in ipairs(dd.options) do
+                    if opt == sel and dd.optItemIDs[idx] and dd.optItemIDs[idx] > 0 then
+                        table.insert(finishingIDs, dd.optItemIDs[idx])
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    if #finishingIDs > 0 then
+        pcall(function() simRecipeData:SetOptionalReagents(finishingIDs) end)
+    end
+
+    -- Update (SetOptionalReagents calls Update internally, but SetReagents does not)
+    pcall(function() simRecipeData:Update() end)
+
+    -- Get quality from Blizzard API with sim reagent allocation
+    local reagentInfoTbl = {}
+    pcall(function()
+        reagentInfoTbl = simRecipeData.reagentData:GetCraftingReagentInfoTbl()
+    end)
+    local applyConc = detail.concCheck:GetChecked() and true or false
+    local opInfo = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, reagentInfoTbl, nil, applyConc)
+
+    -- Quality display
+    if opInfo and opInfo.craftingQualityID and opInfo.craftingQualityID > 0 then
+        local qTier = opInfo.craftingQuality or 0
+        local maxTier = opInfo.maxCraftingQuality or 5
+        local pips = ""
+        for j = 1, maxTier do
+            if j <= qTier then
+                pips = pips .. "|A:Professions-Icon-Quality-Tier" .. j .. "-Small:0:0|a"
+            else
+                pips = pips .. "|cff666666*|r"
+            end
+        end
+        detail.simQualityText:SetText("Quality: " .. pips)
+    else
+        detail.simQualityText:SetText("Quality: —")
+    end
+
+    -- Skill display
+    if opInfo and opInfo.baseSkill and opInfo.baseDifficulty then
+        local totalSkill = (opInfo.baseSkill or 0) + (opInfo.bonusSkill or 0)
+        detail.simSkillText:SetText("Skill: " .. totalSkill .. " / " .. opInfo.baseDifficulty)
+    else
+        detail.simSkillText:SetText("Skill: —")
+    end
+
+    -- Profit via CraftSim
+    local profit = simRecipeData.averageProfitCached
+    if profit then
+        local absProfit = math.abs(profit)
+        if profit >= 0 then
+            detail.simProfitText:SetText("Profit: |cff4dff4d" .. ns.FormatGold(absProfit) .. "|r")
+        else
+            detail.simProfitText:SetText("Loss: |cffff4d4d" .. ns.FormatGold(absProfit) .. "|r")
+        end
+    else
+        detail.simProfitText:SetText("Profit: —")
+        detail.simProfitText:SetTextColor(unpack(ns.COLORS.mutedText))
+    end
+
+    -- Concentration cost
+    if opInfo and opInfo.concentrationCost and opInfo.concentrationCost > 0 then
+        detail.simConcText:SetText("Conc: " .. opInfo.concentrationCost)
+    else
+        detail.simConcText:SetText("Conc: —")
+    end
+
+    -- Update reagent row totals (validate)
+    for i = 1, MAX_SIM_REAGENT_ROWS do
+        local row = simReagentRows[i]
+        if not row:IsShown() then break end
+        local slot = row.slotData
+        if slot then
+            local needed = slot.quantityRequired or 0
+            local total = 0
+            for t = 1, math.min(3, #slot.reagents) do
+                total = total + (tonumber(row.edits[t]:GetText()) or 0)
+            end
+            local totalColor = (total == needed) and "|cff4dff4d" or "|cffff4d4d"
+            row.totalText:SetText(totalColor .. "= " .. total .. "/" .. needed .. "|r")
+        end
+    end
+end
 
 --------------------------------------------------------------------
 -- Init / Show / Hide / Refresh (tab interface)
@@ -2678,6 +3197,7 @@ function ProfRecipes:Hide()
     currentTransaction = nil
     currentSchematic = nil
     lastTransactionRecipeID = nil
+    simRecipeData = nil
 end
 
 function ProfRecipes:IsShown()

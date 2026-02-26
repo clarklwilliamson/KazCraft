@@ -516,10 +516,10 @@ local function CreateDetailPanel(parent)
     content.icon:SetSize(DETAIL_ICON_SIZE, DETAIL_ICON_SIZE)
     content.icon:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
 
-    -- Quality stars next to icon
-    content.qualityStars = content:CreateFontString(nil, "OVERLAY")
+    -- Quality pip (overlaid on icon, upper-left)
+    content.qualityStars = content:CreateFontString(nil, "OVERLAY", nil, 7)
     content.qualityStars:SetFont(ns.FONT, 14, "")
-    content.qualityStars:SetPoint("LEFT", content.icon, "RIGHT", 8, 8)
+    content.qualityStars:SetPoint("TOPLEFT", content.icon, "TOPLEFT", -2, 2)
     content.qualityStars:SetTextColor(unpack(ns.COLORS.brightText))
 
     -- Item name
@@ -1787,13 +1787,9 @@ function ProfOrders:RefreshDetail()
     -- Name
     content.nameText:SetText(GetItemName(order.itemID))
 
-    -- Quality stars
+    -- Quality pip (minimum required tier)
     if order.minQuality and order.minQuality > 0 then
-        local stars = ""
-        for i = 1, order.minQuality do
-            stars = stars .. "|A:Professions-Icon-Quality-Tier" .. i .. "-Small:0:0|a"
-        end
-        content.qualityStars:SetText(stars)
+        content.qualityStars:SetText("|A:Professions-Icon-Quality-Tier" .. order.minQuality .. "-Small:0:0|a")
         content.qualityStars:Show()
     else
         content.qualityStars:Hide()

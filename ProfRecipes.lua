@@ -423,7 +423,7 @@ local function UpdateRecipeRow(row, entry, index)
         end
 
         -- Quality pip — show achievable tier for recipes with quality
-        local hasQuality = info and info.qualityIlvlBonuses and #info.qualityIlvlBonuses > 0
+        local hasQuality = info and (info.supportsQualities or (info.qualityIlvlBonuses and #info.qualityIlvlBonuses > 0))
         if hasQuality and ProfessionsUtil and Professions then
             local tempSchematic = ProfessionsUtil.GetRecipeSchematic(entry.recipeID, false)
             local tempTxn = CreateProfessionsRecipeTransaction(tempSchematic)

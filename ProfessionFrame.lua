@@ -783,19 +783,13 @@ function ProfFrame:EnsureBlizzardSwitchButton()
     if ProfessionsFrame._kazButton then return end
 
     local btn = ns.CreateButton(ProfessionsFrame, "KazCraft", 70, 22)
-    btn:SetPoint("BOTTOMRIGHT", ProfessionsFrame, "BOTTOMRIGHT", -100, 6)
+    btn:SetPoint("TOPRIGHT", ProfessionsFrame, "TOPRIGHT", -100, -1)
     btn:SetFrameStrata("DIALOG")
     btn:SetFrameLevel(500)
     btn:SetScript("OnClick", function()
-        switchingToKazCraft = true
-        -- Hide Blizzard frame (its OnHide calls CloseTradeSkill → TRADE_SKILL_CLOSE)
-        HideUIPanel(ProfessionsFrame)
-        switchingToKazCraft = false
-        -- Re-open the trade skill so APIs work, then show KazCraft
-        local profID = ns.currentProfInfo and ns.currentProfInfo.professionID
-        if profID then
-            C_TradeSkillUI.OpenTradeSkill(profID)
-        end
+        -- Dev mode: don't hide Blizzard frame (CraftSim windows depend on it)
+        -- Just show KazCraft on top
+        ProfFrame:Show()
     end)
     ProfessionsFrame._kazButton = btn
 end

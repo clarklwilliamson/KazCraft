@@ -791,15 +791,28 @@ end
 --------------------------------------------------------------------
 -- CraftSim integration panel
 --------------------------------------------------------------------
-local CRAFTSIM_PANEL_HEIGHT = 160
+local CRAFTSIM_PANEL_HEIGHT = 240
 local craftSimPanel
 local craftSimQueueRows = {}
-local CRAFTSIM_VISIBLE_ROWS = 4
-local CRAFTSIM_ROW_HEIGHT = 20
+local CRAFTSIM_VISIBLE_ROWS = 6
+local CRAFTSIM_ROW_HEIGHT = 22
 local craftSimScrollOffset = 0
 
+-- Column layout: {key, label, width, justifyH}
+local CRAFTSIM_COLUMNS = {
+    { key = "crafter",  label = "Crafter",       width = 55,  justifyH = "LEFT" },
+    { key = "recipe",   label = "Recipe",        width = 0,   justifyH = "LEFT" },   -- flex
+    { key = "result",   label = "Result",        width = 35,  justifyH = "CENTER" },
+    { key = "profit",   label = "Ø Profit",      width = 90,  justifyH = "RIGHT" },
+    { key = "cost",     label = "Craft Cost",    width = 85,  justifyH = "RIGHT" },
+    { key = "tools",    label = "Tools",         width = 30,  justifyH = "CENTER" },
+    { key = "max",      label = "Max",           width = 30,  justifyH = "CENTER" },
+    { key = "queued",   label = "Qty",           width = 30,  justifyH = "CENTER" },
+    { key = "status",   label = "Status",        width = 50,  justifyH = "CENTER" },
+}
+
 local function HasCraftSim()
-    return CraftSim and CraftSim.CRAFTQ and CraftSim.CRAFTQ.craftQueue
+    return CraftSimLib and CraftSimLib.CRAFTQ and CraftSimLib.CRAFTQ.craftQueue
 end
 
 local function CreateCraftSimPanel(parent)
@@ -819,56 +832,133 @@ local function CreateCraftSimPanel(parent)
     header:SetText("CRAFT QUEUE")
     header:SetTextColor(unpack(ns.COLORS.headerText))
 
-    -- Profit summary (right of header)
+    -- Summary text (right of header)
     f.profitText = f:CreateFontString(nil, "OVERLAY")
     f.profitText:SetFont(ns.FONT, 10, "")
     f.profitText:SetPoint("TOPRIGHT", f, "TOPRIGHT", -8, -6)
     f.profitText:SetTextColor(unpack(ns.COLORS.mutedText))
 
-    -- Queue list area
+    -- Column headers row
+    local headerRow = CreateFrame("Frame", nil, f)
+    headerRow:SetHeight(16)
+    headerRow:SetPoint("TOPLEFT", f, "TOPLEFT", 4, -20)
+    headerRow:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -20)
+    f.headerRow = headerRow
+
+    -- Header separator
+    local headerSep = f:CreateTexture(nil, "ARTWORK")
+    headerSep:SetHeight(1)
+    headerSep:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -1)
+    headerSep:SetPoint("TOPRIGHT", headerRow, "BOTTOMRIGHT", 0, -1)
+    headerSep:SetColorTexture(unpack(ns.COLORS.rowDivider))
+
+    -- Build column header labels
+    -- Fixed columns anchor from left and right; recipe column is flex
+    local fixedLeft = 4   -- padding
+    local fixedRight = 4
+    -- Calculate flex width: we'll position columns absolutely
+    -- Left-anchored: crafter
+    -- Then recipe (flex)
+    -- Then right-anchored columns from right edge: status, queued, max, tools, cost, profit, result
+    f.colHeaders = {}
+    for _, col in ipairs(CRAFTSIM_COLUMNS) do
+        local lbl = headerRow:CreateFontString(nil, "OVERLAY")
+        lbl:SetFont(ns.FONT, 9, "")
+        lbl:SetText(col.label)
+        lbl:SetTextColor(unpack(ns.COLORS.mutedText))
+        lbl:SetJustifyH(col.justifyH)
+        f.colHeaders[col.key] = lbl
+    end
+
+    -- Queue list area (below header row + separator)
     local listArea = CreateFrame("Frame", nil, f)
-    listArea:SetPoint("TOPLEFT", f, "TOPLEFT", 4, -22)
-    listArea:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -22)
+    listArea:SetPoint("TOPLEFT", headerRow, "BOTTOMLEFT", 0, -2)
+    listArea:SetPoint("TOPRIGHT", headerRow, "BOTTOMRIGHT", 0, -2)
     listArea:SetHeight(CRAFTSIM_VISIBLE_ROWS * CRAFTSIM_ROW_HEIGHT)
     f.listArea = listArea
 
-    -- Pre-create queue rows
+    -- Pre-create queue rows with all columns
     for i = 1, CRAFTSIM_VISIBLE_ROWS do
         local row = CreateFrame("Frame", nil, listArea)
         row:SetHeight(CRAFTSIM_ROW_HEIGHT)
         row:SetPoint("TOPLEFT", listArea, "TOPLEFT", 0, -(i - 1) * CRAFTSIM_ROW_HEIGHT)
         row:SetPoint("TOPRIGHT", listArea, "TOPRIGHT", 0, -(i - 1) * CRAFTSIM_ROW_HEIGHT)
 
-        row.icon = row:CreateTexture(nil, "ARTWORK")
-        row.icon:SetSize(16, 16)
-        row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
+        -- Alternating row bg
+        row.bg = row:CreateTexture(nil, "BACKGROUND")
+        row.bg:SetAllPoints()
+        if i % 2 == 0 then
+            row.bg:SetColorTexture(1, 1, 1, 0.03)
+        else
+            row.bg:SetColorTexture(0, 0, 0, 0)
+        end
 
-        row.nameText = row:CreateFontString(nil, "OVERLAY")
-        row.nameText:SetFont(ns.FONT, 10, "")
-        row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
-        row.nameText:SetWidth(200)
-        row.nameText:SetJustifyH("LEFT")
-        row.nameText:SetWordWrap(false)
-        row.nameText:SetTextColor(unpack(ns.COLORS.brightText))
+        -- Crafter text
+        row.crafterText = row:CreateFontString(nil, "OVERLAY")
+        row.crafterText:SetFont(ns.FONT, 9, "")
+        row.crafterText:SetJustifyH("LEFT")
+        row.crafterText:SetWordWrap(false)
 
+        -- Recipe icon + text
+        row.recipeIcon = row:CreateTexture(nil, "ARTWORK")
+        row.recipeIcon:SetSize(16, 16)
+
+        row.recipeText = row:CreateFontString(nil, "OVERLAY")
+        row.recipeText:SetFont(ns.FONT, 9, "")
+        row.recipeText:SetJustifyH("LEFT")
+        row.recipeText:SetWordWrap(false)
+        row.recipeText:SetTextColor(unpack(ns.COLORS.brightText))
+
+        -- Result icon
+        row.resultIcon = row:CreateTexture(nil, "ARTWORK")
+        row.resultIcon:SetSize(16, 16)
+
+        -- Ø Profit text
         row.profitText = row:CreateFontString(nil, "OVERLAY")
-        row.profitText:SetFont(ns.FONT, 10, "")
-        row.profitText:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        row.profitText:SetFont(ns.FONT, 9, "")
         row.profitText:SetJustifyH("RIGHT")
 
+        -- Crafting Cost text
+        row.costText = row:CreateFontString(nil, "OVERLAY")
+        row.costText:SetFont(ns.FONT, 9, "")
+        row.costText:SetJustifyH("RIGHT")
+
+        -- Tools (checkmark/X)
+        row.toolsText = row:CreateFontString(nil, "OVERLAY")
+        row.toolsText:SetFont(ns.FONT, 9, "")
+        row.toolsText:SetJustifyH("CENTER")
+
+        -- Max
+        row.maxText = row:CreateFontString(nil, "OVERLAY")
+        row.maxText:SetFont(ns.FONT, 9, "")
+        row.maxText:SetJustifyH("CENTER")
+
+        -- Queued
+        row.queuedText = row:CreateFontString(nil, "OVERLAY")
+        row.queuedText:SetFont(ns.FONT, 9, "")
+        row.queuedText:SetJustifyH("CENTER")
+        row.queuedText:SetTextColor(unpack(ns.COLORS.brightText))
+
+        -- Status
         row.statusText = row:CreateFontString(nil, "OVERLAY")
-        row.statusText:SetFont(ns.FONT, 10, "")
-        row.statusText:SetPoint("RIGHT", row.profitText, "LEFT", -8, 0)
+        row.statusText:SetFont(ns.FONT, 9, "")
+        row.statusText:SetJustifyH("CENTER")
 
         row:Hide()
         craftSimQueueRows[i] = row
     end
 
+    -- Position columns after listArea exists (deferred to OnShow so width is known)
+    f:SetScript("OnShow", function(self)
+        self:SetScript("OnShow", nil) -- one-time layout
+        ProfOrders:LayoutCraftSimColumns()
+    end)
+
     -- Mouse wheel scroll on list
     listArea:EnableMouseWheel(true)
     listArea:SetScript("OnMouseWheel", function(_, delta)
         if not HasCraftSim() then return end
-        local items = CraftSim.CRAFTQ.craftQueue.craftQueueItems or {}
+        local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
         local maxOff = math.max(0, #items - CRAFTSIM_VISIBLE_ROWS)
         craftSimScrollOffset = math.max(0, math.min(maxOff, craftSimScrollOffset - delta))
         ProfOrders:RefreshCraftSimQueue()
@@ -892,7 +982,7 @@ local function CreateCraftSimPanel(parent)
     f.queueWorkBtn:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6, btnY)
     f.queueWorkBtn:SetScript("OnClick", function()
         if HasCraftSim() then
-            CraftSim.CRAFTQ:QueueWorkOrders()
+            CraftSimLib.CRAFTQ:QueueWorkOrders()
             C_Timer.After(0.5, function() ProfOrders:RefreshCraftSimQueue() end)
         end
     end)
@@ -902,7 +992,7 @@ local function CreateCraftSimPanel(parent)
     f.shopListBtn:SetPoint("LEFT", f.queueWorkBtn, "RIGHT", btnGap, 0)
     f.shopListBtn:SetScript("OnClick", function()
         if HasCraftSim() then
-            CraftSim.CRAFTQ:CreateAuctionatorShoppingList()
+            CraftSimLib.CRAFTQ:CreateAuctionatorShoppingList()
         end
     end)
 
@@ -911,7 +1001,7 @@ local function CreateCraftSimPanel(parent)
     f.clearBtn:SetPoint("LEFT", f.shopListBtn, "RIGHT", btnGap, 0)
     f.clearBtn:SetScript("OnClick", function()
         if HasCraftSim() then
-            CraftSim.CRAFTQ:ClearAll()
+            CraftSimLib.CRAFTQ:ClearAll()
             C_Timer.After(0.2, function() ProfOrders:RefreshCraftSimQueue() end)
         end
     end)
@@ -921,34 +1011,57 @@ local function CreateCraftSimPanel(parent)
     f.nextClaimBtn:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -6, btnY)
     f.nextClaimBtn:SetScript("OnClick", function()
         if not HasCraftSim() then return end
-        -- Find first actionable queue item and execute its action
-        local items = CraftSim.CRAFTQ.craftQueue.craftQueueItems or {}
-        for _, item in ipairs(items) do
-            if item.allowedToCraft or item.canCraftOnce then
-                local rd = item.recipeData
-                if rd and rd.orderData then
-                    local orderID = rd.orderData.orderID
-                    local profession = GetProfessionEnum()
-                    if profession then
-                        -- Check order state
-                        local claimed = C_CraftingOrders.GetClaimedOrder and C_CraftingOrders.GetClaimedOrder()
-                        if claimed and claimed.orderID == orderID then
-                            if claimed.isFulfillable then
-                                pcall(C_CraftingOrders.FulfillOrder, orderID, "", profession)
-                            else
-                                pcall(rd.Craft, rd, 1)
-                            end
-                        else
-                            pcall(C_CraftingOrders.ClaimOrder, orderID, profession)
-                        end
+        local profession = GetProfessionEnum()
+        if not profession then return end
+
+        -- First: check if there's already a claimed order we can act on directly
+        local claimed = C_CraftingOrders.GetClaimedOrder and C_CraftingOrders.GetClaimedOrder()
+        if claimed then
+            if claimed.isFulfillable then
+                -- Fulfill it and remove matching queue item
+                pcall(C_CraftingOrders.FulfillOrder, claimed.orderID, "", profession)
+                -- Find and remove from CraftSim queue
+                local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
+                for _, item in ipairs(items) do
+                    local rd = item.recipeData
+                    if rd and rd.orderData and rd.orderData.orderID == claimed.orderID then
+                        pcall(CraftSimLib.CRAFTQ.craftQueue.Remove, CraftSimLib.CRAFTQ.craftQueue, item)
+                        break
+                    end
+                end
+                -- Recalculate remaining items
+                if CraftSimLib.CRAFTQ.UI and CraftSimLib.CRAFTQ.UI.UpdateDisplay then
+                    pcall(CraftSimLib.CRAFTQ.UI.UpdateDisplay, CraftSimLib.CRAFTQ.UI)
+                end
+                C_Timer.After(1, function() ProfOrders:RefreshCraftSimQueue() end)
+                return
+            else
+                -- Claimed but not fulfillable — craft it
+                local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
+                for _, item in ipairs(items) do
+                    local rd = item.recipeData
+                    if rd and rd.orderData and rd.orderData.orderID == claimed.orderID then
+                        pcall(rd.Craft, rd, 1)
                         C_Timer.After(1, function() ProfOrders:RefreshCraftSimQueue() end)
                         return
                     end
-                elseif rd then
-                    pcall(rd.Craft, rd, item.amount or 1)
-                    C_Timer.After(1, function() ProfOrders:RefreshCraftSimQueue() end)
-                    return
                 end
+            end
+        end
+
+        -- No claimed order — find next queue item to claim
+        local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
+        for _, item in ipairs(items) do
+            local rd = item.recipeData
+            if rd and rd.orderData then
+                pcall(C_CraftingOrders.ClaimOrder, rd.orderData.orderID, profession)
+                C_Timer.After(1, function() ProfOrders:RefreshCraftSimQueue() end)
+                return
+            elseif rd and (item.allowedToCraft or item.canCraftOnce) then
+                -- Non-order craft
+                pcall(rd.Craft, rd, item.amount or 1)
+                C_Timer.After(1, function() ProfOrders:RefreshCraftSimQueue() end)
+                return
             end
         end
     end)
@@ -966,6 +1079,97 @@ local function CreateCraftSimPanel(parent)
 end
 
 --------------------------------------------------------------------
+-- Column layout (called once after panel has width)
+--------------------------------------------------------------------
+function ProfOrders:LayoutCraftSimColumns()
+    if not craftSimPanel then return end
+    local panelWidth = craftSimPanel:GetWidth() - 8 -- 4px padding each side
+
+    -- Calculate fixed column total and recipe flex width
+    local fixedTotal = 0
+    for _, col in ipairs(CRAFTSIM_COLUMNS) do
+        if col.width > 0 then fixedTotal = fixedTotal + col.width end
+    end
+    local recipeWidth = math.max(80, panelWidth - fixedTotal - 20) -- 20 for recipe icon
+
+    -- Position header labels and row cells
+    -- Build absolute X offsets from left edge
+    local xOffsets = {}
+    local x = 4
+    for _, col in ipairs(CRAFTSIM_COLUMNS) do
+        xOffsets[col.key] = x
+        if col.key == "recipe" then
+            x = x + recipeWidth + 20 -- +20 for icon
+        else
+            x = x + col.width
+        end
+    end
+
+    -- Position column headers
+    for _, col in ipairs(CRAFTSIM_COLUMNS) do
+        local lbl = craftSimPanel.colHeaders[col.key]
+        lbl:ClearAllPoints()
+        local colW = col.width > 0 and col.width or recipeWidth
+        if col.key == "recipe" then
+            lbl:SetPoint("LEFT", craftSimPanel.headerRow, "LEFT", xOffsets[col.key] + 20, 0) -- after icon space
+            lbl:SetWidth(recipeWidth)
+        else
+            lbl:SetPoint("LEFT", craftSimPanel.headerRow, "LEFT", xOffsets[col.key], 0)
+            lbl:SetWidth(colW)
+        end
+    end
+
+    -- Position row cells
+    for _, row in ipairs(craftSimQueueRows) do
+        -- Crafter
+        row.crafterText:ClearAllPoints()
+        row.crafterText:SetPoint("LEFT", row, "LEFT", xOffsets.crafter, 0)
+        row.crafterText:SetWidth(CRAFTSIM_COLUMNS[1].width)
+
+        -- Recipe icon + text
+        row.recipeIcon:ClearAllPoints()
+        row.recipeIcon:SetPoint("LEFT", row, "LEFT", xOffsets.recipe, 0)
+        row.recipeText:ClearAllPoints()
+        row.recipeText:SetPoint("LEFT", row.recipeIcon, "RIGHT", 3, 0)
+        row.recipeText:SetWidth(recipeWidth - 4)
+
+        -- Result icon
+        row.resultIcon:ClearAllPoints()
+        row.resultIcon:SetPoint("LEFT", row, "LEFT", xOffsets.result + 8, 0)
+
+        -- Profit
+        row.profitText:ClearAllPoints()
+        row.profitText:SetPoint("LEFT", row, "LEFT", xOffsets.profit, 0)
+        row.profitText:SetWidth(CRAFTSIM_COLUMNS[4].width)
+
+        -- Cost
+        row.costText:ClearAllPoints()
+        row.costText:SetPoint("LEFT", row, "LEFT", xOffsets.cost, 0)
+        row.costText:SetWidth(CRAFTSIM_COLUMNS[5].width)
+
+        -- Tools
+        row.toolsText:ClearAllPoints()
+        row.toolsText:SetPoint("LEFT", row, "LEFT", xOffsets.tools, 0)
+        row.toolsText:SetWidth(CRAFTSIM_COLUMNS[6].width)
+
+        -- Max
+        row.maxText:ClearAllPoints()
+        row.maxText:SetPoint("LEFT", row, "LEFT", xOffsets.max, 0)
+        row.maxText:SetWidth(CRAFTSIM_COLUMNS[7].width)
+
+        -- Queued
+        row.queuedText:ClearAllPoints()
+        row.queuedText:SetPoint("LEFT", row, "LEFT", xOffsets.queued, 0)
+        row.queuedText:SetWidth(CRAFTSIM_COLUMNS[8].width)
+
+        -- Status
+        row.statusText:ClearAllPoints()
+        row.statusText:SetPoint("LEFT", row, "LEFT", xOffsets.status, 0)
+        row.statusText:SetWidth(CRAFTSIM_COLUMNS[9].width)
+    end
+end
+
+--------------------------------------------------------------------
 -- CraftSim queue refresh + show/hide
 --------------------------------------------------------------------
 function ProfOrders:RefreshCraftSimQueue()
@@ -978,8 +1182,15 @@ function ProfOrders:RefreshCraftSimQueue()
     end
     craftSimPanel.noCraftSimText:Hide()
 
-    local items = CraftSim.CRAFTQ.craftQueue.craftQueueItems or {}
+    -- Re-layout columns if not done yet (panel may not have had width on first show)
+    if not craftSimPanel._laidOut then
+        self:LayoutCraftSimColumns()
+        craftSimPanel._laidOut = true
+    end
+
+    local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
     local totalProfit = 0
+    local totalCost = 0
     local totalItems = #items
 
     -- Populate visible rows
@@ -992,43 +1203,119 @@ function ProfOrders:RefreshCraftSimQueue()
             row:Show()
             local rd = item.recipeData
             if rd then
-                -- Icon
-                if rd.recipeIcon then
-                    row.icon:SetTexture(rd.recipeIcon)
-                    row.icon:Show()
-                else
-                    row.icon:Hide()
-                end
-                -- Name + amount
-                local name = rd.recipeName or "Unknown"
                 local amt = item.amount or 1
-                if amt > 1 then
-                    name = name .. " x" .. amt
-                end
-                row.nameText:SetText(name)
 
-                -- Profit
-                local profit = rd.averageProfitCached or 0
-                if profit >= 0 then
-                    row.profitText:SetText("|cff33cc33+" .. FormatGold(math.floor(profit)) .. "|r")
-                else
-                    row.profitText:SetText("|cffcc3333" .. FormatGold(math.floor(math.abs(profit))) .. "|r")
+                -- Crafter (class-colored)
+                local crafterName = ""
+                if rd.crafterData then
+                    crafterName = rd.crafterData.name or ""
+                    local dash = crafterName:find("-")
+                    if dash then crafterName = crafterName:sub(1, dash - 1) end
+                    -- Class color
+                    if rd.crafterData.class then
+                        local cc = C_ClassColor.GetClassColor(rd.crafterData.class)
+                        if cc then
+                            crafterName = cc:WrapTextInColorCode(crafterName)
+                        end
+                    end
                 end
+                row.crafterText:SetText(crafterName)
+
+                -- Recipe icon + name
+                if rd.recipeIcon then
+                    row.recipeIcon:SetTexture(rd.recipeIcon)
+                    row.recipeIcon:Show()
+                else
+                    row.recipeIcon:Hide()
+                end
+                local recipeName = rd.recipeName or "Unknown"
+                -- Add order type indicator
+                if rd.orderData then
+                    recipeName = recipeName .. " |cff44aaff★ NPC|r"
+                end
+                row.recipeText:SetText(recipeName)
+
+                -- Result icon
+                local resultShown = false
+                if rd.resultData and rd.resultData.expectedItem then
+                    local ok, icon = pcall(function() return rd.resultData.expectedItem:GetItemIcon() end)
+                    if ok and icon then
+                        row.resultIcon:SetTexture(icon)
+                        row.resultIcon:Show()
+                        resultShown = true
+                    end
+                end
+                if not resultShown then
+                    row.resultIcon:Hide()
+                end
+
+                -- Ø Profit (per unit * amount)
+                local profit = rd.averageProfitCached or 0
+                local totalItemProfit = profit * amt
+                if profit >= 0 then
+                    row.profitText:SetText("|cff33cc33" .. FormatGold(math.floor(profit)) .. "|r")
+                else
+                    row.profitText:SetText("|cffcc3333-" .. FormatGold(math.floor(math.abs(profit))) .. "|r")
+                end
+                totalProfit = totalProfit + totalItemProfit
+
+                -- Crafting Costs
+                local craftCost = 0
+                if rd.priceData then
+                    if rd.orderData and rd.priceData.craftingCostsNoOrderReagents then
+                        craftCost = rd.priceData.craftingCostsNoOrderReagents
+                    elseif rd.priceData.craftingCosts then
+                        craftCost = rd.priceData.craftingCosts
+                    end
+                end
+                row.costText:SetText(FormatGold(math.floor(craftCost * amt)))
+                row.costText:SetTextColor(unpack(ns.COLORS.mutedText))
+                totalCost = totalCost + (craftCost * amt)
+
+                -- Tools
+                if item.gearEquipped then
+                    row.toolsText:SetText("|cff33cc33✓|r")
+                else
+                    row.toolsText:SetText("|cffcc3333✗|r")
+                end
+
+                -- Max
+                local maxCraftable = item.craftAbleAmount or 0
+                if maxCraftable > 0 then
+                    row.maxText:SetText("|cff33cc33" .. maxCraftable .. "|r")
+                else
+                    row.maxText:SetText("|cffcc33330|r")
+                end
+
+                -- Queued
+                row.queuedText:SetText(tostring(amt))
 
                 -- Status
                 if item.allowedToCraft or item.canCraftOnce then
-                    row.statusText:SetText("|cff33cc33Ready|r")
+                    if rd.orderData then
+                        row.statusText:SetText("|cff33cc33Claim|r")
+                    else
+                        row.statusText:SetText("|cff33cc33Ready|r")
+                    end
                 elseif not item.gearEquipped then
                     row.statusText:SetText("|cffcc3333Gear|r")
+                elseif not item.learned then
+                    row.statusText:SetText("|cffcc3333Learn|r")
+                elseif not item.isCrafter then
+                    row.statusText:SetText("|cffffff44Alt|r")
                 else
                     row.statusText:SetText("|cffffff44Wait|r")
                 end
-
-                totalProfit = totalProfit + (profit * (item.amount or 1))
             else
-                row.icon:Hide()
-                row.nameText:SetText("?")
+                row.crafterText:SetText("")
+                row.recipeIcon:Hide()
+                row.recipeText:SetText("?")
+                row.resultIcon:Hide()
                 row.profitText:SetText("")
+                row.costText:SetText("")
+                row.toolsText:SetText("")
+                row.maxText:SetText("")
+                row.queuedText:SetText("")
                 row.statusText:SetText("")
             end
         else
@@ -1036,43 +1323,40 @@ function ProfOrders:RefreshCraftSimQueue()
         end
     end
 
-    -- Profit summary
+    -- Summary line
     if totalItems > 0 then
+        local profitStr
         if totalProfit >= 0 then
-            craftSimPanel.profitText:SetText(totalItems .. " items | |cff33cc33+" .. FormatGold(math.floor(totalProfit)) .. "|r")
+            profitStr = "|cff33cc33Ø " .. FormatGold(math.floor(totalProfit)) .. "|r"
         else
-            craftSimPanel.profitText:SetText(totalItems .. " items | |cffcc3333" .. FormatGold(math.floor(math.abs(totalProfit))) .. "|r")
+            profitStr = "|cffcc3333Ø -" .. FormatGold(math.floor(math.abs(totalProfit))) .. "|r"
         end
+        craftSimPanel.profitText:SetText(totalItems .. " items | " .. profitStr .. " | Cost: " .. FormatGold(math.floor(totalCost)))
     else
         craftSimPanel.profitText:SetText("Queue empty")
     end
 
-    -- Update Next button label based on first actionable item
+    -- Update Next button label — check claimed order first, then queue items
     local nextBtn = craftSimPanel.nextClaimBtn
-    local found = false
-    for _, item in ipairs(items) do
-        if item.allowedToCraft or item.canCraftOnce then
-            local rd = item.recipeData
-            if rd and rd.orderData then
-                local claimed = C_CraftingOrders.GetClaimedOrder and C_CraftingOrders.GetClaimedOrder()
-                if claimed and claimed.orderID == rd.orderData.orderID then
-                    if claimed.isFulfillable then
-                        nextBtn.label:SetText("Next: Fulfill")
-                    else
-                        nextBtn.label:SetText("Next: Craft")
-                    end
-                else
-                    nextBtn.label:SetText("Next: Claim")
-                end
-            else
-                nextBtn.label:SetText("Next: Craft")
-            end
-            found = true
-            break
+    local claimed = C_CraftingOrders.GetClaimedOrder and C_CraftingOrders.GetClaimedOrder()
+    if claimed then
+        if claimed.isFulfillable then
+            nextBtn.label:SetText("Complete")
+        else
+            nextBtn.label:SetText("Craft")
         end
-    end
-    if not found then
-        nextBtn.label:SetText("Next: --")
+    elseif totalItems > 0 then
+        -- No claimed order but queue has items — next action is claim
+        local hasOrder = false
+        for _, item in ipairs(items) do
+            if item.recipeData and item.recipeData.orderData then
+                hasOrder = true
+                break
+            end
+        end
+        nextBtn.label:SetText(hasOrder and "Claim" or "Craft")
+    else
+        nextBtn.label:SetText("--")
     end
 end
 
@@ -1082,8 +1366,8 @@ local function ShowCraftSimQueue()
         craftSimPanel:Show()
         ProfOrders:RefreshCraftSimQueue()
         -- Hide CraftSim's own floating CraftQueue window to avoid duplication
-        if CraftSim.CRAFTQ.frame and CraftSim.CRAFTQ.frame.frame then
-            CraftSim.CRAFTQ.frame.frame:Hide()
+        if CraftSimLib.CRAFTQ.frame and CraftSimLib.CRAFTQ.frame.frame then
+            CraftSimLib.CRAFTQ.frame.frame:Hide()
         end
         return true
     else
@@ -1791,6 +2075,8 @@ function ProfOrders:OnEvent(event, ...)
                 end
             end
         end
+        -- Refresh CraftSim queue (status may have changed)
+        self:RefreshCraftSimQueue()
 
     elseif event == "CRAFTINGORDERS_RELEASE_ORDER_RESPONSE" then
         local result, orderID = ...
@@ -1818,6 +2104,8 @@ function ProfOrders:OnEvent(event, ...)
             claimedOrder = nil
             self:ClearDetail()
             self:RequestOrders(true)
+            -- Refresh CraftSim queue (item should already be removed by our button handler)
+            C_Timer.After(0.3, function() self:RefreshCraftSimQueue() end)
         else
             print("|cffc8aa64KazCraft:|r Fulfill failed (code " .. tostring(result) .. ")")
         end

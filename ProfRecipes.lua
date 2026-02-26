@@ -1177,17 +1177,15 @@ local function CreateRightPanel(parent)
     detail.specStatsText:Hide()
 
     detail.specNodeFrame = CreateFrame("Frame", nil, detailFrame)
-    detail.specNodeFrame:SetHeight(MAX_SPEC_NODE_ROWS * SPEC_NODE_ROW_HEIGHT)
-    detail.specNodeFrame:SetPoint("LEFT", detailFrame, "LEFT", 8, 0)
-    detail.specNodeFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+    detail.specNodeFrame:SetSize(200, MAX_SPEC_NODE_ROWS * SPEC_NODE_ROW_HEIGHT)
     detail.specNodeFrame:Hide()
 
     detail.specNodeRows = {}
     for i = 1, MAX_SPEC_NODE_ROWS do
         local row = CreateFrame("Frame", nil, detail.specNodeFrame)
         row:SetHeight(SPEC_NODE_ROW_HEIGHT)
-        row:SetPoint("TOPLEFT", detail.specNodeFrame, "TOPLEFT", 0, -(i - 1) * SPEC_NODE_ROW_HEIGHT)
         row:SetPoint("TOPRIGHT", detail.specNodeFrame, "TOPRIGHT", 0, -(i - 1) * SPEC_NODE_ROW_HEIGHT)
+        row:SetWidth(200)
 
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(16, 16)
@@ -2432,14 +2430,15 @@ function ProfRecipes:RefreshDetail()
         end
 
         detail.specHeader:ClearAllPoints()
-        detail.specHeader:SetPoint("TOPLEFT", lastAnchor, "BOTTOMLEFT", 0, -8)
+        detail.specHeader:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -8, -8)
         detail.specHeader:Show()
 
         if #statsLines > 0 then
-            detail.specStatsText:SetText(table.concat(statsLines, "  "))
+            detail.specStatsText:SetText(table.concat(statsLines, "\n"))
             detail.specStatsText:ClearAllPoints()
-            detail.specStatsText:SetPoint("TOPLEFT", detail.specHeader, "BOTTOMLEFT", 0, -4)
-            detail.specStatsText:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+            detail.specStatsText:SetPoint("TOPRIGHT", detail.specHeader, "BOTTOMRIGHT", 0, -4)
+            detail.specStatsText:SetJustifyH("RIGHT")
+            detail.specStatsText:SetWidth(200)
             detail.specStatsText:Show()
         else
             detail.specStatsText:Hide()
@@ -2505,12 +2504,10 @@ function ProfRecipes:RefreshDetail()
 
         detail.specNodeFrame:ClearAllPoints()
         local nodeAnchor = detail.specStatsText:IsShown() and detail.specStatsText or detail.specHeader
-        detail.specNodeFrame:SetPoint("TOPLEFT", nodeAnchor, "BOTTOMLEFT", 0, -4)
-        detail.specNodeFrame:SetPoint("RIGHT", detailFrame, "RIGHT", -8, 0)
+        detail.specNodeFrame:SetPoint("TOPRIGHT", nodeAnchor, "BOTTOMRIGHT", 0, -4)
+        detail.specNodeFrame:SetWidth(200)
         detail.specNodeFrame:SetHeight(math.max(1, nodeCount * SPEC_NODE_ROW_HEIGHT))
         detail.specNodeFrame:Show()
-
-        lastAnchor = detail.specNodeFrame
     else
         detail.specHeader:Hide()
         detail.specStatsText:Hide()

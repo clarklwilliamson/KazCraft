@@ -1295,6 +1295,8 @@ end
 --------------------------------------------------------------------
 function AHBrowse:Show()
     if not container then return end
+    selectedCatNode = nil
+    RebuildSidebar()
     container:Show()
 end
 

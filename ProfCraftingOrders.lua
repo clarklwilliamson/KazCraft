@@ -67,6 +67,7 @@ local scrollOffset = 0
 local expectMoreRows = false
 local currentOffset = 0         -- pagination offset for server requests
 local isLoading = false
+local pendingInitialRequest = false
 local primarySort = { sortType = Enum.CraftingOrderSortType.ItemName, reversed = false }
 local secondarySort = { sortType = Enum.CraftingOrderSortType.Tip, reversed = true }
 local searchText = ""
@@ -1491,10 +1492,25 @@ function ProfOrders:Show()
     local available = IsAtCraftingTable()
     if available then
         unavailableOverlay:Hide()
+        -- Tell server we want crafting order data (Blizzard does this on show)
+        if C_CraftingOrders.OpenCrafterCraftingOrders then
+            pcall(C_CraftingOrders.OpenCrafterCraftingOrders)
+        end
         -- Refresh
         activeOrderType = Enum.CraftingOrderType.Npc
         UpdateOrderTypeTabHighlights()
-        self:RequestOrders(true)  -- force: user opened tab
+        -- Defer request until CRAFTINGORDERS_CAN_REQUEST fires
+        pendingInitialRequest = true
+        isLoading = true
+        leftPanel.loadingText:Show()
+        leftPanel.emptyText:Hide()
+        -- Fallback: if CAN_REQUEST already fired or doesn't come, request after 1s
+        C_Timer.After(1, function()
+            if pendingInitialRequest then
+                pendingInitialRequest = false
+                self:RequestOrders(true)
+            end
+        end)
         self:UpdateClaimCapacity()
     else
         unavailableOverlay:Show()
@@ -2217,8 +2233,9 @@ function ProfOrders:OnEvent(event, ...)
         -- User can switch tabs to refresh
 
     elseif event == "CRAFTINGORDERS_CAN_REQUEST" then
-        -- Server throttle lifted — only request if we have a pending request
-        if isLoading then
+        -- Server says we can request — fire initial or pending request
+        if pendingInitialRequest or isLoading then
+            pendingInitialRequest = false
             self:RequestOrders(true)
         end
 

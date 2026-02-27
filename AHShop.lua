@@ -226,7 +226,11 @@ function AHShop:Init(contentFrame)
     end
 
     tabBar = ns.CreateTabBar(container, BuildTabs(), function(key)
-        activeFilter = (key == "all") and nil or key
+        if key == "all" then
+            activeFilter = nil
+        else
+            activeFilter = key
+        end
         AHShop:Refresh()
     end)
     tabBar:ClearAllPoints()
@@ -428,6 +432,7 @@ end
 --------------------------------------------------------------------
 function AHShop:Refresh()
     if not container then return end
+
     currentMats = ns.Data:GetMaterialList(activeFilter)
 
     -- Apply tracked purchases (GetItemCount may not reflect them yet)
@@ -738,6 +743,11 @@ function AHShop:OnAHOpen()
     scanActive = false
     scanIdx = 0
     wipe(scanQueue)
+
+    -- Clean up phantom "all" queue key from prior bug
+    if KazCraftDB.queues and KazCraftDB.queues["all"] then
+        KazCraftDB.queues["all"] = nil
+    end
 end
 
 

@@ -72,15 +72,25 @@ local treeBoxLines = {}     -- boxIdx → {line textures}
 -- If present, boxes use these positions instead of left-to-right flow.
 --------------------------------------------------------------------
 local SAVED_BOX_LAYOUT = {
-    -- Engineering (3 trees, single row)
+    -- Engineering TWW (3 trees, single row)
     [100765] = { x = 0, y = 0 },
     [100791] = { x = 365, y = 0 },
     [100843] = { x = 530, y = 0 },
-    -- Enchanting (4 trees, 2x2 grid — top row: 99890+100008, bottom row: 100040+99940)
+    -- Engineering Midnight (4 trees — Market Mobility+Combat Analytics+Recycling+Bits and Bots)
+    [106719] = { x = 0, y = 0 },
+    [109141] = { x = -345, y = -5 },
+    [106755] = { x = -330, y = -260 },
+    [106789] = { x = 0, y = -235 },
+    -- Enchanting TWW (4 trees, 2x2 grid — top row: 99890+100008, bottom row: 100040+99940)
     [99890] = { x = 5, y = 0 },
     [100008] = { x = 320, y = 0 },
     [100040] = { x = 0, y = 175 },
     [99940] = { x = 325, y = 175 },
+    -- Enchanting Midnight (4 trees — Elevating Equipment+Transitories Tonics and Tools+Disenchanting Delegate+Spellbound Shatterer)
+    [107769] = { x = 0, y = 0 },
+    [107689] = { x = 470, y = 0 },
+    [107649] = { x = 460, y = -260 },
+    [107617] = { x = 120, y = -275 },
     -- Tailoring (4 trees, 2x2 grid — top row: Threads of Devotion+From Dawn Until Dusk, bottom row: Quality Fabric+Textile Treasures)
     [101801] = { x = 0, y = 0 },
     [100306] = { x = 490, y = 0 },
@@ -139,6 +149,32 @@ local SAVED_POSITIONS = {
     [100837] = { x = 105, y = 145 },
     [100836] = { x = 105, y = 60 },
 
+    -- Engineering Midnight: Market Mobility (root 106719)
+    [106719] = { x = 0, y = 0 },
+    [106718] = { x = -26, y = 91 },
+    [106717] = { x = -91, y = 1 },
+    [106716] = { x = -91, y = 91 },
+    [106715] = { x = -91, y = 166 },
+    [106714] = { x = 29, y = 91 },
+    [106713] = { x = 94, y = 166 },
+    [106712] = { x = 94, y = 91 },
+    [106711] = { x = 94, y = 6 },
+    -- Engineering Midnight: Combat Analytics (root 109141)
+    [109141] = { x = 0, y = 0 },
+    [109140] = { x = -60, y = 1 },
+    [109139] = { x = -30, y = 56 },
+    [109138] = { x = 25, y = 56 },
+    [110352] = { x = 60, y = 1 },
+    -- Engineering Midnight: Recycling (root 106755)
+    [106755] = { x = 0, y = 0 },
+    [106754] = { x = -53, y = 1 },
+    [106753] = { x = 2, y = 51 },
+    [106752] = { x = 62, y = 1 },
+    -- Engineering Midnight: Bits and Bots (root 106789)
+    [106789] = { x = 0, y = 0 },
+    [106788] = { x = -66, y = 1 },
+    [106787] = { x = 59, y = 1 },
+
     -- Enchanting: Supplementary Shattering (root 100040)
     [100040] = { x = 0, y = 0 },
     [100039] = { x = -95, y = 75 },
@@ -170,6 +206,38 @@ local SAVED_POSITIONS = {
     [99935] = { x = 105, y = 5 },
     [99934] = { x = 100, y = 110 },
     [99933] = { x = 195, y = 0 },
+
+    -- Enchanting Midnight: Elevating Equipment (root 107769)
+    [107769] = { x = 0, y = 0 },
+    [107768] = { x = -62, y = 86 },
+    [107767] = { x = -122, y = 6 },
+    [107766] = { x = -122, y = 86 },
+    [107765] = { x = -122, y = 176 },
+    [107764] = { x = 3, y = 86 },
+    [107763] = { x = -52, y = 176 },
+    [107762] = { x = 3, y = 176 },
+    [107761] = { x = 63, y = 176 },
+    [107760] = { x = 63, y = 81 },
+    [107759] = { x = 128, y = 176 },
+    [107758] = { x = 123, y = 81 },
+    [107757] = { x = 118, y = 6 },
+    -- Enchanting Midnight: Transitories, Tonics, and Tools (root 107689)
+    [107689] = { x = 0, y = 0 },
+    [107688] = { x = -53, y = 1 },
+    [107687] = { x = 2, y = 56 },
+    [107686] = { x = -53, y = 111 },
+    [107685] = { x = 52, y = 106 },
+    [107684] = { x = 52, y = 1 },
+    -- Enchanting Midnight: Disenchanting Delegate (root 107649)
+    [107649] = { x = 0, y = 0 },
+    [107648] = { x = -53, y = 56 },
+    [107647] = { x = 2, y = 56 },
+    [107646] = { x = 57, y = 56 },
+    -- Enchanting Midnight: Spellbound Shatterer (root 107617)
+    [107617] = { x = 0, y = 0 },
+    [107616] = { x = -53, y = 1 },
+    [107615] = { x = -3, y = 61 },
+    [107614] = { x = 52, y = 1 },
 
     -- Tailoring: Threads of Devotion (root 101801)
     [101801] = { x = 0, y = 0 },

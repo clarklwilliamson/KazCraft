@@ -23,6 +23,9 @@ local rightHeader, rightEmpty
 local activeFilter = nil
 local currentMats = {}
 local livePrices = {}
+local scanQueue = {}        -- { itemID, itemID, ... } pending price lookups
+local scanActive = false    -- true while auto-scan is running
+local scanIdx = 0           -- current position in queue
 local pendingSearchItemID = nil
 local selectedItemID = nil -- currently selected material for right panel
 -- Purchased items tracked in KazCraftDB.shopPurchases (survives /reload)
@@ -525,6 +528,11 @@ function AHShop:Refresh()
             end
         end
     end
+
+    -- Auto-scan material prices when AH is open
+    if ns.AHUI and ns.AHUI:IsAHOpen() then
+        self:StartPriceScan()
+    end
 end
 
 --------------------------------------------------------------------
@@ -653,6 +661,10 @@ function AHShop:OnCommoditySearchResults(eventItemID)
 
     self:RecalcTotal()
 
+    -- Advance auto-scan queue
+    if scanActive then
+        self:ScanNext()
+    end
 end
 
 function AHShop:RecalcTotal()
@@ -662,21 +674,70 @@ function AHShop:RecalcTotal()
         grandTotal = grandTotal + (mat.short * unitPrice)
     end
     if footerTotal then
+        local suffix = ""
+        if scanActive and #scanQueue > 0 then
+            suffix = "  |cff888888(scanning " .. scanIdx .. "/" .. #scanQueue .. "...)|r"
+        end
         if grandTotal > 0 then
-            footerTotal:SetText("Total: " .. ns.FormatGold(grandTotal))
+            footerTotal:SetText("Total: " .. ns.FormatGold(grandTotal) .. suffix)
         else
-            footerTotal:SetText("No materials needed")
+            footerTotal:SetText("No materials needed" .. suffix)
         end
     end
 end
 
+--------------------------------------------------------------------
+-- Auto-scan: queue commodity searches for all missing material prices
+--------------------------------------------------------------------
+function AHShop:StartPriceScan()
+    wipe(scanQueue)
+    scanIdx = 0
+    for _, mat in ipairs(currentMats) do
+        if not livePrices[mat.itemID] then
+            tinsert(scanQueue, mat.itemID)
+        end
+    end
+    if #scanQueue == 0 then
+        scanActive = false
+        return
+    end
+    scanActive = true
+    self:ScanNext()
+end
+
+function AHShop:ScanNext()
+    scanIdx = scanIdx + 1
+    self:ScanCurrent()
+end
+
+function AHShop:ScanCurrent()
+    if scanIdx > #scanQueue then
+        scanActive = false
+        self:RecalcTotal()
+        return
+    end
+    local itemID = scanQueue[scanIdx]
+    if C_AuctionHouse.IsThrottledMessageSystemReady() then
+        local itemKey = C_AuctionHouse.MakeItemKey(itemID)
+        local sorts = {{ sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false }}
+        C_AuctionHouse.SendSearchQuery(itemKey, sorts, true)
+    end
+    -- If throttled, OnThrottleReady calls ScanCurrent (retry same index)
+end
+
 function AHShop:OnThrottleReady()
-    -- Reserved for future use
+    if scanActive then
+        self:ScanCurrent()
+    end
 end
 
 -- Called on AUCTION_HOUSE_SHOW — fresh session, clear purchase tracking
 function AHShop:OnAHOpen()
     KazCraftDB.shopPurchases = {}
+    wipe(livePrices)
+    scanActive = false
+    scanIdx = 0
+    wipe(scanQueue)
 end
 
 

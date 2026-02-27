@@ -213,6 +213,47 @@ local function BuildDisplayList()
         local cats, roots = BuildCategoryTree(recipeIDs, childProfID, nil)
         FlattenTree(cats, roots, displayList, collapses)
     end
+
+    -- Push "Appendix" categories (and their children) below normal recipes
+    -- Post-processes the flat displayList — plucks Appendix entries and re-inserts before Unlearned
+    local sepIdx = nil
+    for i, entry in ipairs(displayList) do
+        if entry.type == "separator" then sepIdx = i; break end
+    end
+
+    local scanEnd = sepIdx and (sepIdx - 1) or #displayList
+    local normal = {}
+    local appendix = {}
+    local tail = {}
+    local inAppendix = false
+    local appendixDepth = 0
+
+    for i = 1, scanEnd do
+        local entry = displayList[i]
+        if entry.type == "category" and entry.name and entry.name:find("^Appendix") then
+            inAppendix = true
+            appendixDepth = entry.depth
+            table.insert(appendix, entry)
+        elseif inAppendix and entry.depth > appendixDepth then
+            table.insert(appendix, entry)
+        else
+            inAppendix = false
+            table.insert(normal, entry)
+        end
+    end
+
+    if sepIdx then
+        for i = sepIdx, #displayList do
+            table.insert(tail, displayList[i])
+        end
+    end
+
+    if #appendix > 0 then
+        wipe(displayList)
+        for _, e in ipairs(normal) do displayList[#displayList + 1] = e end
+        -- Appendix entries hidden — reference-only recipes, never crafted
+        for _, e in ipairs(tail) do displayList[#displayList + 1] = e end
+    end
 end
 
 --------------------------------------------------------------------
@@ -516,8 +557,28 @@ end
 --------------------------------------------------------------------
 -- Scroll handling
 --------------------------------------------------------------------
+local recipeScrollbar, recipeScrollThumb
+
+local function UpdateRecipeScrollbar()
+    if not recipeScrollbar then return end
+    local total = #displayList
+    if total <= MAX_VISIBLE_ROWS then
+        recipeScrollbar:Hide()
+        return
+    end
+    recipeScrollbar:Show()
+    local trackHeight = recipeScrollbar:GetHeight()
+    local thumbRatio = MAX_VISIBLE_ROWS / total
+    local thumbHeight = math.max(20, trackHeight * thumbRatio)
+    recipeScrollThumb:SetHeight(thumbHeight)
+    local maxScroll = total - MAX_VISIBLE_ROWS
+    local scrollPct = (maxScroll > 0) and (scrollOffset / maxScroll) or 0
+    local thumbOffset = scrollPct * (trackHeight - thumbHeight)
+    recipeScrollThumb:SetPoint("TOP", recipeScrollbar, "TOP", 0, -thumbOffset)
+end
+
 local function OnRecipeScroll(self, delta)
-    scrollOffset = math.max(0, math.min(scrollOffset - delta, math.max(0, #displayList - MAX_VISIBLE_ROWS)))
+    scrollOffset = math.max(0, math.min(scrollOffset - delta * 5, math.max(0, #displayList - MAX_VISIBLE_ROWS)))
     ProfRecipes:RefreshRows()
 end
 
@@ -598,6 +659,23 @@ local function CreateLeftPanel(parent)
     recipeContent:SetClipsChildren(true)
     recipeContent:EnableMouseWheel(true)
     recipeContent:SetScript("OnMouseWheel", OnRecipeScroll)
+
+    -- Scrollbar (6px, right edge of recipe list)
+    recipeScrollbar = CreateFrame("Frame", nil, recipeContent)
+    recipeScrollbar:SetWidth(6)
+    recipeScrollbar:SetPoint("TOPRIGHT", recipeContent, "TOPRIGHT", -1, -1)
+    recipeScrollbar:SetPoint("BOTTOMRIGHT", recipeContent, "BOTTOMRIGHT", -1, 1)
+    local scrollTrack = recipeScrollbar:CreateTexture(nil, "BACKGROUND")
+    scrollTrack:SetAllPoints()
+    scrollTrack:SetColorTexture(1, 1, 1, 0.06)
+
+    recipeScrollThumb = CreateFrame("Frame", nil, recipeScrollbar)
+    recipeScrollThumb:SetWidth(6)
+    recipeScrollThumb:SetHeight(40)
+    recipeScrollThumb:SetPoint("TOP", recipeScrollbar, "TOP", 0, 0)
+    local thumbTex = recipeScrollThumb:CreateTexture(nil, "OVERLAY")
+    thumbTex:SetAllPoints()
+    thumbTex:SetColorTexture(unpack(ns.COLORS.scrollThumb or {0.5, 0.45, 0.35, 0.6}))
 
     -- Pre-allocate recipe rows
     for i = 1, MAX_VISIBLE_ROWS do
@@ -1638,6 +1716,7 @@ function ProfRecipes:RefreshRows()
         local entry = displayList[dataIdx]
         UpdateRecipeRow(recipeRows[i], entry, i)
     end
+    UpdateRecipeScrollbar()
 end
 
 --------------------------------------------------------------------
@@ -3334,6 +3413,7 @@ function ProfRecipes:Show()
     end
     leftPanel:Show()
     rightPanel:Show()
+    self:OnResize()  -- recalculate visible rows from actual panel height
     self:RefreshRecipeList(true)
     -- Scroll to selected recipe if possible
     if selectedRecipeID then

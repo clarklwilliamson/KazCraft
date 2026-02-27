@@ -26,6 +26,8 @@ local livePrices = {}
 local scanQueue = {}        -- { itemID, itemID, ... } pending price lookups
 local scanActive = false    -- true while auto-scan is running
 local scanIdx = 0           -- current position in queue
+local scanTimer = nil       -- periodic rescan ticker
+local RESCAN_INTERVAL = 60  -- seconds between automatic rescans
 local pendingSearchItemID = nil
 local selectedItemID = nil -- currently selected material for right panel
 -- Purchased items tracked in KazCraftDB.shopPurchases (survives /reload)
@@ -400,9 +402,19 @@ function AHShop:Show()
             if AHShop:IsShown() then AHShop:Refresh() end
         end)
     end
+
+    -- Periodic rescan — wipe live prices and re-fetch every 60s
+    if scanTimer then scanTimer:Cancel() end
+    scanTimer = C_Timer.NewTicker(RESCAN_INTERVAL, function()
+        if not AHShop:IsShown() then return end
+        if not ns.AHUI or not ns.AHUI:IsAHOpen() then return end
+        wipe(livePrices)
+        AHShop:Refresh()
+    end)
 end
 
 function AHShop:Hide()
+    if scanTimer then scanTimer:Cancel(); scanTimer = nil end
     if container then container:Hide() end
 end
 
@@ -704,9 +716,13 @@ function AHShop:StartPriceScan()
     end
     if #scanQueue == 0 then
         scanActive = false
+        -- DEBUG: remove after verification
+        print("|cffc8aa64Shop:|r Price scan — all " .. #currentMats .. " items already have live prices.")
         return
     end
     scanActive = true
+    -- DEBUG: remove after verification
+    print("|cffc8aa64Shop:|r Price scan started — " .. #scanQueue .. " items to scan...")
     self:ScanNext()
 end
 
@@ -718,6 +734,8 @@ end
 function AHShop:ScanCurrent()
     if scanIdx > #scanQueue then
         scanActive = false
+        -- DEBUG: remove after verification
+        print("|cffc8aa64Shop:|r Price scan complete — " .. #scanQueue .. " items updated.")
         self:RecalcTotal()
         return
     end

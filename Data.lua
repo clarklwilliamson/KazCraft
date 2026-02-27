@@ -275,6 +275,14 @@ function Data:HasCraftSimQueue()
     return items and #items > 0
 end
 
+-- ============================================================================
+-- Cross-Addon API (consumed by KazVendor, etc.)
+-- ============================================================================
+KazCraft_API = {}
+function KazCraft_API.GetMissingMaterials()
+    return ns.Data:GetMaterialList(ns.charKey)
+end
+
 -- Decrement queue after successful craft
 function Data:DecrementQueue(recipeID, charKey)
     charKey = charKey or ns.charKey

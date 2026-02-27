@@ -687,7 +687,7 @@ function AHSell:ScanBags()
     -- Gather auctionable items grouped by classID
     local categories = {}  -- classID → { items }
 
-    for bag = 0, 4 do
+    for bag = 0, 5 do  -- 0-4 = regular bags, 5 = reagent bag
         for slot = 1, C_Container.GetContainerNumSlots(bag) do
             local location = ItemLocation:CreateFromBagAndSlot(bag, slot)
             if C_Item.DoesItemExist(location) then
@@ -1078,7 +1078,7 @@ function AHSell:AcceptCursorItem()
 end
 
 function AHSell:FindItemInBags(targetItemID)
-    for bag = 0, 4 do
+    for bag = 0, 5 do  -- include reagent bag
         for slot = 1, C_Container.GetContainerNumSlots(bag) do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info and info.itemID == targetItemID then

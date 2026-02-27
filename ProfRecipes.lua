@@ -261,12 +261,13 @@ end
 --------------------------------------------------------------------
 local function GetDifficultyColor(info)
     if not info then return DIFFICULTY_COLORS.default end
-    -- difficulty: 0 = trivial, 1 = easy, 2 = medium, 3 = optimal
-    local d = info.difficulty
-    if d == nil or d == 0 then return DIFFICULTY_COLORS.trivial end
-    if d == 1 then return DIFFICULTY_COLORS.easy end
-    if d == 2 then return DIFFICULTY_COLORS.medium end
-    if d == 3 then return DIFFICULTY_COLORS.optimal end
+    if not info.learned then return DIFFICULTY_COLORS.trivial end  -- unlearned = grey
+    local d = info.relativeDifficulty
+    if d == nil then return DIFFICULTY_COLORS.default end
+    if d == Enum.TradeskillRelativeDifficulty.Optimal then return DIFFICULTY_COLORS.optimal end
+    if d == Enum.TradeskillRelativeDifficulty.Medium then return DIFFICULTY_COLORS.medium end
+    if d == Enum.TradeskillRelativeDifficulty.Easy then return DIFFICULTY_COLORS.easy end
+    if d == Enum.TradeskillRelativeDifficulty.Trivial then return DIFFICULTY_COLORS.trivial end
     return DIFFICULTY_COLORS.default
 end
 
@@ -331,6 +332,12 @@ local function CreateRecipeRow(parent, index)
     row.qualityPip:SetSize(14, 14)
     row.qualityPip:Hide()
 
+    -- Skill-up count (to the left of icon)
+    row.skillUpText = row:CreateFontString(nil, "OVERLAY")
+    row.skillUpText:SetFont(ns.FONT, 12, "")
+    row.skillUpText:SetJustifyH("RIGHT")
+    row.skillUpText:Hide()
+
     -- Favorite star
     row.favText = row:CreateFontString(nil, "OVERLAY")
     row.favText:SetFont(ns.FONT, 12, "")
@@ -387,6 +394,7 @@ local function UpdateRecipeRow(row, entry, index)
         row.arrow:Hide()
         row.countText:Hide()
         row.favText:Hide()
+        row.skillUpText:Hide()
         row.qualityPip:Hide()
         row._selected = false
         row.leftAccent:Hide()
@@ -421,6 +429,7 @@ local function UpdateRecipeRow(row, entry, index)
 
         row.countText:SetText("")
         row.favText:Hide()
+        row.skillUpText:Hide()
         row.qualityPip:Hide()
         row._selected = false
         row.leftAccent:Hide()
@@ -454,13 +463,26 @@ local function UpdateRecipeRow(row, entry, index)
         else
             row.countText:Hide()
         end
+
+        -- Skill-up count (to the left of the icon in the indent space)
+        local numSkillUps = info and info.numSkillUps or 0
+        local color = GetDifficultyColor(info)
+        if numSkillUps > 1 then
+            row.skillUpText:ClearAllPoints()
+            row.skillUpText:SetPoint("RIGHT", row.icon, "LEFT", -2, 0)
+            row.skillUpText:SetText(numSkillUps)
+            row.skillUpText:SetTextColor(color[1], color[2], color[3])
+            row.skillUpText:Show()
+        else
+            row.skillUpText:Hide()
+        end
+
         row.nameText:Show()
         row.nameText:ClearAllPoints()
         row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
         row.nameText:SetPoint("RIGHT", row, "RIGHT", -20, 0)
         row.nameText:SetText(recipeName)
         row.nameText:SetFont(ns.FONT, 14, "")
-        local color = GetDifficultyColor(info)
         row.nameText:SetTextColor(color[1], color[2], color[3])
 
         -- Favorite

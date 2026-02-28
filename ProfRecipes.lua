@@ -1588,7 +1588,7 @@ local function CreateRightPanel(parent)
         if not KazCraftDB.recipeCache[selectedRecipeID] then
             ns.Data:CacheSchematic(selectedRecipeID, ns.currentProfName)
         end
-        ns.Data:AddToQueue(selectedRecipeID, qty)
+        ns.Data:QueueWithSubRecipes(selectedRecipeID, qty)
         if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
             ns.ProfessionUI:RefreshAll()
         end
@@ -1749,7 +1749,7 @@ local function CreateRightPanel(parent)
             ns.Data:CacheSchematic(selectedRecipeID, ns.currentProfName)
         end
 
-        ns.Data:AddToQueue(selectedRecipeID, qty)
+        ns.Data:QueueWithSubRecipes(selectedRecipeID, qty)
         if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
             ns.ProfessionUI:RefreshAll()
         end

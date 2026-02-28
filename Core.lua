@@ -368,14 +368,19 @@ SlashCmdList["KAZCRAFT"] = function(msg)
             print("  Total cost: " .. ns.FormatGold(total))
         end
 
+    elseif msg == "gathering" or msg == "gather" or msg == "farm" then
+        ns.Gathering:Toggle()
+
     elseif msg == "help" then
         print("|cffc8aa64KazCraft:|r Commands:")
         print("  /kc — toggle panel")
         print("  /kc list — show queue")
         print("  /kc clear — clear queue")
         print("  /kc shop — print shopping list")
+        print("  /kc gathering — gathering list window")
     else
         print("|cffc8aa64KazCraft:|r Unknown command. /kc help for usage.")
     end
 end
 KAZ_COMMANDS["craft"] = { handler = SlashCmdList["KAZCRAFT"], alias = "/kc", desc = "Profession + AH" }
+KAZ_COMMANDS["gathering"] = { handler = function() ns.Gathering:Toggle() end, alias = "/kc gathering", desc = "Gathering list" }

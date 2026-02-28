@@ -14,6 +14,7 @@ TSMData.lua
 Util.lua
 Data.lua
 Core.lua
+Gathering.lua
 ProfRecipes.lua
 ProfSpecializations.lua
 ProfCraftingOrders.lua

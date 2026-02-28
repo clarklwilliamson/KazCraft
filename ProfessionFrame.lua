@@ -443,9 +443,9 @@ local function CreateMainFrame()
                     slot.icon:SetAlpha(1)
                     -- Quality pip from equipped item
                     local link = GetInventoryItemLink("player", invSlot)
-                    local quality = link and C_TradeSkillUI.GetItemCraftedQualityByItemInfo(link) or nil
-                    if quality and quality > 0 then
-                        slot.qualityPip:SetAtlas("Professions-Icon-Quality-Tier" .. quality .. "-Small", false)
+                    local qualityInfo = link and C_TradeSkillUI.GetItemCraftedQualityInfo(link) or nil
+                    if qualityInfo and qualityInfo.iconSmall then
+                        slot.qualityPip:SetAtlas(qualityInfo.iconSmall, false)
                         slot.qualityPip:Show()
                     else
                         slot.qualityPip:Hide()

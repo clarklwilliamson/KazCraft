@@ -502,8 +502,13 @@ local function UpdateRecipeRow(row, entry, index)
             local opInfo = C_TradeSkillUI.GetCraftingOperationInfo(entry.recipeID, tempReagents, nil, false)
             local qTier = opInfo and opInfo.craftingQuality or 0
             if qTier > 0 then
-                row.qualityPip:SetAtlas("Professions-Icon-Quality-Tier" .. qTier .. "-Small", false)
-                row.qualityPip:Show()
+                local atlas = ns.GetQualityAtlas(qTier, entry.recipeID)
+                if atlas then
+                    row.qualityPip:SetAtlas(atlas, false)
+                    row.qualityPip:Show()
+                else
+                    row.qualityPip:Hide()
+                end
             else
                 row.qualityPip:Hide()
             end
@@ -1492,7 +1497,7 @@ local function CreateRightPanel(parent)
                     end
                 end
             end
-            local pip = "|A:Professions-Icon-Quality-Tier" .. cheapRank .. "-Small:0:0|a"
+            local pip = ns.GetQualityMarkup(cheapRank, selectedRecipeID)
             detail.simStatusText:SetText(pip .. " regardless — save your mats")
             detail.simStatusText:SetTextColor(1, 0.8, 0.2)
             ProfRecipes:RefreshSimResults()
@@ -1525,8 +1530,8 @@ local function CreateRightPanel(parent)
 
         -- Show rank improvement info
         if cheapRank > 0 and bestRank > 0 then
-            local cheapPip = "|A:Professions-Icon-Quality-Tier" .. cheapRank .. "-Small:0:0|a"
-            local bestPip = "|A:Professions-Icon-Quality-Tier" .. bestRank .. "-Small:0:0|a"
+            local cheapPip = ns.GetQualityMarkup(cheapRank, selectedRecipeID)
+            local bestPip = ns.GetQualityMarkup(bestRank, selectedRecipeID)
             detail.simStatusText:SetText("R1 mats " .. cheapPip .. " → best " .. bestPip)
             detail.simStatusText:SetTextColor(0.3, 1, 0.3)
         end
@@ -2625,7 +2630,7 @@ function ProfRecipes:RefreshDetail()
             local pips = ""
             for i = 1, maxTier do
                 if i <= qTier then
-                    pips = pips .. "|A:Professions-Icon-Quality-Tier" .. i .. "-Small:0:0|a"
+                    pips = pips .. ns.GetQualityMarkup(i, selectedRecipeID)
                 else
                     pips = pips .. "|cff666666*|r"
                 end
@@ -2633,7 +2638,8 @@ function ProfRecipes:RefreshDetail()
             detail.qualityText:SetText("Quality: " .. pips)
             -- Pip overlay on output icon
             if qTier > 0 then
-                detail.iconQualityPip:SetAtlas("Professions-Icon-Quality-Tier" .. qTier .. "-Small", false)
+                local atlas = ns.GetQualityAtlas(qTier, selectedRecipeID)
+                if atlas then detail.iconQualityPip:SetAtlas(atlas, false) end
                 detail.iconQualityPip:Show()
             else
                 detail.iconQualityPip:Hide()
@@ -3347,7 +3353,7 @@ function ProfRecipes:RefreshSimResults()
         local pips = ""
         for j = 1, maxTier do
             if j <= qTier then
-                pips = pips .. "|A:Professions-Icon-Quality-Tier" .. j .. "-Small:0:0|a"
+                pips = pips .. ns.GetQualityMarkup(j, selectedRecipeID)
             else
                 pips = pips .. "|cff666666*|r"
             end

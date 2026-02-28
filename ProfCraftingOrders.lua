@@ -1824,7 +1824,7 @@ function ProfOrders:RefreshDetail()
 
     -- Quality pip (minimum required tier)
     if order.minQuality and order.minQuality > 0 then
-        content.qualityStars:SetText("|A:Professions-Icon-Quality-Tier" .. order.minQuality .. "-Small:0:0|a")
+        content.qualityStars:SetText(ns.GetQualityMarkup(order.minQuality, order.spellID))
         content.qualityStars:Show()
     else
         content.qualityStars:Hide()

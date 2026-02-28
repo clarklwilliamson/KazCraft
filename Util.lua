@@ -99,8 +99,12 @@ function ns.GetCraftingQuality(itemID)
     return KazGUI:GetCraftingQuality(itemID)
 end
 
-function ns.GetQualityAtlas(tier)
-    return KazGUI:GetQualityAtlas(tier)
+function ns.GetQualityAtlas(tier, recipeID)
+    return KazGUI:GetQualityAtlas(tier, recipeID)
+end
+
+function ns.GetQualityMarkup(tier, recipeID, size)
+    return KazGUI:GetQualityMarkup(tier, recipeID, size)
 end
 
 function ns.CreateScrollFrame(parent, topOffset, bottomOffset)

@@ -1705,13 +1705,13 @@ local function CreateRightPanel(parent)
         end
     end)
 
-    -- Craft All button (crafts qty from box, same as Craft)
+    -- Craft All button (crafts max craftable quantity)
     detail.craftAllBtn = ns.CreateButton(detail.controlFrame, "Craft All", 70, 24)
     detail.craftAllBtn:SetPoint("LEFT", detail.craftBtn, "RIGHT", 4, 0)
     detail.craftAllBtn:SetScript("OnClick", function()
         if not selectedRecipeID or isCrafting then return end
-        local qty = tonumber(detail.qtyBox:GetText()) or 1
-        if qty < 1 then qty = 1 end
+        local qty = C_TradeSkillUI.GetCraftableCount(selectedRecipeID) or 0
+        if qty < 1 then return end
         local applyConc = detail.concCheck:GetChecked() and true or false
         if currentTransaction then
             currentTransaction:SetApplyConcentration(applyConc)

@@ -584,6 +584,27 @@ local BAG_ICON_GAP = 2
 local CATEGORY_HEADER_HEIGHT = 18
 local CATEGORY_GAP = 6
 
+-- Compact gold format for bag icon overlays (e.g., "164k", "2.3k", "86g", "12s")
+local function CompactGold(copper)
+    if not copper or copper == 0 then return nil end
+    local gold = copper / 10000
+    if gold >= 1000000 then
+        return string.format("%.1fm", gold / 1000000)
+    elseif gold >= 10000 then
+        return string.format("%.0fk", gold / 1000)
+    elseif gold >= 1000 then
+        return string.format("%.1fk", gold / 1000)
+    elseif gold >= 1 then
+        return string.format("%.0fg", gold)
+    else
+        local silver = math.floor(copper / 100)
+        if silver > 0 then
+            return string.format("%ds", silver)
+        end
+        return string.format("%dc", copper)
+    end
+end
+
 -- Category display order (classID → sort priority)
 local CATEGORY_ORDER = {
     [0]  = 1,   -- Consumable
@@ -647,6 +668,14 @@ local function AcquireBagIcon(index)
     btn.qualityBadge:SetPoint("TOPLEFT", 1, -1)
     btn.qualityBadge:Hide()
 
+    -- Price overlay (bottom, gold-colored)
+    btn.priceText = btn:CreateFontString(nil, "OVERLAY")
+    btn.priceText:SetFont(ns.FONT, 9, "OUTLINE")
+    btn.priceText:SetPoint("BOTTOM", 0, 1)
+    btn.priceText:SetJustifyH("CENTER")
+    btn.priceText:SetTextColor(1, 0.82, 0)  -- gold
+    btn.priceText:Hide()
+
     btn:SetScript("OnEnter", function(self)
         if self._itemLink then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -696,7 +725,7 @@ function AHSell:ScanBags()
                 if auctionable then
                     local slotInfo = C_Container.GetContainerItemInfo(bag, slot)
                     if slotInfo then
-                        local itemName, itemLink, quality, _, _, _, _, _, _, texture, _, classID = C_Item.GetItemInfo(slotInfo.itemID)
+                        local itemName, itemLink, quality, _, _, _, _, _, _, texture, sellPrice, classID = C_Item.GetItemInfo(slotInfo.itemID)
                         if itemName and classID then
                             if not categories[classID] then
                                 categories[classID] = {}
@@ -712,6 +741,7 @@ function AHSell:ScanBags()
                                 slot = slot,
                                 classID = classID,
                                 craftQuality = GetCraftingQuality(slotInfo.itemID),
+                                vendorPrice = sellPrice or 0,
                             })
                         end
                     end
@@ -748,6 +778,7 @@ function AHSell:ScanBags()
                     slot = item.slot,
                     classID = item.classID,
                     craftQuality = item.craftQuality,
+                    vendorPrice = item.vendorPrice,
                 }
                 seen[item.itemID] = entry
                 table.insert(merged, entry)
@@ -778,6 +809,31 @@ function AHSell:LayoutBagGrid(sortedCats)
     local headerIdx = 0
     local yOffset = 0
     local totalItems = 0
+    local hasTSM = ns.TSMData and ns.TSMData:IsAvailable()
+
+    -- Build "Profitable" group: items where AH price > vendor price
+    if hasTSM then
+        local profitable = {}
+        for _, cat in ipairs(sortedCats) do
+            for _, item in ipairs(cat.items) do
+                local ahPrice = ns.TSMData:GetPrice(item.itemID, "DBMinBuyout")
+                local vendorTotal = (item.vendorPrice or 0) * item.count
+                if ahPrice and ahPrice > 0 and vendorTotal > 0 and ahPrice > vendorTotal then
+                    table.insert(profitable, item)
+                end
+            end
+        end
+        if #profitable > 0 then
+            table.sort(profitable, function(a, b)
+                local aAH = ns.TSMData:GetPrice(a.itemID, "DBMinBuyout") or 0
+                local bAH = ns.TSMData:GetPrice(b.itemID, "DBMinBuyout") or 0
+                local aProfit = aAH - (a.vendorPrice or 0) * a.count
+                local bProfit = bAH - (b.vendorPrice or 0) * b.count
+                return aProfit > bProfit
+            end)
+            table.insert(sortedCats, 1, { classID = -1, items = profitable, label = "Profitable (AH > Vendor)" })
+        end
+    end
 
     for _, cat in ipairs(sortedCats) do
         if #cat.items > 0 then
@@ -786,8 +842,13 @@ function AHSell:LayoutBagGrid(sortedCats)
             -- Category header
             headerIdx = headerIdx + 1
             local header = AcquireBagHeader(headerIdx)
-            local catName = C_Item.GetItemClassInfo(cat.classID) or ("Class " .. cat.classID)
+            local catName = cat.label or C_Item.GetItemClassInfo(cat.classID) or ("Class " .. cat.classID)
             header:SetText(catName)
+            if cat.classID == -1 then
+                header:SetTextColor(0.3, 0.9, 0.3)  -- green for profitable
+            else
+                header:SetTextColor(160/255, 150/255, 130/255)
+            end
             header:ClearAllPoints()
             header:SetPoint("TOPLEFT", bagContent, "TOPLEFT", 4, -yOffset)
             header:Show()
@@ -839,6 +900,20 @@ function AHSell:LayoutBagGrid(sortedCats)
                     btn.selectBorder:Show()
                 else
                     btn.selectBorder:Hide()
+                end
+
+                -- TSM price overlay
+                if hasTSM then
+                    local price = ns.TSMData:GetPrice(item.itemID, "DBMinBuyout")
+                    local label = CompactGold(price)
+                    if label then
+                        btn.priceText:SetText(label)
+                        btn.priceText:Show()
+                    else
+                        btn.priceText:Hide()
+                    end
+                else
+                    btn.priceText:Hide()
                 end
 
                 -- Position in grid

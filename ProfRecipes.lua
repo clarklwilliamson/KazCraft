@@ -1455,7 +1455,51 @@ local function CreateRightPanel(parent)
     detail.simOptBtn = ns.CreateButton(detail.simFrame, "Optimize", 70, 22)
     detail.simOptBtn:SetScript("OnClick", function()
         if not simRecipeData or not CraftSimLib then return end
+        if not selectedRecipeID or not currentSchematic then return end
 
+        detail.simStatusText:SetText("")
+        local applyConc = detail.concCheck:GetChecked() and true or false
+
+        -- Compare rank with cheapest (all-R1) vs best (all-R3) reagents
+        local cheapRank, bestRank = 0, 0
+        pcall(function()
+            local cheapTxn = CreateProfessionsRecipeTransaction(currentSchematic)
+            Professions.AllocateAllBasicReagents(cheapTxn, false)
+            local cheapReagents = cheapTxn:CreateCraftingReagentInfoTbl() or {}
+            local cheapOp = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, cheapReagents, nil, applyConc)
+            cheapRank = cheapOp and cheapOp.craftingQuality or 0
+
+            local bestTxn = CreateProfessionsRecipeTransaction(currentSchematic)
+            Professions.AllocateAllBasicReagents(bestTxn, true)
+            local bestReagents = bestTxn:CreateCraftingReagentInfoTbl() or {}
+            local bestOp = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, bestReagents, nil, applyConc)
+            bestRank = bestOp and bestOp.craftingQuality or 0
+        end)
+
+        if cheapRank > 0 and cheapRank == bestRank then
+            -- Same rank regardless of mat quality — use cheapest
+            for i = 1, MAX_SIM_REAGENT_ROWS do
+                local row = simReagentRows[i]
+                if not row:IsShown() then break end
+                local slot = row.slotData
+                if slot then
+                    local needed = slot.quantityRequired or 0
+                    row.edits[1]:SetText(tostring(needed))
+                    for t = 2, 3 do
+                        if row.edits[t]:IsShown() then
+                            row.edits[t]:SetText("0")
+                        end
+                    end
+                end
+            end
+            local pip = "|A:Professions-Icon-Quality-Tier" .. cheapRank .. "-Small:0:0|a"
+            detail.simStatusText:SetText(pip .. " regardless — save your mats")
+            detail.simStatusText:SetTextColor(1, 0.8, 0.2)
+            ProfRecipes:RefreshSimResults()
+            return
+        end
+
+        -- Ranks differ — CraftSim optimization is useful
         -- Phase 1: Optimize quality reagent tiers (synchronous)
         local ok, result = pcall(function()
             return CraftSimLib.REAGENT_OPTIMIZATION:OptimizeReagentAllocation(simRecipeData)
@@ -1477,6 +1521,14 @@ local function CreateRightPanel(parent)
                     end
                 end
             end
+        end
+
+        -- Show rank improvement info
+        if cheapRank > 0 and bestRank > 0 then
+            local cheapPip = "|A:Professions-Icon-Quality-Tier" .. cheapRank .. "-Small:0:0|a"
+            local bestPip = "|A:Professions-Icon-Quality-Tier" .. bestRank .. "-Small:0:0|a"
+            detail.simStatusText:SetText("R1 mats " .. cheapPip .. " → best " .. bestPip)
+            detail.simStatusText:SetTextColor(0.3, 1, 0.3)
         end
 
         -- Phase 2: Optimize finishing reagents (async — uses CraftSim's profit-based picker)
@@ -1539,6 +1591,12 @@ local function CreateRightPanel(parent)
         local recipeName = KazCraftDB.recipeCache[selectedRecipeID] and KazCraftDB.recipeCache[selectedRecipeID].recipeName or "Recipe"
         print("|cff00ccffKazCraft|r: Queued " .. qty .. "x " .. recipeName .. " (sim allocation)")
     end)
+
+    -- Optimization status text (below sim buttons)
+    detail.simStatusText = detail.simFrame:CreateFontString(nil, "OVERLAY")
+    detail.simStatusText:SetFont(ns.FONT, 11, "")
+    detail.simStatusText:SetTextColor(unpack(ns.COLORS.mutedText))
+    detail.simStatusText:SetText("")
 
     -- TSM cost / profit (above craft controls)
     detail.tsmCostLabel = rightPanel:CreateFontString(nil, "OVERLAY")
@@ -3195,6 +3253,10 @@ function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
     detail.simQueueBtn:ClearAllPoints()
     detail.simQueueBtn:SetPoint("LEFT", detail.simApplyBtn, "RIGHT", 6, 0)
 
+    detail.simStatusText:ClearAllPoints()
+    detail.simStatusText:SetPoint("TOPLEFT", detail.simOptBtn, "BOTTOMLEFT", 0, -4)
+    detail.simStatusText:SetText("")
+
     -- Set total height
     local totalH = 6 -- top pad
     totalH = totalH + 14 -- header
@@ -3205,7 +3267,7 @@ function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
     if showFinishing then
         totalH = totalH + 12 + 4 + 24 + 6 -- label + gap + dropdown + gap
     end
-    totalH = totalH + 12 + 4 + 14 + 2 + 14 + 2 + 14 + 2 + 14 + 2 + 14 + 6 + 22 + 8 -- result section (header + quality + skill + cost + profit + conc + buttons)
+    totalH = totalH + 12 + 4 + 14 + 2 + 14 + 2 + 14 + 2 + 14 + 2 + 14 + 6 + 22 + 4 + 14 + 8 -- result section (header + quality + skill + cost + profit + conc + buttons + status)
     detail.simFrame:SetHeight(totalH)
 
     detail.simFrame:Show()

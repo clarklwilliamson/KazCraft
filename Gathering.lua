@@ -113,7 +113,8 @@ local function RefreshGatheringList()
                 isCrafted = true
             end
         end
-        if not isCrafted then
+        -- Also skip BoP items — can't farm those on an alt
+        if not isCrafted and not mat.soulbound then
             table.insert(rawMats, mat)
             if showCompleted or mat.short > 0 then
                 table.insert(filtered, mat)

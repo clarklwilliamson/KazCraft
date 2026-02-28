@@ -3371,22 +3371,70 @@ function ProfRecipes:RefreshSimResults()
         detail.simSkillText:SetText("Skill: —")
     end
 
-    -- Craft cost via CraftSim
-    local craftCost = simRecipeData.priceData and simRecipeData.priceData.craftingCosts
+    -- Craft cost — prefer our TSM data over CraftSim's stale priceData
+    local craftCost
+    if ns.TSMData and ns.TSMData:IsAvailable() and currentSchematic and currentSchematic.reagentSlotSchematics then
+        local total = 0
+        local missing = false
+        for _, slot in ipairs(currentSchematic.reagentSlotSchematics) do
+            if slot.reagentType == Enum.CraftingReagentType.Basic then
+                local reagents = slot.reagents
+                local qty = slot.quantityRequired or 1
+                if reagents and reagents[1] then
+                    local rItemID = reagents[1].itemID
+                    if rItemID then
+                        local val = ns.TSMData:GetPrice(rItemID, "DBMinBuyout")
+                        if val and val > 0 then
+                            total = total + (val * qty)
+                        else
+                            missing = true
+                        end
+                    end
+                end
+            end
+        end
+        if total > 0 and not missing then craftCost = total end
+    end
+    -- Fallback to CraftSim pricing
+    if not craftCost then
+        craftCost = simRecipeData.priceData and simRecipeData.priceData.craftingCosts
+        if craftCost and craftCost <= 0 then craftCost = nil end
+    end
     if craftCost and craftCost > 0 then
         detail.simCostText:SetText("Cost: " .. ns.FormatGold(craftCost))
     else
         detail.simCostText:SetText("Cost: —")
     end
 
-    -- Profit via CraftSim
-    local profit = simRecipeData.averageProfitCached
-    if profit then
+    -- Profit — use our TSM sell value when available
+    local sellValue
+    if ns.TSMData and ns.TSMData:IsAvailable() and currentSchematic then
+        local outputItemID = currentSchematic.outputItemID
+        if outputItemID then
+            sellValue = ns.TSMData:GetPrice(outputItemID, "DBMarket")
+        end
+    end
+    if craftCost and sellValue then
+        local profit = sellValue - craftCost
         local absProfit = math.abs(profit)
         if profit >= 0 then
             detail.simProfitText:SetText("Profit: |cff4dff4d" .. ns.FormatGold(absProfit) .. "|r")
         else
             detail.simProfitText:SetText("Loss: |cffff4d4d" .. ns.FormatGold(absProfit) .. "|r")
+        end
+    elseif craftCost then
+        -- Have cost but no sell price
+        local profit = simRecipeData.averageProfitCached
+        if profit then
+            local absProfit = math.abs(profit)
+            if profit >= 0 then
+                detail.simProfitText:SetText("Profit: |cff4dff4d" .. ns.FormatGold(absProfit) .. "|r")
+            else
+                detail.simProfitText:SetText("Loss: |cffff4d4d" .. ns.FormatGold(absProfit) .. "|r")
+            end
+        else
+            detail.simProfitText:SetText("Profit: —")
+            detail.simProfitText:SetTextColor(unpack(ns.COLORS.mutedText))
         end
     else
         detail.simProfitText:SetText("Profit: —")

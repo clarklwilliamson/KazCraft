@@ -98,18 +98,33 @@ local function RefreshGatheringList()
 
     materialData = ns.Data:GetMaterialList()
 
-    -- Filter
-    local filtered = {}
+    -- Rebuild item→recipe index fresh (account-wide recipeCache may have grown)
+    ns.Data:BuildItemToRecipeIndex()
+
+    -- Classify each mat as crafted or raw (single pass)
+    local rawMats = {}  -- all raw materials
+    local filtered = {} -- raw mats respecting showCompleted toggle
     for _, mat in ipairs(materialData) do
-        if showCompleted or mat.short > 0 then
-            table.insert(filtered, mat)
+        local isCrafted = ns.itemToRecipe and ns.itemToRecipe[mat.itemID]
+        -- Secondary check: item subclass "Parts" (1) under Trade Goods (7) = always crafted
+        if not isCrafted then
+            local _, _, _, _, _, _, _, _, _, _, _, classID, subclassID = C_Item.GetItemInfo(mat.itemID)
+            if classID == 7 and subclassID == 1 then
+                isCrafted = true
+            end
+        end
+        if not isCrafted then
+            table.insert(rawMats, mat)
+            if showCompleted or mat.short > 0 then
+                table.insert(filtered, mat)
+            end
         end
     end
 
     -- Stats for subtitle
-    local totalItems = #materialData
+    local totalItems = #rawMats
     local remaining = 0
-    for _, mat in ipairs(materialData) do
+    for _, mat in ipairs(rawMats) do
         if mat.short > 0 then remaining = remaining + 1 end
     end
     local chars = ns.Data:GetQueuedCharacters()

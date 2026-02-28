@@ -36,38 +36,6 @@ function Data:CacheSchematic(recipeID, profName)
         qualityItemIDs = qualityItemIDs or nil,
     }
 
-    -- DEBUG: log output mapping for sub-recipe detection
-    if schematic.name and schematic.name:find("Soul Sprocket") then
-        local qids = "none"
-        if qualityItemIDs then
-            qids = ""
-            for i, id in ipairs(qualityItemIDs) do
-                qids = qids .. id .. (i < #qualityItemIDs and "," or "")
-            end
-        end
-        print("|cffff00ff[KazCraft DEBUG]|r SOUL SPROCKET: recipeID=" .. recipeID .. " outputItemID=" .. tostring(schematic.outputItemID) .. " qualityIDs=[" .. qids .. "]")
-        -- Also dump reagent slots to see all reagent types
-        for si, slot in ipairs(schematic.reagentSlotSchematics) do
-            local rtype = slot.reagentType
-            local req = slot.required
-            local ids = ""
-            for _, r in ipairs(slot.reagents) do
-                ids = ids .. tostring(r.itemID) .. ","
-            end
-            print("|cffff00ff[KazCraft DEBUG]|r   slot" .. si .. " type=" .. tostring(rtype) .. " req=" .. tostring(req) .. " qty=" .. tostring(slot.quantityRequired) .. " items=[" .. ids .. "]")
-        end
-    end
-    if schematic.name and schematic.name:find("Farstrider Hardhat") then
-        print("|cffff00ff[KazCraft DEBUG]|r HARDHAT: recipeID=" .. recipeID .. " outputItemID=" .. tostring(schematic.outputItemID))
-        for si, slot in ipairs(schematic.reagentSlotSchematics) do
-            local ids = ""
-            for _, r in ipairs(slot.reagents) do
-                ids = ids .. tostring(r.itemID) .. ","
-            end
-            print("|cffff00ff[KazCraft DEBUG]|r   slot" .. si .. " type=" .. tostring(slot.reagentType) .. " req=" .. tostring(slot.required) .. " qty=" .. tostring(slot.quantityRequired) .. " items=[" .. ids .. "]")
-        end
-    end
-
     return KazCraftDB.recipeCache[recipeID]
 end
 
@@ -131,7 +99,6 @@ function Data:BuildItemToRecipeIndex()
             end
         end
     end
-    print("|cff00ccff[KazCraft DEBUG]|r Built itemToRecipe index: " .. count .. " mappings, " .. noOutput .. " recipes with no outputItemID")
 end
 
 -- Get the queue for a character
@@ -163,6 +130,7 @@ function Data:AddToQueue(recipeID, quantity, charKey)
 end
 
 -- Queue a recipe and auto-queue any craftable sub-recipes for shortfall
+-- Sub-recipes are placed before their parent in the queue (craft order)
 function Data:QueueWithSubRecipes(recipeID, qty, _visited)
     _visited = _visited or {}
     if _visited[recipeID] then return end -- prevent infinite loops
@@ -173,7 +141,7 @@ function Data:QueueWithSubRecipes(recipeID, qty, _visited)
         self:CacheSchematic(recipeID, ns.currentProfName)
     end
 
-    -- Queue the main recipe
+    -- Queue the main recipe first (needed for demand calculation)
     self:AddToQueue(recipeID, qty)
 
     -- Ensure index exists (lazy build if CacheAllRecipes hasn't run yet)
@@ -182,19 +150,11 @@ function Data:QueueWithSubRecipes(recipeID, qty, _visited)
     end
 
     local cached = KazCraftDB.recipeCache[recipeID]
-    if not cached or not cached.reagents then
-        print("|cff00ccff[KazCraft DEBUG]|r No cached reagents for recipeID " .. recipeID)
-        return
-    end
-
-    print("|cff00ccff[KazCraft DEBUG]|r Checking " .. #cached.reagents .. " reagents for " .. (cached.recipeName or recipeID))
-    print("|cff00ccff[KazCraft DEBUG]|r Index has " .. (ns.itemToRecipe and "entries" or "NIL"))
+    if not cached or not cached.reagents then return end
 
     -- Check each reagent for craftable sub-recipes
     for _, reagent in ipairs(cached.reagents) do
         local subRecipeID = ns.itemToRecipe[reagent.itemID]
-        local itemName = C_Item.GetItemInfo(reagent.itemID)
-        print("|cff00ccff[KazCraft DEBUG]|r  Reagent: " .. (itemName or "?") .. " (itemID=" .. reagent.itemID .. ") x" .. reagent.quantity .. " → subRecipe=" .. tostring(subRecipeID))
         if subRecipeID and not _visited[subRecipeID] then
             local have = C_Item.GetItemCount(reagent.itemID, true, false, true, true)
 
@@ -222,14 +182,31 @@ function Data:QueueWithSubRecipes(recipeID, qty, _visited)
             end
 
             local short = math.max(0, totalDemand - have - alreadyQueued)
-            print("|cff00ccff[KazCraft DEBUG]|r  Sub-recipe check: demand=" .. totalDemand .. " have=" .. have .. " queued=" .. alreadyQueued .. " short=" .. short)
             if short > 0 then
                 local subCached = KazCraftDB.recipeCache[subRecipeID]
                 local subName = subCached and subCached.recipeName or ("Recipe " .. subRecipeID)
                 print("|cff00ccff[KazCraft]|r Auto-queued " .. short .. "x " .. subName)
                 self:QueueWithSubRecipes(subRecipeID, short, _visited)
+
+                -- Move sub-recipe before parent in queue for correct craft order
+                self:EnsureBefore(subRecipeID, recipeID)
             end
         end
+    end
+end
+
+-- Move entry with recipeA before recipeB in the queue (if both exist)
+function Data:EnsureBefore(recipeA, recipeB, charKey)
+    charKey = charKey or ns.charKey
+    local queue = self:GetCharacterQueue(charKey)
+    local idxA, idxB
+    for i, entry in ipairs(queue) do
+        if entry.recipeID == recipeA then idxA = i end
+        if entry.recipeID == recipeB then idxB = i end
+    end
+    if idxA and idxB and idxA > idxB then
+        local entry = table.remove(queue, idxA)
+        table.insert(queue, idxB, entry)
     end
 end
 

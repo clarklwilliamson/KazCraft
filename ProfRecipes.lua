@@ -259,7 +259,7 @@ end
 --------------------------------------------------------------------
 -- Recipe difficulty color
 --------------------------------------------------------------------
-local function GetDifficultyColor(info)
+local function GetDifficultyColor(info, recipeID)
     if not info then return DIFFICULTY_COLORS.default end
     if not info.learned then return DIFFICULTY_COLORS.trivial end  -- unlearned = grey
     local d = info.relativeDifficulty
@@ -267,7 +267,20 @@ local function GetDifficultyColor(info)
     if d == Enum.TradeskillRelativeDifficulty.Optimal then return DIFFICULTY_COLORS.optimal end
     if d == Enum.TradeskillRelativeDifficulty.Medium then return DIFFICULTY_COLORS.medium end
     if d == Enum.TradeskillRelativeDifficulty.Easy then return DIFFICULTY_COLORS.easy end
-    if d == Enum.TradeskillRelativeDifficulty.Trivial then return DIFFICULTY_COLORS.trivial end
+    if d == Enum.TradeskillRelativeDifficulty.Trivial then
+        -- Grey is useless — show item quality color instead
+        if recipeID then
+            local schematic = C_TradeSkillUI.GetRecipeSchematic(recipeID, false)
+            if schematic and schematic.outputItemID then
+                local quality = C_Item.GetItemQualityByID(schematic.outputItemID)
+                if quality and quality >= 2 and ITEM_QUALITY_COLORS[quality] then
+                    local c = ITEM_QUALITY_COLORS[quality]
+                    return { c.r, c.g, c.b }
+                end
+            end
+        end
+        return DIFFICULTY_COLORS.trivial
+    end
     return DIFFICULTY_COLORS.default
 end
 
@@ -466,7 +479,7 @@ local function UpdateRecipeRow(row, entry, index)
 
         -- Skill-up count (to the left of the icon in the indent space)
         local numSkillUps = info and info.numSkillUps or 0
-        local color = GetDifficultyColor(info)
+        local color = GetDifficultyColor(info, entry.recipeID)
         if numSkillUps > 1 then
             row.skillUpText:ClearAllPoints()
             row.skillUpText:SetPoint("RIGHT", row.icon, "LEFT", -2, 0)

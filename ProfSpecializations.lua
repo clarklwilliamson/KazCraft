@@ -135,6 +135,11 @@ local SAVED_BOX_LAYOUT = {
     [104292] = { x = -340, y = 15 },
     [104576] = { x = 0, y = 250 },
     [104633] = { x = -405, y = 250 },
+    -- Inscription Midnight (4 trees — Blueprints+Calm Hands+Perfected Products+Darkmoon Curiosity)
+    [106192] = { x = 0, y = 0 },
+    [106280] = { x = -320, y = 60 },
+    [109660] = { x = -440, y = 310 },
+    [106358] = { x = 15, y = 315 },
 }
 
 --------------------------------------------------------------------
@@ -547,6 +552,46 @@ local SAVED_POSITIONS = {
     [98661] = { x = -30, y = 135 },
     [98660] = { x = 25, y = 135 },
     [98659] = { x = 70, y = 65 },
+
+    -- Inscription Midnight: Blueprints (root 106192)
+    [106192] = { x = 0, y = 0 },
+    [106191] = { x = -26, y = 66 },
+    [106190] = { x = -86, y = 71 },
+    [106189] = { x = -81, y = 126 },
+    [106188] = { x = -26, y = 126 },
+    [106187] = { x = 29, y = 66 },
+    [106186] = { x = 34, y = 126 },
+    [106185] = { x = 84, y = 126 },
+    [106184] = { x = 84, y = 71 },
+    -- Inscription Midnight: Calm Hands (root 106280)
+    [106280] = { x = 0, y = 0 },
+    [106279] = { x = -53, y = 1 },
+    [106278] = { x = 2, y = 56 },
+    [106277] = { x = 52, y = 1 },
+    -- Inscription Midnight: Perfected Products (root 109660)
+    [109660] = { x = 0, y = 0 },
+    [109659] = { x = -26, y = 91 },
+    [109658] = { x = -81, y = 91 },
+    [109657] = { x = -81, y = 146 },
+    [109656] = { x = -26, y = 146 },
+    [109655] = { x = 29, y = 91 },
+    [109654] = { x = 29, y = 146 },
+    [109653] = { x = 84, y = 146 },
+    [109652] = { x = 84, y = 91 },
+    -- Inscription Midnight: Darkmoon Curiosity (root 106358)
+    [106358] = { x = 0, y = 0 },
+    [106357] = { x = -52, y = 1 },
+    [106356] = { x = -107, y = 1 },
+    [106355] = { x = -107, y = 56 },
+    [106354] = { x = -27, y = 71 },
+    [106353] = { x = -102, y = 126 },
+    [106352] = { x = -27, y = 126 },
+    [106351] = { x = 23, y = 71 },
+    [106350] = { x = 28, y = 126 },
+    [106349] = { x = 108, y = 126 },
+    [106348] = { x = 53, y = 1 },
+    [106347] = { x = 108, y = 56 },
+    [106346] = { x = 108, y = 1 },
 }
 
 --------------------------------------------------------------------
@@ -1464,11 +1509,15 @@ end
 
 function ProfSpecs:Refresh()
     if not self:IsShown() then return end
+    -- Re-query skillLineID in case expansion changed
+    local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
+    skillLineID = profInfo and profInfo.professionID or skillLineID
     if skillLineID then
         configID = C_ProfSpecs.GetConfigIDForSkillLine(skillLineID)
         C_Traits.StageConfig(configID)
     end
     UpdatePointsDisplay()
+    ClearDetailPanel()
     RenderAllTrees()
     ProfSpecs.UpdateApplyButton()
 end

@@ -118,6 +118,21 @@ function handlers.UPDATE_TRADESKILL_CAST_STOPPED()
     end
 end
 
+-- Backup: movement-cancel on milling/salvage may not fire UPDATE_TRADESKILL_CAST_STOPPED
+function handlers.UNIT_SPELLCAST_INTERRUPTED(unit)
+    if unit ~= "player" then return end
+    if ns.ProfRecipes and ns.ProfRecipes:IsCrafting() then
+        ns.ProfFrame:OnCraftStopped()
+    end
+end
+
+function handlers.UNIT_SPELLCAST_FAILED(unit)
+    if unit ~= "player" then return end
+    if ns.ProfRecipes and ns.ProfRecipes:IsCrafting() then
+        ns.ProfFrame:OnCraftStopped()
+    end
+end
+
 function handlers.CRAFTING_DETAILS_UPDATE()
     if ns.ProfFrame and ns.ProfFrame:IsShown() and ns.ProfRecipes then
         ns.ProfRecipes:RefreshDetail()
@@ -306,6 +321,8 @@ frame:RegisterEvent("TRADE_SKILL_LIST_UPDATE")
 frame:RegisterEvent("TRADE_SKILL_DATA_SOURCE_CHANGED")
 frame:RegisterEvent("TRADE_SKILL_CRAFT_BEGIN")
 frame:RegisterEvent("UPDATE_TRADESKILL_CAST_STOPPED")
+frame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
+frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
 frame:RegisterEvent("CRAFTING_DETAILS_UPDATE")
 frame:RegisterEvent("AUCTION_HOUSE_SHOW")
 frame:RegisterEvent("AUCTION_HOUSE_CLOSED")

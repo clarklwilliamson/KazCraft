@@ -1693,7 +1693,15 @@ local function CreateRightPanel(parent)
     detail.craftBtn = ns.CreateButton(detail.controlFrame, "Craft", 70, 24)
     detail.craftBtn:SetPoint("LEFT", detail.qtyBox, "RIGHT", 4, 0)
     detail.craftBtn:SetScript("OnClick", function()
-        if not selectedRecipeID or isCrafting then return end
+        if not selectedRecipeID then return end
+        -- Failsafe: clear stuck isCrafting if player isn't actually casting
+        if isCrafting then
+            if not UnitCastingInfo("player") and not UnitChannelInfo("player") then
+                isCrafting = false
+            else
+                return
+            end
+        end
         local qty = tonumber(detail.qtyBox:GetText()) or 1
         if qty < 1 then qty = 1 end
         local applyConc = detail.concCheck:GetChecked() and true or false
@@ -1723,7 +1731,15 @@ local function CreateRightPanel(parent)
     detail.craftAllBtn = ns.CreateButton(detail.controlFrame, "Craft All", 70, 24)
     detail.craftAllBtn:SetPoint("LEFT", detail.craftBtn, "RIGHT", 4, 0)
     detail.craftAllBtn:SetScript("OnClick", function()
-        if not selectedRecipeID or isCrafting then return end
+        if not selectedRecipeID then return end
+        -- Failsafe: clear stuck isCrafting if player isn't actually casting
+        if isCrafting then
+            if not UnitCastingInfo("player") and not UnitChannelInfo("player") then
+                isCrafting = false
+            else
+                return
+            end
+        end
         local qty = C_TradeSkillUI.GetCraftableCount(selectedRecipeID) or 0
         if qty < 1 then return end
         local applyConc = detail.concCheck:GetChecked() and true or false
@@ -3606,6 +3622,10 @@ end
 function ProfRecipes:Refresh()
     self:RefreshRecipeList()
     self:RefreshDetail()
+end
+
+function ProfRecipes:IsCrafting()
+    return isCrafting
 end
 
 function ProfRecipes:SetCrafting(crafting)

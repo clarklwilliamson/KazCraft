@@ -769,6 +769,10 @@ function ProfFrame:ToggleExpansionMenu(anchorBtn)
                 if ProfFrame:IsShown() then
                     UpdateTopBar()
                     ProfFrame:RefreshRecipeList(true)
+                    -- Refresh spec tree for new expansion
+                    if ns.ProfSpecs and ns.ProfSpecs:IsShown() then
+                        ns.ProfSpecs:Refresh()
+                    end
                 end
             end)
         end)
@@ -849,7 +853,10 @@ end
 function ProfFrame:OnCraftStopped()
     if ns.ProfRecipes then
         ns.ProfRecipes:SetCrafting(false)
+        ns.ProfRecipes:RefreshDetail()
     end
+    UpdateTopBar()
+    self:UpdateFooter()
 end
 
 function ProfFrame:OnBagUpdate()

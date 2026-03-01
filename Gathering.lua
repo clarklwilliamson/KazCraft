@@ -105,12 +105,26 @@ local function RefreshGatheringList()
     local rawMats = {}  -- all raw materials
     local filtered = {} -- raw mats respecting showCompleted toggle
     for _, mat in ipairs(materialData) do
-        local isCrafted = ns.itemToRecipe and ns.itemToRecipe[mat.itemID]
-        -- Secondary check: item subclass "Parts" (1) under Trade Goods (7) = always crafted
-        if not isCrafted then
-            local _, _, _, _, _, _, _, _, _, _, _, classID, subclassID = C_Item.GetItemInfo(mat.itemID)
-            if classID == 7 and subclassID == 1 then
-                isCrafted = true
+        local isCrafted = false
+        -- Check item subclass: Trade Goods > Parts (7,1) = crafted intermediate
+        local _, _, _, _, _, _, _, _, _, _, _, classID, subclassID = C_Item.GetItemInfo(mat.itemID)
+        if classID == 7 and subclassID == 1 then
+            isCrafted = true
+        end
+        -- Check if this item is output of a recipe that's ALSO queued (sub-craft)
+        if not isCrafted and ns.itemToRecipe then
+            local subRecipeID = ns.itemToRecipe[mat.itemID]
+            if subRecipeID then
+                -- Only filter if we're actually crafting this item (it's queued)
+                for _, queue in pairs(KazCraftDB.queues) do
+                    for _, entry in ipairs(queue) do
+                        if entry.recipeID == subRecipeID then
+                            isCrafted = true
+                            break
+                        end
+                    end
+                    if isCrafted then break end
+                end
             end
         end
         -- Also skip BoP items — can't farm those on an alt

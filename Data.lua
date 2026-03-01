@@ -144,10 +144,8 @@ function Data:QueueWithSubRecipes(recipeID, qty, _visited)
     -- Queue the main recipe first (needed for demand calculation)
     self:AddToQueue(recipeID, qty)
 
-    -- Ensure index exists (lazy build if CacheAllRecipes hasn't run yet)
-    if not ns.itemToRecipe then
-        self:BuildItemToRecipeIndex()
-    end
+    -- Always rebuild index fresh — CacheAllRecipes may have added new entries
+    self:BuildItemToRecipeIndex()
 
     local cached = KazCraftDB.recipeCache[recipeID]
     if not cached or not cached.reagents then return end
@@ -155,6 +153,37 @@ function Data:QueueWithSubRecipes(recipeID, qty, _visited)
     -- Check each reagent for craftable sub-recipes
     for _, reagent in ipairs(cached.reagents) do
         local subRecipeID = ns.itemToRecipe[reagent.itemID]
+
+        -- If not in index, search profession recipes while UI is open
+        if not subRecipeID and C_TradeSkillUI.IsTradeSkillReady() then
+            local allRecipeIDs = C_TradeSkillUI.GetAllRecipeIDs()
+            if allRecipeIDs then
+                for _, rid in ipairs(allRecipeIDs) do
+                    -- Cache and check output
+                    if not KazCraftDB.recipeCache[rid] then
+                        self:CacheSchematic(rid, ns.currentProfName)
+                    end
+                    local sub = KazCraftDB.recipeCache[rid]
+                    if sub then
+                        if sub.outputItemID == reagent.itemID then
+                            subRecipeID = rid
+                            ns.itemToRecipe[reagent.itemID] = rid
+                            break
+                        end
+                        if sub.qualityItemIDs then
+                            for _, qid in ipairs(sub.qualityItemIDs) do
+                                if qid == reagent.itemID then
+                                    subRecipeID = rid
+                                    ns.itemToRecipe[reagent.itemID] = rid
+                                    break
+                                end
+                            end
+                            if subRecipeID then break end
+                        end
+                    end
+                end
+            end
+        end
         if subRecipeID and not _visited[subRecipeID] then
             local have = C_Item.GetItemCount(reagent.itemID, true, false, true, true)
 

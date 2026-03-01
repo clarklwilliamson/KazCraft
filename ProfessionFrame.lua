@@ -842,6 +842,7 @@ function ProfFrame:OnCraftComplete()
         ns.ProfRecipes:SetCrafting(false)
         ns.ProfRecipes:RefreshDetail()
     end
+    UpdateTopBar()
     self:UpdateFooter()
 end
 

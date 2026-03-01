@@ -1647,6 +1647,13 @@ local function CreateRightPanel(parent)
     detail.concLabel:SetText("Concentration")
     detail.concLabel:SetTextColor(unpack(ns.COLORS.brightText))
 
+    detail.concWarning = detail.controlFrame:CreateFontString(nil, "OVERLAY")
+    detail.concWarning:SetFont(ns.FONT, 12, "")
+    detail.concWarning:SetPoint("LEFT", detail.concLabel, "RIGHT", 6, 0)
+    detail.concWarning:SetText("Not enough concentration")
+    detail.concWarning:SetTextColor(1, 0.3, 0.3)
+    detail.concWarning:Hide()
+
     -- Craft button row
     -- Quantity input
     detail.qtyBox = CreateFrame("EditBox", nil, detail.controlFrame, "BackdropTemplate")
@@ -1686,7 +1693,13 @@ local function CreateRightPanel(parent)
         elseif currentTransaction and currentTransaction:IsRecraft() then
             currentTransaction:RecraftRecipe()
         elseif currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Enchant) then
-            currentTransaction:CraftEnchant(selectedRecipeID, qty)
+            local enchantItem = currentTransaction:GetEnchantAllocation()
+            if enchantItem then
+                currentTransaction:CraftEnchant(selectedRecipeID, qty)
+            else
+                local reagentInfoTbl = currentTransaction:CreateCraftingReagentInfoTbl()
+                C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty, reagentInfoTbl, nil, nil, applyConc)
+            end
         else
             local reagentInfoTbl = currentTransaction and currentTransaction:CreateCraftingReagentInfoTbl() or {}
             C_TradeSkillUI.CraftRecipe(selectedRecipeID, qty, reagentInfoTbl, nil, nil, applyConc)
@@ -2678,16 +2691,24 @@ function ProfRecipes:RefreshDetail()
             if concCost > 0 and current >= concCost then
                 detail.concCheck:Enable()
                 detail.concLabel:SetTextColor(unpack(ns.COLORS.brightText))
+                detail.concWarning:Hide()
+            elseif concCost > 0 then
+                detail.concCheck:SetChecked(false)
+                detail.concCheck:Disable()
+                detail.concLabel:SetTextColor(unpack(ns.COLORS.mutedText))
+                detail.concWarning:Show()
             else
                 detail.concCheck:SetChecked(false)
                 detail.concCheck:Disable()
                 detail.concLabel:SetTextColor(unpack(ns.COLORS.mutedText))
+                detail.concWarning:Hide()
             end
         else
             detail.concText:SetText("")
             detail.concCheck:SetChecked(false)
             detail.concCheck:Disable()
             detail.concLabel:SetTextColor(unpack(ns.COLORS.mutedText))
+            detail.concWarning:Hide()
         end
         detail.concText:ClearAllPoints()
         detail.concText:SetPoint("TOPLEFT", detail.skillText, "BOTTOMLEFT", 0, -4)

@@ -162,6 +162,13 @@ function handlers.TRADE_SKILL_ITEM_CRAFTED_RESULT()
     end
 end
 
+-- Concentration currency changed (fires after spending concentration on a craft)
+function handlers.CURRENCY_DISPLAY_UPDATE()
+    if ns.ProfFrame and ns.ProfFrame:IsShown() then
+        ns.ProfFrame:Refresh()
+    end
+end
+
 -- Throttled refresh when item data arrives (names/icons for materials)
 local itemInfoPending = false
 function handlers.GET_ITEM_INFO_RECEIVED()
@@ -292,6 +299,7 @@ frame:RegisterEvent("AUCTION_HOUSE_SHOW")
 frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
 frame:RegisterEvent("BAG_UPDATE_DELAYED")
 frame:RegisterEvent("TRADE_SKILL_ITEM_CRAFTED_RESULT")
+frame:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
 frame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 -- AH events
 frame:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")

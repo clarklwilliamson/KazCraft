@@ -13,14 +13,14 @@ local MAX_MAT_ROWS = 12
 local mainFrame
 local queueContent, matContent
 local headerText
-local addBtn, craftBtn, clearBtn
+local craftBtn, clearBtn
 local queueRows = {}
 local matRows = {}
 local selectedRecipeID = nil
 local selectedRecipeName = nil
 
 -- Quantity input
-local qtyBox
+
 
 local function CreateQueueRow(parent, index)
     local row = CreateFrame("Frame", nil, parent)
@@ -182,49 +182,11 @@ local function CreateMainFrame()
     addRow:SetPoint("TOPRIGHT", mainFrame, "TOPRIGHT", -6, -48)
 
     -- Quantity editbox
-    qtyBox = CreateFrame("EditBox", nil, addRow, "BackdropTemplate")
-    qtyBox:SetSize(36, 22)
-    qtyBox:SetPoint("LEFT", addRow, "LEFT", 2, 0)
-    qtyBox:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    qtyBox:SetBackdropColor(unpack(ns.COLORS.searchBg))
-    qtyBox:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
-    qtyBox:SetFont(ns.FONT, 11, "")
-    qtyBox:SetTextColor(unpack(ns.COLORS.brightText))
-    qtyBox:SetJustifyH("CENTER")
-    qtyBox:SetAutoFocus(false)
-    qtyBox:SetNumeric(true)
-    qtyBox:SetMaxLetters(4)
-    qtyBox:SetText("1")
-    qtyBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    qtyBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-
-    -- Add button
-    addBtn = ns.CreateButton(addRow, "+ Add Selected", 120, 22)
-    addBtn:SetPoint("LEFT", qtyBox, "RIGHT", 4, 0)
-    addBtn:SetScript("OnClick", function()
-        if not selectedRecipeID then
-            print("|cffc8aa64KazCraft:|r Select a recipe first.")
-            return
-        end
-        local qty = tonumber(qtyBox:GetText()) or 1
-        if qty < 1 then qty = 1 end
-
-        -- Cache if not already
-        if not KazCraftDB.recipeCache[selectedRecipeID] then
-            ns.Data:CacheSchematic(selectedRecipeID, ns.currentProfName)
-        end
-
-        ns.Data:AddToQueue(selectedRecipeID, qty)
-        ProfUI:RefreshAll()
-    end)
+    -- Add Selected removed — use main +Queue button (Optimize → Apply → +Queue)
 
     -- Clear button
     clearBtn = ns.CreateButton(addRow, "Clear", 50, 22)
-    clearBtn:SetPoint("RIGHT", addRow, "RIGHT", -2, 0)
+    clearBtn:SetPoint("LEFT", addRow, "LEFT", 2, 0)
     clearBtn:SetScript("OnClick", function()
         ns.Data:ClearQueue()
         ProfUI:RefreshAll()

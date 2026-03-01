@@ -1578,24 +1578,7 @@ local function CreateRightPanel(parent)
         ProfRecipes:ApplySimToTransaction()
     end)
 
-    -- +Queue button — applies sim allocation then queues the recipe
-    detail.simQueueBtn = ns.CreateButton(detail.simFrame, "+Queue", 70, 22)
-    detail.simQueueBtn:SetScript("OnClick", function()
-        if not selectedRecipeID then return end
-        ProfRecipes:ApplySimToTransaction()
-        local qty = tonumber(detail.qtyBox:GetText()) or 1
-        if qty < 1 then qty = 1 end
-        if not KazCraftDB.recipeCache[selectedRecipeID] then
-            ns.Data:CacheSchematic(selectedRecipeID, ns.currentProfName)
-        end
-        ns.Data:QueueWithSubRecipes(selectedRecipeID, qty)
-        if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
-            ns.ProfessionUI:RefreshAll()
-        end
-        if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
-        local recipeName = KazCraftDB.recipeCache[selectedRecipeID] and KazCraftDB.recipeCache[selectedRecipeID].recipeName or "Recipe"
-        print("|cff00ccffKazCraft|r: Queued " .. qty .. "x " .. recipeName .. " (sim allocation)")
-    end)
+    -- SIM +Queue removed — workflow is: Optimize → Apply → use main +Queue button
 
     -- Optimization status text (below sim buttons)
     detail.simStatusText = detail.simFrame:CreateFontString(nil, "OVERLAY")
@@ -3255,9 +3238,6 @@ function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
 
     detail.simApplyBtn:ClearAllPoints()
     detail.simApplyBtn:SetPoint("LEFT", detail.simOptBtn, "RIGHT", 6, 0)
-
-    detail.simQueueBtn:ClearAllPoints()
-    detail.simQueueBtn:SetPoint("LEFT", detail.simApplyBtn, "RIGHT", 6, 0)
 
     detail.simStatusText:ClearAllPoints()
     detail.simStatusText:SetPoint("TOPLEFT", detail.simOptBtn, "BOTTOMLEFT", 0, -4)

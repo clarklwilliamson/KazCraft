@@ -53,6 +53,11 @@ function handlers.ADDON_LOADED(addon)
     frame:UnregisterEvent("ADDON_LOADED")
 end
 
+-- Mini-profession IDs that use Blizzard's special UI (not a real crafting frame)
+local PASSTHROUGH_PROFESSIONS = {
+    [2950] = true,  -- Alchemy Research (Midnight cauldron)
+}
+
 function handlers.TRADE_SKILL_SHOW()
     SetCharKey()
 
@@ -60,6 +65,13 @@ function handlers.TRADE_SKILL_SHOW()
     local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
     ns.currentProfInfo = profInfo
     ns.currentProfName = profInfo and profInfo.professionName or "Unknown"
+
+    -- Let Blizzard handle mini-professions (cauldron menus, etc.)
+    if profInfo and PASSTHROUGH_PROFESSIONS[profInfo.professionID] then
+        if ProfessionsFrame_LoadUI then ProfessionsFrame_LoadUI() end
+        UIParent_OnEvent(UIParent, "TRADE_SKILL_SHOW")
+        return
+    end
 
     -- Background cache all recipes
     ns.Data:CacheAllRecipes(profInfo)

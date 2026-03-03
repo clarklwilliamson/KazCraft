@@ -99,8 +99,8 @@ function ns.GetCraftingQuality(itemID)
     return KazGUI:GetCraftingQuality(itemID)
 end
 
-function ns.GetQualityAtlas(tier, recipeID)
-    return KazGUI:GetQualityAtlas(tier, recipeID)
+function ns.GetQualityAtlas(tier, recipeID, itemID)
+    return KazGUI:GetQualityAtlas(tier, recipeID, itemID)
 end
 
 function ns.GetQualityMarkup(tier, recipeID, size)

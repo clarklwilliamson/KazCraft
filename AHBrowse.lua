@@ -1507,7 +1507,7 @@ function AHBrowse:RefreshRows()
 
                 -- Crafting quality badge
                 local cq = ns.GetCraftingQuality(r.itemKey.itemID)
-                local cqAtlas = ns.GetQualityAtlas(cq)
+                local cqAtlas = ns.GetQualityAtlas(cq, nil, r.itemKey.itemID)
                 if cqAtlas then
                     row.qualityIcon:SetAtlas(cqAtlas)
                     row.qualityIcon:Show()
@@ -1575,7 +1575,7 @@ function AHBrowse:SelectResult(result, rowIndex)
 
     -- Crafting quality badge next to name
     local cq = ns.GetCraftingQuality(result.itemKey.itemID)
-    local cqAtlas = ns.GetQualityAtlas(cq)
+    local cqAtlas = ns.GetQualityAtlas(cq, nil, result.itemKey.itemID)
     d.nameText:ClearAllPoints()
     if cqAtlas then
         d.qualityIcon:SetAtlas(cqAtlas)

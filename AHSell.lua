@@ -63,7 +63,7 @@ end
 -- Get crafting quality tier (1-5) for an item, nil if non-crafted
 -- Use shared helpers from Util.lua
 local GetCraftingQuality = function(itemID) return ns.GetCraftingQuality(itemID) end
-local GetQualityAtlas = function(tier) return ns.GetQualityAtlas(tier) end
+local GetQualityAtlas = function(tier, itemID) return ns.GetQualityAtlas(tier, nil, itemID) end
 
 --------------------------------------------------------------------
 -- Duration radio helpers
@@ -871,7 +871,7 @@ function AHSell:LayoutBagGrid(sortedCats)
                 btn._craftQuality = item.craftQuality
 
                 -- Crafting quality badge
-                local atlas = GetQualityAtlas(item.craftQuality)
+                local atlas = GetQualityAtlas(item.craftQuality, item.itemID)
                 if atlas then
                     btn.qualityBadge:SetAtlas(atlas)
                     btn.qualityBadge:Show()
@@ -1012,7 +1012,7 @@ function AHSell:SelectBagItem(btn)
 
     -- Crafting quality badge
     if itemQualityBadge then
-        local atlas = GetQualityAtlas(btn._craftQuality)
+        local atlas = GetQualityAtlas(btn._craftQuality, btn._itemID)
         if atlas then
             itemQualityBadge:SetAtlas(atlas)
             itemQualityBadge:Show()
@@ -1120,7 +1120,7 @@ function AHSell:AcceptCursorItem()
 
     -- Crafting quality badge (drag-drop path)
     if itemQualityBadge then
-        local cqAtlas = GetQualityAtlas(GetCraftingQuality(itemID))
+        local cqAtlas = GetQualityAtlas(GetCraftingQuality(itemID), itemID)
         if cqAtlas then
             itemQualityBadge:SetAtlas(cqAtlas)
             itemQualityBadge:Show()
@@ -1284,7 +1284,7 @@ function AHSell:RefreshCommodityListings(itemID)
 
             -- Quality badge (commodity = all same tier from sellItemID)
             local cq = GetCraftingQuality(itemID)
-            local qa = GetQualityAtlas(cq)
+            local qa = GetQualityAtlas(cq, itemID)
             if qa and row.qualityIcon then
                 row.qualityIcon:SetAtlas(qa)
                 row.qualityIcon:Show()
@@ -1356,7 +1356,7 @@ function AHSell:RefreshItemListings(itemKey)
 
             -- Quality badge (item search = same itemKey, same quality)
             local iq = GetCraftingQuality(itemKey and itemKey.itemID)
-            local iqa = GetQualityAtlas(iq)
+            local iqa = GetQualityAtlas(iq, itemKey and itemKey.itemID)
             if iqa and row.qualityIcon then
                 row.qualityIcon:SetAtlas(iqa)
                 row.qualityIcon:Show()

@@ -338,6 +338,22 @@ local function CreateMainFrame()
     else
         mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     end
+
+    -- Shift-click item anywhere → switch to Browse tab + search
+    hooksecurefunc("HandleModifiedItemClick", function(link)
+        if not mainFrame:IsShown() then return end
+        if not link then return end
+        local name = C_Item.GetItemNameByID(link) or link:match("%[(.-)%]")
+        if name then
+            -- Switch to Browse tab, populate search, fire
+            if tabBar then tabBar:Select("browse") end
+            AHUI:SelectTab("browse")
+            if ns.AHBrowse then
+                ns.AHBrowse:SetSearchText(name)
+                ns.AHBrowse:DoSearch()
+            end
+        end
+    end)
 end
 
 --------------------------------------------------------------------

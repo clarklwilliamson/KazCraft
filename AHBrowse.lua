@@ -1115,16 +1115,7 @@ function AHBrowse:Init(contentFrame)
         AHBrowse:DoSearch()
     end)
 
-    -- Shift-click item → extract name, populate search, auto-fire
-    hooksecurefunc("HandleModifiedItemClick", function(link)
-        if not searchBox:IsVisible() then return end
-        if not link then return end
-        local name = C_Item.GetItemNameByID(link) or link:match("%[(.-)%]")
-        if name then
-            searchBox:SetText(name)
-            AHBrowse:DoSearch()
-        end
-    end)
+    -- Shift-click item → handled at AHUI level (switches to Browse tab if needed)
 
     -- Filter button
     filterBtn = ns.CreateButton(container, "Filter", 66, 24)
@@ -1306,6 +1297,14 @@ end
 
 function AHBrowse:IsShown()
     return container and container:IsShown()
+end
+
+-- Set search text and fire search (called by AHUI HandleModifiedItemClick hook)
+function AHBrowse:SetSearchText(text)
+    if searchBox then
+        searchBox:SetText(text or "")
+        searchBox:ClearFocus()
+    end
 end
 
 --------------------------------------------------------------------

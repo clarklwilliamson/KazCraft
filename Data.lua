@@ -348,10 +348,10 @@ function Data:GetMaterialList(charKey)
         mat.have = C_Item.GetItemCount(itemID, true, false, true, true)
         mat.short = math.max(0, mat.need - mat.have)
 
-        -- TSM price via KazCraft's standalone reader (or TSM_API fallback)
+        -- Price: live cache first, TSM fallback
         mat.price = 0
-        if ns.TSMData then
-            local price = ns.TSMData:GetPrice(itemID, "DBMinBuyout")
+        if ns.PriceCache then
+            local price = ns.PriceCache:GetBestPrice(itemID)
             if price then
                 mat.price = price
             end
@@ -410,6 +410,46 @@ function Data:HasCraftSimQueue()
     if not CS or not CS.CRAFTQ or not CS.CRAFTQ.craftQueue then return false end
     local items = CS.CRAFTQ.craftQueue.craftQueueItems
     return items and #items > 0
+end
+
+-- ============================================================================
+-- PriceCache — persistent live AH prices, TSM fallback
+-- ============================================================================
+ns.PriceCache = {}
+local PriceCache = ns.PriceCache
+
+function PriceCache:SetPrice(itemID, price)
+    if not itemID or not price or price <= 0 then return end
+    KazCraftDB.priceCache[itemID] = { p = price, t = time() }
+end
+
+function PriceCache:GetPrice(itemID, maxAge)
+    maxAge = maxAge or 3600
+    local entry = KazCraftDB.priceCache and KazCraftDB.priceCache[itemID]
+    if entry and (time() - entry.t) <= maxAge then
+        return entry.p
+    end
+    return nil
+end
+
+function PriceCache:GetBestPrice(itemID)
+    local cached = self:GetPrice(itemID)
+    if cached then return cached, "live" end
+    if ns.TSMData then
+        local tsm = ns.TSMData:GetPrice(itemID, "DBMinBuyout")
+        if tsm and tsm > 0 then return tsm, "tsm" end
+    end
+    return nil, nil
+end
+
+function PriceCache:GetSellPrice(itemID)
+    local cached = self:GetPrice(itemID)
+    if cached then return cached, "live" end
+    if ns.TSMData then
+        local tsm = ns.TSMData:GetPrice(itemID, "DBMarket")
+        if tsm and tsm > 0 then return tsm, "tsm" end
+    end
+    return nil, nil
 end
 
 -- ============================================================================

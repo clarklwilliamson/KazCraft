@@ -12,6 +12,7 @@ local DB_DEFAULTS = {
     version = 1,
     queues = {},
     recipeCache = {},
+    priceCache = {},
     profPosition = {},
     ahPosition = {},
     profSize = nil,

@@ -618,6 +618,7 @@ function AHShop:ShowListings(itemID)
     local firstResult = C_AuctionHouse.GetCommoditySearchResultInfo(itemID, 1)
     if firstResult and firstResult.unitPrice then
         livePrices[itemID] = firstResult.unitPrice
+        ns.PriceCache:SetPrice(itemID, firstResult.unitPrice)
     end
 end
 
@@ -657,6 +658,7 @@ function AHShop:OnCommoditySearchResults(eventItemID)
 
     -- Store live price
     livePrices[targetItemID] = result.unitPrice
+    ns.PriceCache:SetPrice(targetItemID, result.unitPrice)
 
     -- Update matching material row price
     for _, r in ipairs(matRows) do

@@ -363,7 +363,7 @@ local function CreateRecipeRow(parent, index)
     row:SetScript("OnEnter", function(self)
         self.bg:SetColorTexture(unpack(ns.COLORS.rowHover))
         self.leftAccent:Show()
-        if self.recipeID and IsShiftKeyDown() then
+        if self.recipeID and not IsShiftKeyDown() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetRecipeResultItem(self.recipeID)
             GameTooltip:Show()
@@ -381,9 +381,9 @@ local function CreateRecipeRow(parent, index)
         GameTooltip:Hide()
     end)
     row:SetScript("OnUpdate", function(self)
-        if GameTooltip:IsOwned(self) and not IsShiftKeyDown() then
+        if GameTooltip:IsOwned(self) and IsShiftKeyDown() then
             GameTooltip:Hide()
-        elseif not GameTooltip:IsOwned(self) and self.recipeID and IsShiftKeyDown() and self:IsMouseOver() then
+        elseif not GameTooltip:IsOwned(self) and self.recipeID and not IsShiftKeyDown() and self:IsMouseOver() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetRecipeResultItem(self.recipeID)
             GameTooltip:Show()
@@ -568,6 +568,17 @@ local function UpdateRecipeRow(row, entry, index)
         end
 
         row:SetScript("OnClick", function()
+            -- Shift-click: put recipe name in search box (like Blizzard professions)
+            if IsShiftKeyDown() and searchBox then
+                local info = C_TradeSkillUI.GetRecipeInfo(entry.recipeID)
+                local name = info and info.name or entry.name
+                if name then
+                    searchBox:SetText(name)
+                    searchBox:SetCursorPosition(0)
+                    searchBox:ClearFocus()
+                end
+                return
+            end
             if CloseProfessionsItemFlyout then
                 pcall(CloseProfessionsItemFlyout)
             end
@@ -967,7 +978,7 @@ local function CreateReagentRow(parent, index)
 
     row:EnableMouse(true)
     row:SetScript("OnEnter", function(self)
-        if self.itemID and IsShiftKeyDown() then
+        if self.itemID and not IsShiftKeyDown() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetItemByID(self.itemID)
             GameTooltip:Show()
@@ -977,9 +988,9 @@ local function CreateReagentRow(parent, index)
         GameTooltip:Hide()
     end)
     row:SetScript("OnUpdate", function(self)
-        if GameTooltip:IsOwned(self) and not IsShiftKeyDown() then
+        if GameTooltip:IsOwned(self) and IsShiftKeyDown() then
             GameTooltip:Hide()
-        elseif not GameTooltip:IsOwned(self) and self.itemID and IsShiftKeyDown() and self:IsMouseOver() then
+        elseif not GameTooltip:IsOwned(self) and self.itemID and not IsShiftKeyDown() and self:IsMouseOver() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetItemByID(self.itemID)
             GameTooltip:Show()
@@ -1022,7 +1033,7 @@ local function CreateReagentSlotBox(parent, index)
 
     box:SetScript("OnEnter", function(self)
         self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
-        if IsShiftKeyDown() then
+        if not IsShiftKeyDown() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             if self.itemID then
                 GameTooltip:SetItemByID(self.itemID)
@@ -1038,9 +1049,9 @@ local function CreateReagentSlotBox(parent, index)
         GameTooltip:Hide()
     end)
     box:SetScript("OnUpdate", function(self)
-        if GameTooltip:IsOwned(self) and not IsShiftKeyDown() then
+        if GameTooltip:IsOwned(self) and IsShiftKeyDown() then
             GameTooltip:Hide()
-        elseif not GameTooltip:IsOwned(self) and IsShiftKeyDown() and self:IsMouseOver() then
+        elseif not GameTooltip:IsOwned(self) and not IsShiftKeyDown() and self:IsMouseOver() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             if self.itemID then
                 GameTooltip:SetItemByID(self.itemID)
@@ -1104,13 +1115,13 @@ local function CreateRightPanel(parent)
     detail.icon:SetSize(32, 32)
     detail.icon:SetPoint("TOPLEFT", detail.nameText, "BOTTOMLEFT", 0, -6)
 
-    -- Invisible overlay for Shift-tooltip on the recipe output icon
+    -- Invisible overlay for tooltip on the recipe output icon (Shift hides)
     detail.iconBtn = CreateFrame("Button", nil, detailFrame)
     detail.iconBtn:SetAllPoints(detail.icon)
     detail.iconBtn:SetFrameLevel(detailFrame:GetFrameLevel() + 5)
     detail.iconBtn.recipeID = nil
     detail.iconBtn:SetScript("OnEnter", function(self)
-        if self.recipeID and IsShiftKeyDown() then
+        if self.recipeID and not IsShiftKeyDown() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetRecipeResultItem(self.recipeID)
             GameTooltip:Show()
@@ -1120,9 +1131,9 @@ local function CreateRightPanel(parent)
         GameTooltip:Hide()
     end)
     detail.iconBtn:SetScript("OnUpdate", function(self)
-        if GameTooltip:IsOwned(self) and not IsShiftKeyDown() then
+        if GameTooltip:IsOwned(self) and IsShiftKeyDown() then
             GameTooltip:Hide()
-        elseif not GameTooltip:IsOwned(self) and self.recipeID and IsShiftKeyDown() and self:IsMouseOver() then
+        elseif not GameTooltip:IsOwned(self) and self.recipeID and not IsShiftKeyDown() and self:IsMouseOver() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetRecipeResultItem(self.recipeID)
             GameTooltip:Show()
@@ -2246,7 +2257,7 @@ function ProfRecipes:RefreshDetail()
                 end
                 outBox:SetScript("OnEnter", function(self)
                     self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
-                    if IsShiftKeyDown() then
+                    if not IsShiftKeyDown() then
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                         if self.itemLink then
                             GameTooltip:SetHyperlink(self.itemLink)
@@ -2963,19 +2974,19 @@ function ProfRecipes:RefreshDetail()
     -- ── SIM Panel ──
     ProfRecipes:RefreshSimPanel(schematic, lastAnchor)
 
-    -- TSM cost / profit — hide when sim panel is active (sim has better data)
-    local hasTSM = ns.TSMData and ns.TSMData:IsAvailable()
+    -- Cost / profit — hide when sim panel is active (sim has better data)
+    local hasPricing = ns.PriceCache ~= nil
     if detail.simFrame:IsShown() then
-        hasTSM = false -- sim panel handles cost/profit display
+        hasPricing = false -- sim panel handles cost/profit display
     end
-    if hasTSM and schematic then
+    if hasPricing and schematic then
         -- Get the crafted item
         local outputItemID = schematic.outputItemID
         local craftCost, sellValue
 
         -- Market sell value
         if outputItemID then
-            sellValue = ns.TSMData:GetPrice(outputItemID, "DBMarket")
+            sellValue = ns.PriceCache:GetSellPrice(outputItemID)
         end
 
         -- Crafting cost: sum reagent costs
@@ -2989,7 +3000,7 @@ function ProfRecipes:RefreshDetail()
                     if reagents and reagents[1] then
                         local rItemID = reagents[1].itemID
                         if rItemID then
-                            local val = ns.TSMData:GetPrice(rItemID, "DBMinBuyout")
+                            local val = ns.PriceCache:GetBestPrice(rItemID)
                             if val and val > 0 then
                                 total = total + (val * qty)
                             else
@@ -3401,9 +3412,9 @@ function ProfRecipes:RefreshSimResults()
         detail.simSkillText:SetText("Skill: —")
     end
 
-    -- Craft cost — prefer our TSM data over CraftSim's stale priceData
+    -- Craft cost — prefer our live price cache over CraftSim's stale priceData
     local craftCost
-    if ns.TSMData and ns.TSMData:IsAvailable() and currentSchematic and currentSchematic.reagentSlotSchematics then
+    if ns.PriceCache and currentSchematic and currentSchematic.reagentSlotSchematics then
         local total = 0
         local missing = false
         for _, slot in ipairs(currentSchematic.reagentSlotSchematics) do
@@ -3413,7 +3424,7 @@ function ProfRecipes:RefreshSimResults()
                 if reagents and reagents[1] then
                     local rItemID = reagents[1].itemID
                     if rItemID then
-                        local val = ns.TSMData:GetPrice(rItemID, "DBMinBuyout")
+                        local val = ns.PriceCache:GetBestPrice(rItemID)
                         if val and val > 0 then
                             total = total + (val * qty)
                         else
@@ -3436,12 +3447,12 @@ function ProfRecipes:RefreshSimResults()
         detail.simCostText:SetText("Cost: —")
     end
 
-    -- Profit — use our TSM sell value when available
+    -- Profit — use our live price cache when available
     local sellValue
-    if ns.TSMData and ns.TSMData:IsAvailable() and currentSchematic then
+    if ns.PriceCache and currentSchematic then
         local outputItemID = currentSchematic.outputItemID
         if outputItemID then
-            sellValue = ns.TSMData:GetPrice(outputItemID, "DBMarket")
+            sellValue = ns.PriceCache:GetSellPrice(outputItemID)
         end
     end
     if craftCost and sellValue then

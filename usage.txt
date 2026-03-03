@@ -8,12 +8,27 @@ Profession Frame:
   Tabs: Recipes | Specializations | Crafting Orders
   Recipes tab:
     Left panel: search, filters (Have Mats / Skill Up / First Craft), category tree
-    Right panel: recipe detail, reagents (have/need), quality, craft controls, queue
+    Right panel: recipe detail, reagents (have/need), quality, craft controls
+    +Queue button: queue recipe with auto sub-recipe detection
+    CraftSim spec info panel: shows which spec nodes affect selected recipe
+    Profession equipment slots: tool + accessories with tooltip hover
+  Specializations tab:
+    Auto-pack grid layout with connection lines
+    Node states: locked, selectable, available, progress, maxed
+    Apply Changes + Undo buttons
+  Crafting Orders tab:
+    Patron/Guild/Public/Personal order browsing
+    Unlearned recipe detection with source info
+    CraftSim craft queue embed with claim→craft→complete flow
   Footer: materials cost, Craft Next button
   "WoW UI" button switches back to Blizzard frame
 
 AH Frame:
   Tabs: Shop | Browse | Sell | Auctions
+  Shop: per-alt material list, live AH price scan, Buy All
+  Browse: search + results + detail panel, commodity confirm dialog
+  Sell: drag item, auto-price (match lowest), deposit calc, post
+  Auctions: My Auctions / My Bids, cancel auction
   "WoW UI" button switches back to Blizzard AH
 
 Commands:
@@ -21,9 +36,11 @@ Commands:
   /kc list            Print current crafting queue
   /kc clear           Clear crafting queue for current character
   /kc shop            Print cross-character shopping list (materials needed)
+  /kc farm            Open gathering list (raw materials across all queues)
   /kc help            Show all commands
 
   /kaz craft          Same as /kc
+  /kaz gathering      Same as /kc farm
 
 Keyboard:
   ESC                 Close window

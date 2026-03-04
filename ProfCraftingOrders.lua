@@ -954,13 +954,12 @@ local function CreateDetailPanel(parent)
     content.craftOrderBtn:Hide()
     content.craftOrderBtn:SetScript("OnClick", function()
         if not orderTransaction or not selectedOrder then return end
-        local reagentTbl = {}
-        if orderTransaction.CreateCraftingReagentInfoTbl then
-            local allReagents = orderTransaction:CreateCraftingReagentInfoTbl()
-            for _, info in ipairs(allReagents) do
-                table.insert(reagentTbl, info)
-            end
+        -- Only send crafter-provided modified reagents (Blizzard's CraftOrder predicate)
+        local predicate = function(reagentTbl, slotIndex)
+            return reagentTbl.reagentSlotSchematic.dataSlotType == Enum.TradeskillSlotDataType.ModifiedReagent
+                and not orderCustomerSlots[slotIndex]
         end
+        local reagentTbl = orderTransaction:CreateCraftingReagentInfoTblIf(predicate)
         local applyConc = content.concCheck:GetChecked()
         print("|cffc8aa64KazCraft:|r Crafting order", selectedOrder.orderID, "conc:", applyConc)
         C_TradeSkillUI.CraftRecipe(selectedOrder.spellID, 1, reagentTbl, nil, selectedOrder.orderID, applyConc)

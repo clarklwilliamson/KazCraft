@@ -919,6 +919,28 @@ local function CreateDetailPanel(parent)
     content.orderConcText:SetTextColor(unpack(ns.COLORS.mutedText))
     content.orderConcText:Hide()
 
+    -- ── Use Best Quality checkbox (claimed order) ──
+    local useBestDefault = Professions.ShouldAllocateBestQualityReagents and
+                           Professions.ShouldAllocateBestQualityReagents() or true
+    content.useBestCheck = KazGUI:CreateCheckbox(content, "Use Best Quality", useBestDefault, function(checked)
+        if not orderTransaction or not selectedOrder then return end
+        -- Re-allocate basic reagents with new quality preference
+        pcall(Professions.AllocateAllBasicReagents, orderTransaction, checked)
+        -- Re-apply customer-provided reagent overrides
+        for _, rd in ipairs(selectedOrder.reagents or {}) do
+            if rd.slotIndex and rd.reagentInfo and orderCustomerSlots[rd.slotIndex] then
+                local allocs = orderTransaction:GetAllocations(rd.slotIndex)
+                if allocs then
+                    if not rd.isBasicReagent then allocs:Clear() end
+                    allocs:Allocate(rd.reagentInfo.reagent, rd.reagentInfo.quantity)
+                end
+            end
+        end
+        -- Refresh display
+        ProfOrders:RefreshDetail()
+    end)
+    content.useBestCheck:Hide()
+
     -- ── Concentration checkbox + Craft button (claimed order) ──
     content.concCheck = KazGUI:CreateCheckbox(content, "Use Concentration", false, function()
         -- Re-run crafting operation info when concentration toggled
@@ -2379,6 +2401,7 @@ function ProfOrders:RefreshDetail()
     content.orderQualityText:Hide()
     content.orderSkillText:Hide()
     content.orderConcText:Hide()
+    content.useBestCheck:Hide()
     content.concCheck:Hide()
     content.craftOrderBtn:Hide()
     for i = 1, MAX_ORDER_OPTIONAL_SLOTS do orderOptSlotFrames[i]:Hide() end
@@ -2559,7 +2582,12 @@ function ProfOrders:RefreshDetail()
             content.orderConcText:Show()
             slotsY = slotsY - 20
 
-            -- Concentration checkbox + Craft button
+            -- Use Best Quality + Concentration checkboxes + Craft button
+            content.useBestCheck:ClearAllPoints()
+            content.useBestCheck:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+            content.useBestCheck:Show()
+            slotsY = slotsY - 20
+
             content.concCheck:ClearAllPoints()
             content.concCheck:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
             content.concCheck:Show()
@@ -2810,6 +2838,7 @@ function ProfOrders:ClearDetail()
         content.orderQualityText:Hide()
         content.orderSkillText:Hide()
         content.orderConcText:Hide()
+        content.useBestCheck:Hide()
         content.concCheck:Hide()
         content.craftOrderBtn:Hide()
         for i = 1, MAX_ORDER_OPTIONAL_SLOTS do orderOptSlotFrames[i]:Hide() end

@@ -2459,12 +2459,12 @@ function ProfOrders:RefreshDetail()
                                     item:ContinueOnItemLoad(function()
                                         rr.icon:SetTexture(item:GetItemIcon())
                                         local name = item:GetItemName() or ""
-                                        -- Show quality tier from the slot
+                                        -- Show quality pip from the slot
                                         local qualIdx = nil
                                         for qi, r in ipairs(entry.slot.reagents) do
                                             if r.itemID == reagent.itemID then qualIdx = qi; break end
                                         end
-                                        local qStr = qualIdx and (" R" .. qualIdx) or ""
+                                        local qStr = qualIdx and (" " .. ns.GetQualityMarkup(qualIdx)) or ""
                                         rr.nameText:SetText(name .. qStr)
                                         rr.qtyText:SetText("x" .. qty)
                                     end)

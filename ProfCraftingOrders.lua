@@ -972,6 +972,58 @@ local function CreateCraftSimPanel(parent)
         row.statusText:SetFont(ns.FONT, 9, "")
         row.statusText:SetJustifyH("CENTER")
 
+        -- Tooltip on hover — show required reagents with have/need
+        row:EnableMouse(true)
+        row:SetScript("OnEnter", function(self)
+            self.bg:SetColorTexture(unpack(ns.COLORS.rowHover))
+            local csItem = self._csItem
+            if not csItem or not csItem.recipeData then return end
+            local rd = csItem.recipeData
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:AddLine(rd.recipeName or "?", 1, 0.82, 0)
+            -- Reagent slots from CraftSim recipeData
+            local reagentData = rd.reagentData
+            if reagentData and reagentData.requiredReagents then
+                for _, slot in ipairs(reagentData.requiredReagents) do
+                    if slot.items and #slot.items > 0 then
+                        local reagentItem = slot.items[1]  -- first quality tier
+                        local itemID = reagentItem.item and reagentItem.item:GetItemID() or nil
+                        local name = itemID and (C_Item.GetItemNameByID(itemID) or ("Item " .. itemID)) or "?"
+                        local required = slot.requiredQuantity or 0
+                        local have = itemID and C_Item.GetItemCount(itemID, true, false, true, true) or 0
+                        -- Check if order provides this reagent
+                        local orderProvides = false
+                        if rd.orderData and rd.orderData.reagents then
+                            for _, oReag in ipairs(rd.orderData.reagents) do
+                                if oReag.reagent and oReag.reagent.itemID == itemID and (oReag.source == Enum.CraftingOrderReagentSource.Customer or oReag.source == 2) then
+                                    orderProvides = true
+                                    break
+                                end
+                            end
+                        end
+                        if orderProvides then
+                            GameTooltip:AddDoubleLine(name, have .. "/" .. required .. " (provided)", 0.5, 0.8, 1, 0.5, 0.8, 1)
+                        elseif have >= required then
+                            GameTooltip:AddDoubleLine(name, have .. "/" .. required, 0.2, 1, 0.2, 0.2, 1, 0.2)
+                        else
+                            GameTooltip:AddDoubleLine(name, have .. "/" .. required .. " NEED " .. (required - have), 1, 0.3, 0.3, 1, 0.3, 0.3)
+                        end
+                    end
+                end
+            end
+            GameTooltip:Show()
+        end)
+        row:SetScript("OnLeave", function(self)
+            local idx = self._rowIndex
+            if idx and idx % 2 == 0 then
+                self.bg:SetColorTexture(1, 1, 1, 0.03)
+            else
+                self.bg:SetColorTexture(0, 0, 0, 0)
+            end
+            GameTooltip:Hide()
+        end)
+
+        row._rowIndex = i
         row:Hide()
         craftSimQueueRows[i] = row
     end
@@ -1253,6 +1305,7 @@ function ProfOrders:RefreshCraftSimQueue()
 
         if item then
             row:Show()
+            row._csItem = item  -- store for tooltip
             local rd = item.recipeData
             if rd then
                 local amt = item.amount or 1
@@ -1371,6 +1424,7 @@ function ProfOrders:RefreshCraftSimQueue()
                 row.statusText:SetText("")
             end
         else
+            row._csItem = nil
             row:Hide()
         end
     end

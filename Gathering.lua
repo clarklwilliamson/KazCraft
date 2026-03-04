@@ -107,23 +107,33 @@ local function RefreshGatheringList()
     for _, mat in ipairs(materialData) do
         local isCrafted = false
         -- Check item subclass: Trade Goods > Parts (7,1) = crafted intermediate
+        -- BUT only if we actually know the recipe to craft it
         local _, _, _, _, _, _, _, _, _, _, _, classID, subclassID = C_Item.GetItemInfo(mat.itemID)
-        if classID == 7 and subclassID == 1 then
-            isCrafted = true
+        if classID == 7 and subclassID == 1 and ns.itemToRecipe then
+            local subRecipeID = ns.itemToRecipe[mat.itemID]
+            if subRecipeID then
+                local recipeInfo = C_TradeSkillUI.GetRecipeInfo(subRecipeID)
+                if recipeInfo and recipeInfo.learned then
+                    isCrafted = true
+                end
+            end
         end
         -- Check if this item is output of a recipe that's ALSO queued (sub-craft)
         if not isCrafted and ns.itemToRecipe then
             local subRecipeID = ns.itemToRecipe[mat.itemID]
             if subRecipeID then
                 -- Only filter if we're actually crafting this item (it's queued)
-                for _, queue in pairs(KazCraftDB.queues) do
-                    for _, entry in ipairs(queue) do
-                        if entry.recipeID == subRecipeID then
-                            isCrafted = true
-                            break
+                local recipeInfo = C_TradeSkillUI.GetRecipeInfo(subRecipeID)
+                if recipeInfo and recipeInfo.learned then
+                    for _, queue in pairs(KazCraftDB.queues) do
+                        for _, entry in ipairs(queue) do
+                            if entry.recipeID == subRecipeID then
+                                isCrafted = true
+                                break
+                            end
                         end
+                        if isCrafted then break end
                     end
-                    if isCrafted then break end
                 end
             end
         end

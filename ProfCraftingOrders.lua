@@ -2735,6 +2735,12 @@ function ProfOrders:OnEvent(event, ...)
         if result == Enum.CraftingOrderResult.Ok then
             pendingClaimRetry = nil
             print("|cffc8aa64KazCraft:|r Order claimed!")
+            -- Ensure selectedOrder stays valid — server will remove it from browse list
+            local ok, claimed = pcall(C_CraftingOrders.GetClaimedOrder)
+            if ok and claimed then
+                claimedOrder = claimed
+                selectedOrder = claimed
+            end
             self:UpdateActionButtons()
             self:UpdateClaimCapacity()
             self:RefreshDetail()
@@ -2766,8 +2772,13 @@ function ProfOrders:OnEvent(event, ...)
         end
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_ADDED" then
-        -- Refresh to show the claimed state + reagent slots
-        self:RequestOrders(true)
+        -- Preserve claimed order as selected — server removes it from browse list
+        local ok, claimed = pcall(C_CraftingOrders.GetClaimedOrder)
+        if ok and claimed then
+            claimedOrder = claimed
+            selectedOrder = claimed
+        end
+        self:RefreshList()
         self:RefreshDetail()
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_REMOVED" then

@@ -1787,7 +1787,9 @@ local function CreateRightPanel(parent)
         end
 
         ns.Data:QueueWithSubRecipes(selectedRecipeID, qty)
-        if ns.ProfessionUI and ns.ProfessionUI:IsShown() then
+        local queue = ns.Data:GetCharacterQueue()
+        print("|cffc8aa64KazCraft:|r +Queue: added", qty, "x recipeID:", selectedRecipeID, "— queue now has", #queue, "entries. ProfUI shown:", ns.ProfessionUI and ns.ProfessionUI:IsShown() or false)
+        if ns.ProfessionUI then
             ns.ProfessionUI:RefreshAll()
         end
         if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end

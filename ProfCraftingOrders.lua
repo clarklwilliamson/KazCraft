@@ -1012,9 +1012,11 @@ local function CreateCraftSimPanel(parent)
         if HasCraftSim() then
             CraftSimLib.CRAFTQ:QueueWorkOrders()
             -- CraftSim populates queue async — refresh several times to catch it
+            ProfOrders:RefreshCraftSimQueue()
             C_Timer.After(0.3, function() ProfOrders:RefreshCraftSimQueue() end)
             C_Timer.After(0.8, function() ProfOrders:RefreshCraftSimQueue() end)
             C_Timer.After(1.5, function() ProfOrders:RefreshCraftSimQueue() end)
+            if ns.ProfessionUI and ns.ProfessionUI:IsShown() then ns.ProfessionUI:RefreshAll() end
         end
     end)
 
@@ -1023,7 +1025,14 @@ local function CreateCraftSimPanel(parent)
     f.shopListBtn:SetPoint("LEFT", f.queueWorkBtn, "RIGHT", btnGap, 0)
     f.shopListBtn:SetScript("OnClick", function()
         if HasCraftSim() then
+            local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
+            print("|cffc8aa64KazCraft:|r Shopping List clicked — CraftSim queue has", #items, "items")
             CraftSimLib.CRAFTQ:CreateAuctionatorShoppingList()
+            ProfOrders:RefreshCraftSimQueue()
+            C_Timer.After(0.5, function() ProfOrders:RefreshCraftSimQueue() end)
+            C_Timer.After(1.5, function() ProfOrders:RefreshCraftSimQueue() end)
+            -- Also refresh KC's own queue panel if visible
+            if ns.ProfessionUI and ns.ProfessionUI:IsShown() then ns.ProfessionUI:RefreshAll() end
         end
     end)
 
@@ -1033,7 +1042,9 @@ local function CreateCraftSimPanel(parent)
     f.clearBtn:SetScript("OnClick", function()
         if HasCraftSim() then
             CraftSimLib.CRAFTQ:ClearAll()
+            ProfOrders:RefreshCraftSimQueue()
             C_Timer.After(0.2, function() ProfOrders:RefreshCraftSimQueue() end)
+            if ns.ProfessionUI and ns.ProfessionUI:IsShown() then ns.ProfessionUI:RefreshAll() end
         end
     end)
 

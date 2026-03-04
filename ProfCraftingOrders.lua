@@ -2367,11 +2367,13 @@ function ProfOrders:RefreshDetail()
 
                 content.orderOptFrame:ClearAllPoints()
                 content.orderOptFrame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+                content.orderOptFrame:SetPoint("RIGHT", content, "RIGHT", 0, 0)
                 content.orderOptFrame:Show()
 
                 for i, entry in ipairs(orderOptionalSlots) do
                     if i > MAX_ORDER_OPTIONAL_SLOTS then break end
                     local box = orderOptSlotFrames[i]
+                    box:ClearAllPoints()
                     box:SetPoint("TOPLEFT", content.orderOptFrame, "TOPLEFT", (i - 1) * (ORDER_SLOT_BOX_SIZE + ORDER_SLOT_BOX_SPACING), 0)
                     SetupOrderSlotBox(box, entry.slotIndex, entry.slot, orderTransaction, orderCustomerSlots[entry.slotIndex])
                 end
@@ -2392,11 +2394,13 @@ function ProfOrders:RefreshDetail()
 
                 content.orderFinFrame:ClearAllPoints()
                 content.orderFinFrame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+                content.orderFinFrame:SetPoint("RIGHT", content, "RIGHT", 0, 0)
                 content.orderFinFrame:Show()
 
                 for i, entry in ipairs(orderFinishingSlots) do
                     if i > MAX_ORDER_FINISHING_SLOTS then break end
                     local box = orderFinSlotFrames[i]
+                    box:ClearAllPoints()
                     box:SetPoint("TOPLEFT", content.orderFinFrame, "TOPLEFT", (i - 1) * (ORDER_SLOT_BOX_SIZE + ORDER_SLOT_BOX_SPACING), 0)
                     SetupOrderSlotBox(box, entry.slotIndex, entry.slot, orderTransaction, orderCustomerSlots[entry.slotIndex])
                 end

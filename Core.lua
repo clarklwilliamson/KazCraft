@@ -59,13 +59,27 @@ local PASSTHROUGH_PROFESSIONS = {
     [2950] = true,  -- Alchemy Research (Midnight cauldron)
 }
 
+-- Debug logging (toggle with /kc debug)
+ns.debugMode = false
+function ns.DebugLog(...)
+    if not ns.debugMode then return end
+    local parts = {}
+    for i = 1, select("#", ...) do
+        parts[i] = tostring(select(i, ...))
+    end
+    print("|cffc8aa64[KC]|r " .. table.concat(parts, " "))
+end
+
 function handlers.TRADE_SKILL_SHOW()
+    local prevProf = ns.currentProfName
     SetCharKey()
 
     -- Determine profession name
     local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
     ns.currentProfInfo = profInfo
     ns.currentProfName = profInfo and profInfo.professionName or "Unknown"
+    ns.DebugLog("TRADE_SKILL_SHOW:", ns.currentProfName, "prev:", tostring(prevProf),
+        "profID:", profInfo and profInfo.professionID or "nil")
 
     -- Let Blizzard handle mini-professions (cauldron menus, etc.)
     if profInfo and PASSTHROUGH_PROFESSIONS[profInfo.professionID] then
@@ -84,6 +98,7 @@ function handlers.TRADE_SKILL_SHOW()
 end
 
 function handlers.TRADE_SKILL_CLOSE()
+    ns.DebugLog("TRADE_SKILL_CLOSE — was:", tostring(ns.currentProfName))
     if ns.ProfFrame then
         ns.ProfFrame:OnTradeSkillClose()
     end
@@ -91,16 +106,20 @@ function handlers.TRADE_SKILL_CLOSE()
 end
 
 function handlers.TRADE_SKILL_LIST_UPDATE()
+    ns.DebugLog("TRADE_SKILL_LIST_UPDATE")
     if ns.ProfFrame then
         ns.ProfFrame:OnTradeSkillListUpdate()
     end
 end
 
 function handlers.TRADE_SKILL_DATA_SOURCE_CHANGED()
+    local prevProf = ns.currentProfName
     SetCharKey()
     local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
     ns.currentProfInfo = profInfo
     ns.currentProfName = profInfo and profInfo.professionName or "Unknown"
+    ns.DebugLog("DATA_SOURCE_CHANGED:", ns.currentProfName, "prev:", tostring(prevProf),
+        "profID:", profInfo and profInfo.professionID or "nil")
     ns.Data:CacheAllRecipes(profInfo)
     if ns.ProfFrame then
         ns.ProfFrame:OnTradeSkillDataSourceChanged()
@@ -409,6 +428,10 @@ SlashCmdList["KAZCRAFT"] = function(msg)
     elseif msg == "gathering" or msg == "gather" or msg == "farm" then
         ns.Gathering:Toggle()
 
+    elseif msg == "debug" then
+        ns.debugMode = not ns.debugMode
+        print("|cffc8aa64KazCraft:|r Debug " .. (ns.debugMode and "|cff00ff00ON|r" or "|cffff6666OFF|r"))
+
     elseif msg == "help" then
         print("|cffc8aa64KazCraft:|r Commands:")
         print("  /kc — toggle panel")
@@ -416,6 +439,7 @@ SlashCmdList["KAZCRAFT"] = function(msg)
         print("  /kc clear — clear queue")
         print("  /kc shop — print shopping list")
         print("  /kc gathering — gathering list window")
+        print("  /kc debug — toggle debug logging")
     else
         print("|cffc8aa64KazCraft:|r Unknown command. /kc help for usage.")
     end

@@ -601,9 +601,10 @@ function ProfFrame:Show()
         CreateMainFrame()
     end
 
+    ns.DebugLog("ProfFrame:Show — prof:", ns.currentProfName)
     UpdateTopBar()
 
-    -- Select Recipes tab
+    -- Select Recipes tab (clean slate on profession open)
     if tabBar then
         tabBar:Select("recipes")
     end
@@ -763,18 +764,21 @@ function ProfFrame:ToggleExpansionMenu(anchorBtn)
         end)
         row:SetScript("OnClick", function()
             expansionMenu:Hide()
+            ns.DebugLog("Expansion switch →", info.expansionName, "profID:", info.professionID)
+            -- Immediate visual feedback — server hasn't responded yet but update what we can
+            if topBar.expBtnText then
+                topBar.expBtnText:SetText(info.expansionName or "?")
+                topBar.expBtn:SetWidth(topBar.expBtnText:GetStringWidth() + topBar.expBtnArrow:GetStringWidth() + 8)
+            end
+            if topBar.nameText then
+                topBar.nameText:SetText((info.expansionName or "") .. " " .. (ns.currentProfName or ""))
+            end
+            -- Load cached recipe list for instant visual swap (server refresh overwrites on arrival)
+            if ns.ProfRecipes then
+                ns.ProfRecipes:LoadCachedRecipeList(info.professionID)
+            end
             C_TradeSkillUI.SetProfessionChildSkillLineID(info.professionID)
-            -- Immediate refresh so UI feels instant (event also fires later)
-            C_Timer.After(0.05, function()
-                if ProfFrame:IsShown() then
-                    UpdateTopBar()
-                    ProfFrame:RefreshRecipeList(true)
-                    -- Refresh spec tree for new expansion
-                    if ns.ProfSpecs and ns.ProfSpecs:IsShown() then
-                        ns.ProfSpecs:Refresh()
-                    end
-                end
-            end)
+            -- DATA_SOURCE_CHANGED + TRADE_SKILL_LIST_UPDATE fire after server responds with full refresh
         end)
 
         y = y - ROW_H
@@ -822,17 +826,41 @@ end
 
 function ProfFrame:OnTradeSkillClose()
     if switchingToKazCraft then return end  -- ignore close during switch-back
+    -- Spellbook profession switch fires SHOW (new) BEFORE CLOSE (old).
+    -- If profOpen is true, Show() already ran for the new profession — don't hide it.
+    if profOpen then return end
     self:Hide()
 end
 
 function ProfFrame:OnTradeSkillListUpdate()
+    if not self:IsShown() then return end
+    -- LIST_UPDATE fires after server sends the full recipe list (e.g. after expansion switch).
+    -- Update top bar here too — GetChildProfessionInfo is now accurate.
+    UpdateTopBar()
     self:RefreshRecipeList()
 end
 
 function ProfFrame:OnTradeSkillDataSourceChanged()
     if not self:IsShown() then return end
+    ns.DebugLog("DATA_SOURCE_CHANGED — activeTab:", activeTab, "prof:", ns.currentProfName)
     UpdateTopBar()
-    self:RefreshRecipeList(true)
+    self:UpdateEquipmentSlots()
+    -- Full refresh of active tab — profession or expansion changed
+    if activeTab == "recipes" then
+        if ns.ProfRecipes then
+            ns.ProfRecipes:RefreshRecipeList(true)
+            ns.ProfRecipes:RefreshDetail()
+        end
+    elseif activeTab == "specs" then
+        if ns.ProfSpecs then
+            ns.ProfSpecs:Show()  -- re-checks HasSpecialization, re-renders tree
+        end
+    elseif activeTab == "orders" then
+        if ns.ProfOrders and ns.ProfOrders.Refresh then
+            ns.ProfOrders:Refresh()
+        end
+    end
+    UpdateOrdersTabColor()
 end
 
 function ProfFrame:OnCraftBegin()
@@ -852,8 +880,13 @@ end
 
 function ProfFrame:OnCraftStopped()
     if ns.ProfRecipes then
+        local wasCrafting = ns.ProfRecipes:IsCrafting()
         ns.ProfRecipes:SetCrafting(false)
         ns.ProfRecipes:RefreshDetail()
+        -- Flash "Craft failed" if we were actually in the middle of crafting
+        if wasCrafting then
+            ns.ProfRecipes:ShowCraftFailed()
+        end
     end
     UpdateTopBar()
     self:UpdateFooter()

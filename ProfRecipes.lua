@@ -30,6 +30,7 @@ local reagentRows = {}
 
 -- Data
 local displayList = {}      -- flattened list: { type, depth, catID, recipeID, info, collapsed, ... }
+local displayListCache = {}  -- childProfID → shallow copy of displayList
 local selectedRecipeID = nil
 local scrollOffset = 0
 local isCrafting = false
@@ -1820,6 +1821,13 @@ local function CreateRightPanel(parent)
         end
     end)
 
+    -- Craft status text (next to +Queue — shows "Not enough materials" / "Craft failed")
+    detail.craftStatus = detail.controlFrame:CreateFontString(nil, "OVERLAY")
+    detail.craftStatus:SetFont(ns.FONT, 11, "")
+    detail.craftStatus:SetPoint("LEFT", detail.queueBtn, "RIGHT", 8, 0)
+    detail.craftStatus:SetTextColor(1, 0.3, 0.3)
+    detail.craftStatus:Hide()
+
     -- No-selection message
     detail.emptyText = detailFrame:CreateFontString(nil, "OVERLAY")
     detail.emptyText:SetFont(ns.FONT, 14, "")
@@ -1846,6 +1854,13 @@ end
 function ProfRecipes:RefreshRecipeList(resetScroll)
     if not initialized then return end
     BuildDisplayList()
+    -- Cache display list per expansion for instant switching
+    local childProfInfo = C_TradeSkillUI.GetChildProfessionInfo()
+    if childProfInfo and childProfInfo.professionID and #displayList > 0 then
+        local copy = {}
+        for i, entry in ipairs(displayList) do copy[i] = entry end
+        displayListCache[childProfInfo.professionID] = copy
+    end
     if resetScroll then
         scrollOffset = 0
     else
@@ -1853,6 +1868,16 @@ function ProfRecipes:RefreshRecipeList(resetScroll)
         scrollOffset = math.max(0, math.min(scrollOffset, math.max(0, #displayList - MAX_VISIBLE_ROWS)))
     end
     self:RefreshRows()
+end
+
+function ProfRecipes:LoadCachedRecipeList(childProfID)
+    local cached = displayListCache[childProfID]
+    if not cached or #cached == 0 then return false end
+    wipe(displayList)
+    for i, entry in ipairs(cached) do displayList[i] = entry end
+    scrollOffset = 0
+    self:RefreshRows()
+    return true
 end
 
 --------------------------------------------------------------------
@@ -2049,13 +2074,28 @@ function ProfRecipes:RefreshDetail()
     detail.favBtn:Show()
 
     -- Sync Best Quality checkbox with global setting
+    -- Force off for no-quality-output recipes (higher tier reagents = wasted gold)
     local useBest = KazCraftDB and KazCraftDB.settings and KazCraftDB.settings.useBestQuality
+    if not info.supportsQualities then useBest = false end
     if detail.bestQualCheck then
         detail.bestQualCheck:SetChecked(useBest and true or false)
+        detail.bestQualCheck:SetEnabled(info.supportsQualities and true or false)
+        detail.bestQualCheck:SetAlpha(info.supportsQualities and 1 or 0.4)
     end
 
     local info = C_TradeSkillUI.GetRecipeInfo(selectedRecipeID)
-    if not info then return end
+    if not info then
+        -- Recipe not valid in current profession context — clear stale selection
+        ns.DebugLog("RefreshDetail: GetRecipeInfo returned nil for", selectedRecipeID, "— clearing stale selection")
+        selectedRecipeID = nil
+        detail.emptyText:Show()
+        detail.favBtn:Hide()
+        detail.nameText:SetText("")
+        detail.icon:SetTexture(nil)
+        detail.controlFrame:Hide()
+        detail.simFrame:Hide()
+        return
+    end
 
     -- Name
     detail.nameText:SetText(info.name or "?")
@@ -3058,16 +3098,17 @@ function ProfRecipes:RefreshDetail()
     -- Craft controls (pinned to bottom, just show/hide)
     detail.controlFrame:Show()
 
-    -- Craft All label
-    local craftable = info.numAvailable or 0
+    -- Craft All label — use GetCraftableCount for live accuracy (GetRecipeInfo.numAvailable can be stale)
+    local craftable = C_TradeSkillUI.GetCraftableCount(selectedRecipeID) or 0
     if craftable > 0 then
         detail.craftAllBtn.label:SetText("Craft All: " .. craftable)
     else
         detail.craftAllBtn.label:SetText("Craft All")
     end
 
-    -- Enable/disable craft buttons
-    if isCrafting then
+    -- Enable/disable craft buttons + status text
+    local disableCraft = isCrafting or craftable == 0
+    if disableCraft then
         detail.craftBtn:Disable()
         detail.craftAllBtn:Disable()
         detail.craftBtn.label:SetTextColor(unpack(ns.COLORS.mutedText))
@@ -3077,6 +3118,48 @@ function ProfRecipes:RefreshDetail()
         detail.craftAllBtn:Enable()
         detail.craftBtn.label:SetTextColor(unpack(ns.COLORS.ctrlText))
         detail.craftAllBtn.label:SetTextColor(unpack(ns.COLORS.ctrlText))
+    end
+
+    -- Show reason text when buttons are disabled (but not during active crafting)
+    if detail.craftStatus then
+        if not isCrafting and craftable == 0 then
+            -- Figure out WHY we can't craft
+            local reason
+            local nearTable = true
+            if C_TradeSkillUI.IsNearProfessionSpellFocus and info.profession then
+                local ok, result = pcall(C_TradeSkillUI.IsNearProfessionSpellFocus, info.profession)
+                if ok then nearTable = result end
+            end
+            if not nearTable then
+                reason = "Need a crafting table"
+            elseif info.disabled then
+                reason = "Recipe unavailable"
+            else
+                -- Check each reagent to see if it's actually a material shortage
+                local hasMats = true
+                if currentSchematic and currentSchematic.reagentSlotSchematics then
+                    for _, slot in ipairs(currentSchematic.reagentSlotSchematics) do
+                        if slot.reagentType == Enum.CraftingReagentType.Basic then
+                            local total = 0
+                            for _, item in ipairs(slot.reagents) do
+                                total = total + C_Item.GetItemCount(item.itemID, true, false, true, true)
+                            end
+                            if total < slot.quantityRequired then
+                                hasMats = false
+                                break
+                            end
+                        end
+                    end
+                end
+                reason = hasMats and "Cannot craft right now" or "Not enough materials"
+            end
+            detail.craftStatus:SetText(reason)
+            detail.craftStatus:SetTextColor(1, 0.3, 0.3)
+            detail.craftStatus:Show()
+        elseif not isCrafting then
+            detail.craftStatus:Hide()
+        end
+        -- During isCrafting, leave status as-is (might show "Craft failed" from flash)
     end
 
 end
@@ -3585,10 +3668,13 @@ end
 
 function ProfRecipes:Show()
     if not initialized then return end
-    -- Restore last selected recipe
+    -- Restore last selected recipe for current profession
     if not selectedRecipeID and KazCraftDB and ns.currentProfName then
         if type(KazCraftDB.lastRecipeID) ~= "table" then KazCraftDB.lastRecipeID = {} end
         selectedRecipeID = KazCraftDB.lastRecipeID[ns.currentProfName]
+        ns.DebugLog("Recipes:Show restored recipeID:", tostring(selectedRecipeID), "for:", ns.currentProfName)
+    else
+        ns.DebugLog("Recipes:Show — selectedRecipeID:", tostring(selectedRecipeID), "prof:", ns.currentProfName)
     end
     leftPanel:Show()
     rightPanel:Show()
@@ -3616,6 +3702,7 @@ function ProfRecipes:Hide()
     if CloseProfessionsItemFlyout then
         pcall(CloseProfessionsItemFlyout)
     end
+    selectedRecipeID = nil
     currentTransaction = nil
     currentSchematic = nil
     lastTransactionRecipeID = nil
@@ -3640,16 +3727,35 @@ function ProfRecipes:IsCrafting()
 end
 
 function ProfRecipes:SetCrafting(crafting)
+    local wasCrafting = isCrafting
     isCrafting = crafting
     if detail.craftBtn then
         if crafting then
             detail.craftBtn:Disable()
             detail.craftAllBtn:Disable()
         else
-            detail.craftBtn:Enable()
-            detail.craftAllBtn:Enable()
+            -- Re-check material availability before re-enabling
+            local craftable = selectedRecipeID and (C_TradeSkillUI.GetCraftableCount(selectedRecipeID) or 0) or 0
+            if craftable > 0 then
+                detail.craftBtn:Enable()
+                detail.craftAllBtn:Enable()
+            end
+            -- RefreshDetail() will set proper colors + status text
         end
     end
+end
+
+function ProfRecipes:ShowCraftFailed()
+    if not detail.craftStatus then return end
+    detail.craftStatus:SetText("Craft failed")
+    detail.craftStatus:SetTextColor(1, 0.3, 0.3)
+    detail.craftStatus:Show()
+    -- Auto-hide after 3 seconds
+    C_Timer.After(3, function()
+        if detail.craftStatus and detail.craftStatus:GetText() == "Craft failed" then
+            detail.craftStatus:Hide()
+        end
+    end)
 end
 
 function ProfRecipes:OnResize()

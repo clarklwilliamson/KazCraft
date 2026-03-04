@@ -68,6 +68,9 @@ local expectMoreRows = false
 local currentOffset = 0         -- pagination offset for server requests
 local isLoading = false
 local pendingInitialRequest = false
+local pendingClaimRetry = nil     -- { orderID, profEnum, attempts } for auto-retry on timeout
+local MAX_CLAIM_RETRIES = 3
+local CLAIM_RETRY_DELAY = 3       -- seconds between retries
 local primarySort = { sortType = Enum.CraftingOrderSortType.ItemName, reversed = false }
 local secondarySort = { sortType = Enum.CraftingOrderSortType.Tip, reversed = true }
 local searchText = ""
@@ -1079,10 +1082,12 @@ local function CreateCraftSimPanel(parent)
 
         -- No claimed order — find next queue item to claim
         local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
-        for _, item in ipairs(items) do
+        ns.DebugLog("NextClaim: no claimed order, scanning", #items, "queue items")
+        for idx, item in ipairs(items) do
             local rd = item.recipeData
             if rd and rd.orderData then
-                pcall(C_CraftingOrders.ClaimOrder, rd.orderData.orderID, profession)
+                print("|cffc8aa64KazCraft:|r NextClaim: orderID:", rd.orderData.orderID, "prof:", profession, "(item", idx, ")")
+                C_CraftingOrders.ClaimOrder(rd.orderData.orderID, profession)
                 C_Timer.After(1, function() ProfOrders:RefreshCraftSimQueue() end)
                 return
             elseif rd and (item.allowedToCraft or item.canCraftOnce) then
@@ -1217,6 +1222,14 @@ function ProfOrders:RefreshCraftSimQueue()
     end
 
     local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
+
+    -- Recalculate craft status (ensure fresh data regardless of CraftSim's own refresh)
+    for _, item in ipairs(items) do
+        if item.CalculateCanCraft then
+            pcall(item.CalculateCanCraft, item)
+        end
+    end
+
     local totalProfit = 0
     local totalCost = 0
     local totalItems = #items
@@ -1388,30 +1401,48 @@ function ProfOrders:RefreshCraftSimQueue()
     end
 end
 
-local craftSimLastCount = 0
+local craftSimLastFingerprint = ""
+
+-- Build a lightweight fingerprint of the CraftSim queue state (count + amounts + claimed order)
+local function GetQueueFingerprint()
+    if not HasCraftSim() then return "nil" end
+    local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
+    local parts = { tostring(#items) }
+    for i, item in ipairs(items) do
+        parts[#parts + 1] = tostring(item.amount or 0)
+        -- Include craftable status so state changes (claim/craft/fulfill) trigger refresh
+        parts[#parts + 1] = item.allowedToCraft and "1" or "0"
+    end
+    -- Include claimed order state
+    local claimed = C_CraftingOrders.GetClaimedOrder and C_CraftingOrders.GetClaimedOrder()
+    parts[#parts + 1] = claimed and tostring(claimed.orderID) or "n"
+    parts[#parts + 1] = claimed and (claimed.isFulfillable and "f" or "c") or ""
+    return table.concat(parts, ":")
+end
 
 local function ShowCraftSimQueue()
     if not craftSimPanel then return false end
     if HasCraftSim() then
         craftSimPanel:Show()
         ProfOrders:RefreshCraftSimQueue()
-        -- Poll for external queue changes (CraftSim buttons, etc.)
-        craftSimLastCount = #(CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {})
+        craftSimLastFingerprint = GetQueueFingerprint()
+        -- Poll for external queue changes — 0.5s, fingerprint-based (catches count, amounts, status changes)
         craftSimPanel:SetScript("OnUpdate", function(self, elapsed)
             self._pollElapsed = (self._pollElapsed or 0) + elapsed
-            if self._pollElapsed < 2 then return end
+            if self._pollElapsed < 0.5 then return end
             self._pollElapsed = 0
             if not HasCraftSim() then return end
-            local curCount = #(CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {})
-            if curCount ~= craftSimLastCount then
-                craftSimLastCount = curCount
+            local fp = GetQueueFingerprint()
+            if fp ~= craftSimLastFingerprint then
+                craftSimLastFingerprint = fp
+                ns.DebugLog("CraftSim queue changed — refreshing")
                 ProfOrders:RefreshCraftSimQueue()
             end
         end)
-        -- Hide CraftSim's own floating CraftQueue window to avoid duplication
-        if CraftSimLib.CRAFTQ.frame and CraftSimLib.CRAFTQ.frame.frame then
-            CraftSimLib.CRAFTQ.frame.frame:Hide()
-        end
+        -- DEV: Keep CraftSim's floating queue visible for debugging
+        -- if CraftSimLib.CRAFTQ.frame and CraftSimLib.CRAFTQ.frame.frame then
+        --     CraftSimLib.CRAFTQ.frame.frame:Hide()
+        -- end
         return true
     else
         craftSimPanel:Show()
@@ -1616,10 +1647,12 @@ function ProfOrders:RequestOrders(force)
         end),
     }
 
+    ns.DebugLog("RequestOrders: type:", activeOrderType, "prof:", professionEnum, "force:", force, "ability:", selectedAbility)
     local ok, err = pcall(C_CraftingOrders.RequestCrafterOrders, request)
     if not ok then
         isLoading = false
         leftPanel.loadingText:Hide()
+        print("|cffc8aa64KazCraft:|r RequestOrders pcall FAILED:", tostring(err))
         leftPanel.emptyText:SetText("Error requesting orders")
         leftPanel.emptyText:Show()
     end
@@ -1632,8 +1665,14 @@ function ProfOrders:OnOrdersReceived(result, orderType, useBuckets, moreRows, of
     isLoading = false
     leftPanel.loadingText:Hide()
 
+    local resultName = tostring(result)
+    for k, v in pairs(Enum.CraftingOrderResult) do
+        if v == result then resultName = k break end
+    end
+    print("|cffc8aa64KazCraft:|r OrdersReceived:", resultName, "type:", tostring(orderType), "buckets:", tostring(useBuckets), "more:", tostring(moreRows))
+
     if result ~= Enum.CraftingOrderResult.Ok then
-        leftPanel.emptyText:SetText("Failed to load orders")
+        leftPanel.emptyText:SetText("Failed to load orders (" .. resultName .. ")")
         leftPanel.emptyText:Show()
         currentOrders = {}
         self:RefreshList()
@@ -1650,6 +1689,8 @@ function ProfOrders:OnOrdersReceived(result, orderType, useBuckets, moreRows, of
         local ok, orders = pcall(C_CraftingOrders.GetCrafterOrders)
         currentOrders = ok and orders or {}
     end
+
+    print("|cffc8aa64KazCraft:|r Got", #currentOrders, (useBuckets and "buckets" or "orders"))
 
     scrollOffset = 0
     self:FilterAndRefreshList()
@@ -1675,6 +1716,23 @@ function ProfOrders:FilterAndRefreshList()
             if name:lower():find(needle, 1, true) then
                 table.insert(filteredOrders, order)
             end
+        end
+    end
+
+    -- Fallback: if patron tab is empty, inject CraftSim patron queue items
+    if #filteredOrders == 0 and activeOrderType == Enum.CraftingOrderType.Npc and HasCraftSim() then
+        local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
+        for _, item in ipairs(items) do
+            local rd = item.recipeData
+            if rd and rd.orderData then
+                -- orderData is a full CraftingOrderInfo from Blizzard — inject directly
+                local order = rd.orderData
+                order._fromCraftSimQueue = true  -- flag for visual indicator
+                table.insert(filteredOrders, order)
+            end
+        end
+        if #filteredOrders > 0 then
+            displayBuckets = false  -- patron orders are flat, not bucketed
         end
     end
 
@@ -1710,7 +1768,11 @@ function ProfOrders:RefreshList()
                 row.icon:Hide()
             end
 
-            row.nameText:SetText(GetItemName(itemID))
+            local nameStr = GetItemName(itemID)
+            if data._fromCraftSimQueue then
+                nameStr = "|cff44aaff[Q]|r " .. nameStr
+            end
+            row.nameText:SetText(nameStr)
 
             if displayBuckets then
                 -- Bucket view
@@ -2127,23 +2189,31 @@ end
 --------------------------------------------------------------------
 function ProfOrders:OnClaimOrStart()
     local order = selectedOrder
-    if not order or not professionEnum then return end
+    if not order or not professionEnum then
+        ns.DebugLog("ClaimOrStart: BAIL — selectedOrder:", selectedOrder ~= nil, "professionEnum:", professionEnum)
+        print("|cffc8aa64KazCraft:|r Claim bail — order:", selectedOrder ~= nil, "prof:", professionEnum)
+        return
+    end
+
+    ns.DebugLog("ClaimOrStart: orderID:", order.orderID, "spellID:", order.spellID, "profEnum:", professionEnum, "fromCS:", order._fromCraftSimQueue)
 
     -- Check if this order is already claimed by us
     if claimedOrder and claimedOrder.orderID == order.orderID then
         -- Start crafting — open the recipe in Blizzard's schematic form
         -- The user crafts via normal profession UI, then comes back to fulfill
+        ns.DebugLog("ClaimOrStart: already claimed, opening recipe", order.spellID)
         if order.spellID then
             C_TradeSkillUI.OpenRecipe(order.spellID)
         end
         return
     end
 
-    -- Claim the order
-    local ok, err = pcall(C_CraftingOrders.ClaimOrder, order.orderID, professionEnum)
-    if not ok then
-        print("|cffc8aa64KazCraft:|r Failed to claim order: " .. tostring(err))
-    end
+    -- Claim the order — MUST call directly (no pcall) to preserve hardware event context
+    -- HasRestrictions=true on ClaimOrder requires unbroken hardware event chain
+    local freshProf = C_TradeSkillUI.GetChildProfessionInfo()
+    local profEnum = freshProf and freshProf.profession or professionEnum
+    print("|cffc8aa64KazCraft:|r Claiming orderID:", order.orderID, "prof:", profEnum, "(direct call, no pcall)")
+    C_CraftingOrders.ClaimOrder(order.orderID, profEnum)
 end
 
 function ProfOrders:OnDeclineOrRelease()
@@ -2183,12 +2253,43 @@ function ProfOrders:OnEvent(event, ...)
 
     if event == "CRAFTINGORDERS_CLAIM_ORDER_RESPONSE" then
         local result, orderID = ...
+        -- Resolve result name
+        local resultName = "unknown"
+        for k, v in pairs(Enum.CraftingOrderResult) do
+            if v == result then resultName = k break end
+        end
+        print("|cffc8aa64KazCraft:|r CLAIM_RESPONSE:", resultName, "(code", tostring(result) .. ") orderID:", tostring(orderID))
+
         if result == Enum.CraftingOrderResult.Ok then
+            pendingClaimRetry = nil
             print("|cffc8aa64KazCraft:|r Order claimed!")
             self:UpdateActionButtons()
             self:UpdateClaimCapacity()
+        elseif result == 45 then
+            -- Timeout — auto-retry
+            if pendingClaimRetry and pendingClaimRetry.orderID == orderID then
+                pendingClaimRetry.attempts = pendingClaimRetry.attempts + 1
+            else
+                pendingClaimRetry = { orderID = orderID, profEnum = professionEnum, attempts = 1 }
+            end
+            if pendingClaimRetry.attempts <= MAX_CLAIM_RETRIES then
+                local attempt = pendingClaimRetry.attempts
+                local retryID = pendingClaimRetry.orderID
+                local retryProf = pendingClaimRetry.profEnum
+                print("|cffc8aa64KazCraft:|r Timeout — retry", attempt .. "/" .. MAX_CLAIM_RETRIES, "in", CLAIM_RETRY_DELAY .. "s...")
+                C_Timer.After(CLAIM_RETRY_DELAY, function()
+                    if pendingClaimRetry and pendingClaimRetry.orderID == retryID then
+                        print("|cffc8aa64KazCraft:|r Retrying claim orderID:", retryID)
+                        pcall(C_CraftingOrders.ClaimOrder, retryID, retryProf)
+                    end
+                end)
+            else
+                print("|cffc8aa64KazCraft:|r Claim timed out after", MAX_CLAIM_RETRIES, "retries. Server may be overloaded.")
+                pendingClaimRetry = nil
+            end
         else
-            print("|cffc8aa64KazCraft:|r Claim failed (code " .. tostring(result) .. ")")
+            pendingClaimRetry = nil
+            print("|cffc8aa64KazCraft:|r Claim failed:", resultName, "(code " .. tostring(result) .. ")")
         end
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_ADDED" then

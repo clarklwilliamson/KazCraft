@@ -2616,8 +2616,24 @@ function ProfOrders:RefreshOrderCraftingDetails()
 
     local applyConc = content.concCheck:GetChecked()
     local reagentInfoTbl = orderTransaction:CreateCraftingReagentInfoTbl() or {}
-    local ok, opInfo = pcall(C_TradeSkillUI.GetCraftingOperationInfo, selectedOrder.spellID, reagentInfoTbl, nil, applyConc)
+    -- Use order-specific API — server knows customer's basic reagent quality
+    local ok, opInfo
+    if selectedOrder.orderID then
+        ok, opInfo = pcall(C_TradeSkillUI.GetCraftingOperationInfoForOrder, selectedOrder.spellID, reagentInfoTbl, selectedOrder.orderID, applyConc)
+    else
+        ok, opInfo = pcall(C_TradeSkillUI.GetCraftingOperationInfo, selectedOrder.spellID, reagentInfoTbl, nil, applyConc)
+    end
     if not ok then opInfo = nil end
+    -- Concentration can make operation fail if cost exceeds available — retry without
+    if not opInfo and applyConc then
+        if selectedOrder.orderID then
+            ok, opInfo = pcall(C_TradeSkillUI.GetCraftingOperationInfoForOrder, selectedOrder.spellID, reagentInfoTbl, selectedOrder.orderID, false)
+        else
+            ok, opInfo = pcall(C_TradeSkillUI.GetCraftingOperationInfo, selectedOrder.spellID, reagentInfoTbl, nil, false)
+        end
+        if not ok then opInfo = nil end
+        if opInfo then content.concCheck:SetChecked(false) end
+    end
 
     if opInfo then
         -- Quality pips

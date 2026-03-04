@@ -1,4 +1,5 @@
 local addonName, ns = ...
+local KazGUI = LibStub("KazGUILib-1.0")
 
 local ProfOrders = {}
 ns.ProfOrders = ProfOrders
@@ -14,6 +15,10 @@ local SEARCH_HEIGHT = 26
 local DETAIL_ICON_SIZE = 40
 local REAGENT_ROW_HEIGHT = 22
 local REAGENT_ICON_SIZE = 18
+local ORDER_SLOT_BOX_SIZE = 40
+local ORDER_SLOT_BOX_SPACING = 6
+local MAX_ORDER_OPTIONAL_SLOTS = 5
+local MAX_ORDER_FINISHING_SLOTS = 3
 
 -- Order type tab definitions
 local ORDER_TYPES = {
@@ -75,6 +80,14 @@ local primarySort = { sortType = Enum.CraftingOrderSortType.ItemName, reversed =
 local secondarySort = { sortType = Enum.CraftingOrderSortType.Tip, reversed = true }
 local searchText = ""
 local professionEnum = nil      -- Enum.Profession value
+
+-- Reagent slot state (claimed order crafting)
+local orderTransaction = nil
+local orderOptionalSlots = {}   -- {slotIndex, slot} entries
+local orderFinishingSlots = {}  -- {slotIndex, slot} entries
+local orderCustomerSlots = {}   -- slotIndex → true (customer-provided, read-only)
+local orderOptSlotFrames = {}
+local orderFinSlotFrames = {}
 
 -- Event frame
 local eventFrame
@@ -489,6 +502,170 @@ local function CreateScrollBar(parent, listFrame)
 end
 
 --------------------------------------------------------------------
+-- Order reagent slot box (for optional/finishing reagent selection)
+--------------------------------------------------------------------
+local function CreateOrderSlotBox(parent, index)
+    local box = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    box:SetSize(ORDER_SLOT_BOX_SIZE, ORDER_SLOT_BOX_SIZE)
+    box:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeSize = 1,
+    })
+    box:SetBackdropColor(8/255, 8/255, 8/255, 1)
+    box:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+    box:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+    box.icon = box:CreateTexture(nil, "ARTWORK")
+    box.icon:SetSize(32, 32)
+    box.icon:SetPoint("CENTER")
+    box.icon:Hide()
+
+    box.plusText = box:CreateFontString(nil, "OVERLAY")
+    box.plusText:SetFont(ns.FONT, 18, "")
+    box.plusText:SetPoint("CENTER")
+    box.plusText:SetText("+")
+    box.plusText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+    -- Customer-provided checkmark overlay
+    box.checkmark = box:CreateTexture(nil, "OVERLAY")
+    box.checkmark:SetSize(14, 14)
+    box.checkmark:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -1, 1)
+    box.checkmark:SetAtlas("common-icon-checkmark")
+    box.checkmark:Hide()
+
+    box.slotIndex = nil
+    box.slotSchematic = nil
+    box.itemID = nil
+
+    box:SetScript("OnEnter", function(self)
+        self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if self.itemID then
+            GameTooltip:SetItemByID(self.itemID)
+        elseif self.slotSchematic then
+            GameTooltip:SetText(self.slotSchematic.slotText or "Reagent Slot", 1, 1, 1)
+            if self._isCustomer then
+                GameTooltip:AddLine("Customer-provided", 0.5, 0.8, 1)
+            else
+                GameTooltip:AddLine("Click to select a reagent", 0.7, 0.7, 0.7)
+            end
+        end
+        GameTooltip:Show()
+    end)
+    box:SetScript("OnLeave", function(self)
+        self:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+        GameTooltip:Hide()
+    end)
+
+    box:Hide()
+    return box
+end
+
+local function SetupOrderSlotBox(box, slotIndex, slotSchematic, transaction, isCustomerProvided)
+    box.slotIndex = slotIndex
+    box.slotSchematic = slotSchematic
+    box.itemID = nil
+    box._isCustomer = isCustomerProvided
+
+    -- Check existing allocation
+    local allocs = transaction and transaction:GetAllocations(slotIndex)
+    local firstAlloc = allocs and type(allocs.GetFirstAllocation) == "function" and allocs:GetFirstAllocation()
+
+    if firstAlloc then
+        local reagent = firstAlloc:GetReagent()
+        if reagent and reagent.itemID then
+            box.itemID = reagent.itemID
+            local itemIcon = C_Item.GetItemIconByID(reagent.itemID)
+            if not itemIcon then C_Item.RequestLoadItemDataByID(reagent.itemID) end
+            box.icon:SetTexture(itemIcon or 134400)
+            box.icon:SetDesaturated(isCustomerProvided or false)
+            box.icon:Show()
+            box.plusText:Hide()
+        else
+            box.icon:Hide()
+            box.plusText:Show()
+        end
+    else
+        box.icon:Hide()
+        box.plusText:Show()
+    end
+
+    -- Customer-provided: locked, show checkmark
+    box.checkmark:SetShown(isCustomerProvided or false)
+
+    if isCustomerProvided then
+        box:SetAlpha(0.7)
+        box:SetScript("OnClick", nil)
+    else
+        box:SetAlpha(1)
+        box:SetScript("OnClick", function(self, button)
+            if button == "RightButton" then
+                if transaction and transaction:HasAnyAllocations(slotIndex) then
+                    transaction:ClearAllocations(slotIndex)
+                    ProfOrders:RefreshDetail()
+                end
+                return
+            end
+
+            -- Left click — open Blizzard flyout
+            if not transaction or not slotSchematic then return end
+            if not CreateProfessionsMCRFlyout then return end
+
+            if self._flyoutOpen then
+                if CloseProfessionsItemFlyout then CloseProfessionsItemFlyout() end
+                self._flyoutOpen = false
+                return
+            end
+            if CloseProfessionsItemFlyout then CloseProfessionsItemFlyout() end
+
+            local fakeSlot = {
+                IsOriginalReagentSet = function() return true end,
+                GetOriginalReagent = function() return nil end,
+                SetReagent = function() end,
+                ClearReagent = function() end,
+                RestoreOriginalReagent = function() end,
+                GetReagentSlotSchematic = function() return slotSchematic end,
+                GetSlotIndex = function() return slotIndex end,
+                IsUnallocatable = function() return false end,
+                Button = self,
+            }
+
+            local behavior = CreateProfessionsMCRFlyout(transaction, slotSchematic, fakeSlot)
+            local flyout = OpenProfessionsItemFlyout(self, detailFrame, behavior)
+
+            if flyout then
+                flyout:SetFrameStrata("TOOLTIP")
+                flyout:SetFrameLevel(900)
+                self._flyoutOpen = true
+
+                local ownerBox = self
+                flyout:HookScript("OnHide", function()
+                    ownerBox._flyoutOpen = false
+                end)
+
+                local function OnFlyoutItemSelected(o, f, elementData)
+                    local reagent = elementData.reagent
+                    if not reagent then return end
+                    local qtyReq = 1
+                    if type(slotSchematic.GetQuantityRequired) == "function" then
+                        local ok, val = pcall(slotSchematic.GetQuantityRequired, slotSchematic, reagent)
+                        if ok and val then qtyReq = val end
+                    else
+                        qtyReq = slotSchematic.quantityRequired or 1
+                    end
+                    transaction:OverwriteAllocation(slotIndex, reagent, qtyReq)
+                    ProfOrders:RefreshDetail()
+                end
+                flyout:RegisterCallback(ProfessionsFlyoutMixin.Event.ItemSelected, OnFlyoutItemSelected, self)
+            end
+        end)
+    end
+
+    box:Show()
+end
+
+--------------------------------------------------------------------
 -- Detail panel
 --------------------------------------------------------------------
 local function CreateDetailPanel(parent)
@@ -652,6 +829,62 @@ local function CreateDetailPanel(parent)
         rr:Hide()
         content.reagentRows[i] = rr
     end
+
+    -- ── Optional Reagents (claimed order) ──
+    content.orderOptHeader = content:CreateFontString(nil, "OVERLAY")
+    content.orderOptHeader:SetFont(ns.FONT, 10, "")
+    content.orderOptHeader:SetText("OPTIONAL REAGENTS")
+    content.orderOptHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    content.orderOptHeader:Hide()
+
+    content.orderOptFrame = CreateFrame("Frame", nil, content)
+    content.orderOptFrame:SetHeight(ORDER_SLOT_BOX_SIZE)
+    content.orderOptFrame:SetPoint("LEFT", content, "LEFT", 0, 0)
+    content.orderOptFrame:SetPoint("RIGHT", content, "RIGHT", 0, 0)
+    content.orderOptFrame:Hide()
+
+    for i = 1, MAX_ORDER_OPTIONAL_SLOTS do
+        orderOptSlotFrames[i] = CreateOrderSlotBox(content.orderOptFrame, i)
+    end
+
+    -- ── Finishing Reagents (claimed order) ──
+    content.orderFinHeader = content:CreateFontString(nil, "OVERLAY")
+    content.orderFinHeader:SetFont(ns.FONT, 10, "")
+    content.orderFinHeader:SetText("FINISHING REAGENTS")
+    content.orderFinHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    content.orderFinHeader:Hide()
+
+    content.orderFinFrame = CreateFrame("Frame", nil, content)
+    content.orderFinFrame:SetHeight(ORDER_SLOT_BOX_SIZE)
+    content.orderFinFrame:SetPoint("LEFT", content, "LEFT", 0, 0)
+    content.orderFinFrame:SetPoint("RIGHT", content, "RIGHT", 0, 0)
+    content.orderFinFrame:Hide()
+
+    for i = 1, MAX_ORDER_FINISHING_SLOTS do
+        orderFinSlotFrames[i] = CreateOrderSlotBox(content.orderFinFrame, i)
+    end
+
+    -- ── Concentration checkbox + Craft button (claimed order) ──
+    content.concCheck = KazGUI:CreateCheckbox(content, "Use Concentration", false)
+    content.concCheck:Hide()
+
+    content.craftOrderBtn = ns.CreateButton(content, "Craft", 80, 26)
+    content.craftOrderBtn:Hide()
+    content.craftOrderBtn:SetScript("OnClick", function()
+        if not orderTransaction or not selectedOrder then return end
+        -- Build reagent table: only include crafter-provided optional/finishing slots
+        local reagentTbl = {}
+        if orderTransaction.CreateCraftingReagentInfoTbl then
+            local allReagents = orderTransaction:CreateCraftingReagentInfoTbl()
+            for _, info in ipairs(allReagents) do
+                -- Include all — the transaction already knows customer vs crafter allocations
+                table.insert(reagentTbl, info)
+            end
+        end
+        local applyConc = content.concCheck:GetChecked()
+        print("|cffc8aa64KazCraft:|r Crafting order", selectedOrder.orderID, "conc:", applyConc)
+        C_TradeSkillUI.CraftRecipe(selectedOrder.spellID, 1, reagentTbl, nil, selectedOrder.orderID, applyConc)
+    end)
 
     -- Customer notes
     content.notesLabel = content:CreateFontString(nil, "OVERLAY")
@@ -2072,8 +2305,125 @@ function ProfOrders:RefreshDetail()
         end
     end
 
+    -- ── Optional / Finishing reagent slots (claimed orders only) ──
+    local isClaimed = claimedOrder and claimedOrder.orderID == order.orderID
+    local slotsY = self:GetNotesAnchorY(#reagents)
+    local showedSlots = false
+
+    -- Hide all slot UI by default
+    content.orderOptHeader:Hide()
+    content.orderOptFrame:Hide()
+    content.orderFinHeader:Hide()
+    content.orderFinFrame:Hide()
+    content.concCheck:Hide()
+    content.craftOrderBtn:Hide()
+    for i = 1, MAX_ORDER_OPTIONAL_SLOTS do orderOptSlotFrames[i]:Hide() end
+    for i = 1, MAX_ORDER_FINISHING_SLOTS do orderFinSlotFrames[i]:Hide() end
+
+    if isClaimed and order.spellID and not order.isFulfillable then
+        -- Build transaction if not already created for this order
+        if not orderTransaction or orderTransaction._orderID ~= order.orderID then
+            local ok, schematic = pcall(function()
+                return ProfessionsUtil.GetRecipeSchematic(order.spellID, false)
+            end)
+            if ok and schematic then
+                orderTransaction = CreateProfessionsRecipeTransaction(schematic)
+                orderTransaction._orderID = order.orderID
+
+                -- Pre-populate customer reagents
+                wipe(orderCustomerSlots)
+                for _, rd in ipairs(order.reagents or {}) do
+                    if rd.slotIndex and rd.reagentInfo then
+                        local allocs = orderTransaction:GetAllocations(rd.slotIndex)
+                        if allocs then
+                            allocs:Allocate(rd.reagentInfo.reagent, rd.reagentInfo.quantity)
+                        end
+                        if rd.source == Enum.CraftingOrderReagentSource.Customer or rd.source == 2 then
+                            orderCustomerSlots[rd.slotIndex] = true
+                        end
+                    end
+                end
+
+                -- Classify slots into optional/finishing
+                wipe(orderOptionalSlots)
+                wipe(orderFinishingSlots)
+                for slotIndex, slot in ipairs(schematic.reagentSlotSchematics) do
+                    if slot.reagentType == Enum.CraftingReagentType.Modifying then
+                        table.insert(orderOptionalSlots, {slotIndex = slotIndex, slot = slot})
+                    elseif slot.reagentType == Enum.CraftingReagentType.Finishing then
+                        table.insert(orderFinishingSlots, {slotIndex = slotIndex, slot = slot})
+                    end
+                end
+            end
+        end
+
+        if orderTransaction then
+            -- Render optional slots
+            if #orderOptionalSlots > 0 then
+                content.orderOptHeader:ClearAllPoints()
+                content.orderOptHeader:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+                content.orderOptHeader:Show()
+                slotsY = slotsY - 14
+
+                content.orderOptFrame:ClearAllPoints()
+                content.orderOptFrame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+                content.orderOptFrame:Show()
+
+                for i, entry in ipairs(orderOptionalSlots) do
+                    if i > MAX_ORDER_OPTIONAL_SLOTS then break end
+                    local box = orderOptSlotFrames[i]
+                    box:SetPoint("TOPLEFT", content.orderOptFrame, "TOPLEFT", (i - 1) * (ORDER_SLOT_BOX_SIZE + ORDER_SLOT_BOX_SPACING), 0)
+                    SetupOrderSlotBox(box, entry.slotIndex, entry.slot, orderTransaction, orderCustomerSlots[entry.slotIndex])
+                end
+                for i = #orderOptionalSlots + 1, MAX_ORDER_OPTIONAL_SLOTS do
+                    orderOptSlotFrames[i]:Hide()
+                end
+
+                slotsY = slotsY - ORDER_SLOT_BOX_SIZE - 8
+                showedSlots = true
+            end
+
+            -- Render finishing slots
+            if #orderFinishingSlots > 0 then
+                content.orderFinHeader:ClearAllPoints()
+                content.orderFinHeader:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+                content.orderFinHeader:Show()
+                slotsY = slotsY - 14
+
+                content.orderFinFrame:ClearAllPoints()
+                content.orderFinFrame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+                content.orderFinFrame:Show()
+
+                for i, entry in ipairs(orderFinishingSlots) do
+                    if i > MAX_ORDER_FINISHING_SLOTS then break end
+                    local box = orderFinSlotFrames[i]
+                    box:SetPoint("TOPLEFT", content.orderFinFrame, "TOPLEFT", (i - 1) * (ORDER_SLOT_BOX_SIZE + ORDER_SLOT_BOX_SPACING), 0)
+                    SetupOrderSlotBox(box, entry.slotIndex, entry.slot, orderTransaction, orderCustomerSlots[entry.slotIndex])
+                end
+                for i = #orderFinishingSlots + 1, MAX_ORDER_FINISHING_SLOTS do
+                    orderFinSlotFrames[i]:Hide()
+                end
+
+                slotsY = slotsY - ORDER_SLOT_BOX_SIZE - 8
+                showedSlots = true
+            end
+
+            -- Concentration checkbox + Craft button
+            content.concCheck:ClearAllPoints()
+            content.concCheck:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+            content.concCheck:Show()
+            slotsY = slotsY - 24
+
+            content.craftOrderBtn:ClearAllPoints()
+            content.craftOrderBtn:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+            content.craftOrderBtn:Show()
+            slotsY = slotsY - 32
+            showedSlots = true
+        end
+    end
+
     -- Notes
-    local notesY = self:GetNotesAnchorY(#reagents)
+    local notesY = showedSlots and slotsY or self:GetNotesAnchorY(#reagents)
     if order.customerNotes and order.customerNotes ~= "" then
         content.notesLabel:ClearAllPoints()
         content.notesLabel:SetPoint("TOPLEFT", content, "TOPLEFT", 0, notesY)
@@ -2204,6 +2554,10 @@ end
 --------------------------------------------------------------------
 function ProfOrders:ClearDetail()
     selectedOrder = nil
+    orderTransaction = nil
+    wipe(orderOptionalSlots)
+    wipe(orderFinishingSlots)
+    wipe(orderCustomerSlots)
     if not detailFrame then return end
     detailFrame.emptyText:Show()
     detailFrame.content:Hide()
@@ -2211,6 +2565,18 @@ function ProfOrders:ClearDetail()
     detailFrame.declineBtn:Hide()
     detailFrame.fulfillBtn:Hide()
     detailFrame.claimCapText:SetText("")
+    -- Hide slot UI
+    local content = detailFrame.content
+    if content then
+        content.orderOptHeader:Hide()
+        content.orderOptFrame:Hide()
+        content.orderFinHeader:Hide()
+        content.orderFinFrame:Hide()
+        content.concCheck:Hide()
+        content.craftOrderBtn:Hide()
+        for i = 1, MAX_ORDER_OPTIONAL_SLOTS do orderOptSlotFrames[i]:Hide() end
+        for i = 1, MAX_ORDER_FINISHING_SLOTS do orderFinSlotFrames[i]:Hide() end
+    end
 end
 
 --------------------------------------------------------------------
@@ -2296,11 +2662,16 @@ function ProfOrders:OnClaimOrStart()
 
     -- Check if this order is already claimed by us
     if claimedOrder and claimedOrder.orderID == order.orderID then
-        -- Start crafting — open the recipe in Blizzard's schematic form
-        -- The user crafts via normal profession UI, then comes back to fulfill
-        ns.DebugLog("ClaimOrStart: already claimed, opening recipe", order.spellID)
-        if order.spellID then
-            C_TradeSkillUI.OpenRecipe(order.spellID)
+        -- Shift+click = fallback to Blizzard's recipe UI
+        if IsShiftKeyDown() then
+            ns.DebugLog("ClaimOrStart: Shift+click, opening Blizzard recipe UI", order.spellID)
+            if order.spellID then
+                C_TradeSkillUI.OpenRecipe(order.spellID)
+            end
+        else
+            -- Slots are already visible in the detail panel — just scroll to them
+            ns.DebugLog("ClaimOrStart: already claimed, reagent slots visible in detail panel")
+            print("|cffc8aa64KazCraft:|r Use the reagent slots above to add finishing reagents, then click Craft. Shift+click to open Blizzard UI.")
         end
         return
     end
@@ -2395,6 +2766,10 @@ function ProfOrders:OnEvent(event, ...)
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_REMOVED" then
         claimedOrder = nil
+        orderTransaction = nil
+        wipe(orderOptionalSlots)
+        wipe(orderFinishingSlots)
+        wipe(orderCustomerSlots)
         self:UpdateActionButtons()
         self:RequestOrders(true)
 

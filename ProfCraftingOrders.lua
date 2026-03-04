@@ -986,19 +986,32 @@ local function CreateCraftSimPanel(parent)
             if reagentData and reagentData.requiredReagents then
                 for _, slot in ipairs(reagentData.requiredReagents) do
                     if slot.items and #slot.items > 0 then
-                        local reagentItem = slot.items[1]  -- first quality tier
-                        local itemID = reagentItem.item and reagentItem.item:GetItemID() or nil
-                        local name = itemID and (C_Item.GetItemNameByID(itemID) or ("Item " .. itemID)) or "?"
+                        -- Sum have across ALL quality tiers (R1/R2/R3)
+                        local have = 0
+                        local name = nil
+                        local firstItemID = nil
+                        for _, ri in ipairs(slot.items) do
+                            local iid = ri.item and ri.item:GetItemID() or nil
+                            if iid then
+                                if not firstItemID then firstItemID = iid end
+                                if not name then name = C_Item.GetItemNameByID(iid) end
+                                have = have + C_Item.GetItemCount(iid, true, false, true, true)
+                            end
+                        end
+                        name = name or (firstItemID and ("Item " .. firstItemID) or "?")
                         local required = slot.requiredQuantity or 0
-                        local have = itemID and C_Item.GetItemCount(itemID, true, false, true, true) or 0
-                        -- Check if order provides this reagent
+                        -- Check if order provides this reagent (any tier)
                         local orderProvides = false
                         if rd.orderData and rd.orderData.reagents then
                             for _, oReag in ipairs(rd.orderData.reagents) do
-                                if oReag.reagent and oReag.reagent.itemID == itemID and (oReag.source == Enum.CraftingOrderReagentSource.Customer or oReag.source == 2) then
-                                    orderProvides = true
-                                    break
+                                for _, ri in ipairs(slot.items) do
+                                    local iid = ri.item and ri.item:GetItemID() or nil
+                                    if iid and oReag.reagent and oReag.reagent.itemID == iid and (oReag.source == Enum.CraftingOrderReagentSource.Customer or oReag.source == 2) then
+                                        orderProvides = true
+                                        break
+                                    end
                                 end
+                                if orderProvides then break end
                             end
                         end
                         if orderProvides then
@@ -1009,6 +1022,17 @@ local function CreateCraftSimPanel(parent)
                             GameTooltip:AddDoubleLine(name, have .. "/" .. required .. " NEED " .. (required - have), 1, 0.3, 0.3, 1, 0.3, 0.3)
                         end
                     end
+                end
+            end
+            -- Concentration line
+            local concCost = rd.concentrationCost or 0
+            if concCost > 0 then
+                GameTooltip:AddLine(" ")
+                local concHave = rd.concentrationData and rd.concentrationData.amount or 0
+                if concHave >= concCost then
+                    GameTooltip:AddDoubleLine("Concentration", concHave .. "/" .. concCost, 1, 0.82, 0, 0.2, 1, 0.2)
+                else
+                    GameTooltip:AddDoubleLine("Concentration", concHave .. "/" .. concCost .. " NEED " .. (concCost - concHave), 1, 0.82, 0, 1, 0.3, 0.3)
                 end
             end
             GameTooltip:Show()
@@ -1395,7 +1419,11 @@ function ProfOrders:RefreshCraftSimQueue()
                 -- Queued
                 row.queuedText:SetText(tostring(amt))
 
-                -- Status
+                -- Status — check concentration requirement
+                local concCost = rd.concentrationCost or 0
+                local concHave = rd.concentrationData and rd.concentrationData.amount or 0
+                local needsConc = concCost > 0
+
                 if item.allowedToCraft or item.canCraftOnce then
                     if rd.orderData then
                         row.statusText:SetText("|cff33cc33Claim|r")
@@ -1408,6 +1436,10 @@ function ProfOrders:RefreshCraftSimQueue()
                     row.statusText:SetText("|cffcc3333Learn|r")
                 elseif not item.isCrafter then
                     row.statusText:SetText("|cffffff44Alt|r")
+                elseif needsConc and concHave < concCost then
+                    row.statusText:SetText("|cffff8800Conc|r")
+                elseif needsConc then
+                    row.statusText:SetText("|cffffff44Conc|r")
                 else
                     row.statusText:SetText("|cffffff44Wait|r")
                 end

@@ -2733,6 +2733,7 @@ function ProfOrders:OnEvent(event, ...)
             print("|cffc8aa64KazCraft:|r Order claimed!")
             self:UpdateActionButtons()
             self:UpdateClaimCapacity()
+            self:RefreshDetail()
         elseif result == 45 then
             -- Timeout — auto-retry
             if pendingClaimRetry and pendingClaimRetry.orderID == orderID then
@@ -2761,8 +2762,9 @@ function ProfOrders:OnEvent(event, ...)
         end
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_ADDED" then
-        -- Refresh to show the claimed state
+        -- Refresh to show the claimed state + reagent slots
         self:RequestOrders(true)
+        self:RefreshDetail()
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_REMOVED" then
         claimedOrder = nil

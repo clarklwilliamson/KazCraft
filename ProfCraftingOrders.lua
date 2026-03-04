@@ -85,9 +85,12 @@ local professionEnum = nil      -- Enum.Profession value
 local orderTransaction = nil
 local orderOptionalSlots = {}   -- {slotIndex, slot} entries
 local orderFinishingSlots = {}  -- {slotIndex, slot} entries
+local orderBasicSlots = {}      -- {slotIndex, slot} entries (crafter-provided basic reagents)
 local orderCustomerSlots = {}   -- slotIndex → true (customer-provided, read-only)
 local orderOptSlotFrames = {}
 local orderFinSlotFrames = {}
+local orderBasicSlotFrames = {}
+local MAX_ORDER_BASIC_SLOTS = 6
 
 -- Event frame
 local eventFrame
@@ -828,6 +831,36 @@ local function CreateDetailPanel(parent)
 
         rr:Hide()
         content.reagentRows[i] = rr
+    end
+
+    -- ── Crafter Reagents (basic reagents the crafter provides, claimed order) ──
+    content.orderCrafterHeader = content:CreateFontString(nil, "OVERLAY")
+    content.orderCrafterHeader:SetFont(ns.FONT, 10, "")
+    content.orderCrafterHeader:SetText("CRAFTER REAGENTS")
+    content.orderCrafterHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    content.orderCrafterHeader:Hide()
+
+    content.crafterReagentRows = {}
+    for i = 1, MAX_ORDER_BASIC_SLOTS do
+        local rr = CreateFrame("Frame", nil, content)
+        rr:SetSize(220, 18)
+
+        rr.icon = rr:CreateTexture(nil, "ARTWORK")
+        rr.icon:SetSize(16, 16)
+        rr.icon:SetPoint("LEFT", rr, "LEFT", 0, 0)
+
+        rr.nameText = rr:CreateFontString(nil, "OVERLAY")
+        rr.nameText:SetFont(ns.FONT, 11, "")
+        rr.nameText:SetPoint("LEFT", rr.icon, "RIGHT", 4, 0)
+        rr.nameText:SetTextColor(unpack(ns.COLORS.brightText))
+
+        rr.qtyText = rr:CreateFontString(nil, "OVERLAY")
+        rr.qtyText:SetFont(ns.FONT, 11, "")
+        rr.qtyText:SetPoint("RIGHT", rr, "RIGHT", 0, 0)
+        rr.qtyText:SetTextColor(unpack(ns.COLORS.mutedText))
+
+        rr:Hide()
+        content.crafterReagentRows[i] = rr
     end
 
     -- ── Optional Reagents (claimed order) ──
@@ -2336,6 +2369,8 @@ function ProfOrders:RefreshDetail()
     local showedSlots = false
 
     -- Hide all slot UI by default
+    content.orderCrafterHeader:Hide()
+    for i = 1, MAX_ORDER_BASIC_SLOTS do content.crafterReagentRows[i]:Hide() end
     content.orderOptHeader:Hide()
     content.orderOptFrame:Hide()
     content.orderFinHeader:Hide()
@@ -2359,34 +2394,96 @@ function ProfOrders:RefreshDetail()
                 orderTransaction = CreateProfessionsRecipeTransaction(schematic)
                 orderTransaction._orderID = order.orderID
 
-                -- Pre-populate customer reagents
+                -- Step 1: Auto-allocate crafter's basic reagents (respects "Use Best Quality" CVar)
+                local useBest = Professions.ShouldAllocateBestQualityReagents and
+                                Professions.ShouldAllocateBestQualityReagents() or true
+                pcall(Professions.AllocateAllBasicReagents, orderTransaction, useBest)
+
+                -- Step 2: Overwrite with customer-provided reagents (Blizzard's SchematicPostInit pattern)
                 wipe(orderCustomerSlots)
                 for _, rd in ipairs(order.reagents or {}) do
                     if rd.slotIndex and rd.reagentInfo then
                         local allocs = orderTransaction:GetAllocations(rd.slotIndex)
                         if allocs then
+                            if not rd.isBasicReagent or not orderCustomerSlots[rd.slotIndex] then
+                                allocs:Clear()
+                                orderCustomerSlots[rd.slotIndex] = true
+                            end
                             allocs:Allocate(rd.reagentInfo.reagent, rd.reagentInfo.quantity)
-                        end
-                        if rd.source == Enum.CraftingOrderReagentSource.Customer or rd.source == 2 then
-                            orderCustomerSlots[rd.slotIndex] = true
                         end
                     end
                 end
 
-                -- Classify slots into optional/finishing
+                -- Classify slots into basic (crafter-provided) / optional / finishing
                 wipe(orderOptionalSlots)
                 wipe(orderFinishingSlots)
+                wipe(orderBasicSlots)
                 for slotIndex, slot in ipairs(schematic.reagentSlotSchematics) do
                     if slot.reagentType == Enum.CraftingReagentType.Modifying then
                         table.insert(orderOptionalSlots, {slotIndex = slotIndex, slot = slot})
                     elseif slot.reagentType == Enum.CraftingReagentType.Finishing then
                         table.insert(orderFinishingSlots, {slotIndex = slotIndex, slot = slot})
+                    elseif slot.reagentType == Enum.CraftingReagentType.Basic and not orderCustomerSlots[slotIndex] then
+                        -- Basic reagent slot not provided by customer — crafter must supply
+                        table.insert(orderBasicSlots, {slotIndex = slotIndex, slot = slot})
                     end
                 end
             end
         end
 
         if orderTransaction then
+            -- Render crafter-provided basic reagents
+            for i = 1, MAX_ORDER_BASIC_SLOTS do content.crafterReagentRows[i]:Hide() end
+            if #orderBasicSlots > 0 then
+                content.orderCrafterHeader:ClearAllPoints()
+                content.orderCrafterHeader:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+                content.orderCrafterHeader:Show()
+                slotsY = slotsY - 14
+
+                for i, entry in ipairs(orderBasicSlots) do
+                    if i > MAX_ORDER_BASIC_SLOTS then break end
+                    local rr = content.crafterReagentRows[i]
+                    rr:ClearAllPoints()
+                    rr:SetPoint("TOPLEFT", content, "TOPLEFT", 2, slotsY)
+
+                    -- Get allocated reagent info for this slot
+                    local allocs = orderTransaction:GetAllocations(entry.slotIndex)
+                    local shown = false
+                    if allocs then
+                        for _, alloc in allocs:Enumerate() do
+                            local qty = alloc:GetQuantity()
+                            if qty > 0 then
+                                local reagent = alloc:GetReagent()
+                                if reagent and reagent.itemID then
+                                    local item = Item:CreateFromItemID(reagent.itemID)
+                                    item:ContinueOnItemLoad(function()
+                                        rr.icon:SetTexture(item:GetItemIcon())
+                                        local name = item:GetItemName() or ""
+                                        -- Show quality tier from the slot
+                                        local qualIdx = nil
+                                        for qi, r in ipairs(entry.slot.reagents) do
+                                            if r.itemID == reagent.itemID then qualIdx = qi; break end
+                                        end
+                                        local qStr = qualIdx and (" R" .. qualIdx) or ""
+                                        rr.nameText:SetText(name .. qStr)
+                                        rr.qtyText:SetText("x" .. qty)
+                                    end)
+                                    shown = true
+                                    break -- only show first allocation per slot
+                                end
+                            end
+                        end
+                    end
+
+                    if shown then
+                        rr:Show()
+                        slotsY = slotsY - 18
+                    end
+                end
+                slotsY = slotsY - 4
+                showedSlots = true
+            end
+
             -- Render optional slots
             if #orderOptionalSlots > 0 then
                 content.orderOptHeader:ClearAllPoints()
@@ -2691,6 +2788,7 @@ function ProfOrders:ClearDetail()
     orderTransaction = nil
     wipe(orderOptionalSlots)
     wipe(orderFinishingSlots)
+    wipe(orderBasicSlots)
     wipe(orderCustomerSlots)
     if not detailFrame then return end
     detailFrame.emptyText:Show()
@@ -2702,6 +2800,8 @@ function ProfOrders:ClearDetail()
     -- Hide slot UI
     local content = detailFrame.content
     if content then
+        content.orderCrafterHeader:Hide()
+        for i = 1, MAX_ORDER_BASIC_SLOTS do content.crafterReagentRows[i]:Hide() end
         content.orderOptHeader:Hide()
         content.orderOptFrame:Hide()
         content.orderFinHeader:Hide()
@@ -2929,6 +3029,7 @@ function ProfOrders:OnEvent(event, ...)
         orderTransaction = nil
         wipe(orderOptionalSlots)
         wipe(orderFinishingSlots)
+        wipe(orderBasicSlots)
         wipe(orderCustomerSlots)
         self:UpdateActionButtons()
         self:RequestOrders(true)

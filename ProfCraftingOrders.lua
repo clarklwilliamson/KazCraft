@@ -864,20 +864,45 @@ local function CreateDetailPanel(parent)
         orderFinSlotFrames[i] = CreateOrderSlotBox(content.orderFinFrame, i)
     end
 
+    -- ── Crafting Details (claimed order) ──
+    content.orderDetailsHeader = content:CreateFontString(nil, "OVERLAY")
+    content.orderDetailsHeader:SetFont(ns.FONT, 10, "")
+    content.orderDetailsHeader:SetText("DETAILS")
+    content.orderDetailsHeader:SetTextColor(unpack(ns.COLORS.headerText))
+    content.orderDetailsHeader:Hide()
+
+    content.orderQualityText = content:CreateFontString(nil, "OVERLAY")
+    content.orderQualityText:SetFont(ns.FONT, 11, "")
+    content.orderQualityText:SetTextColor(unpack(ns.COLORS.brightText))
+    content.orderQualityText:Hide()
+
+    content.orderSkillText = content:CreateFontString(nil, "OVERLAY")
+    content.orderSkillText:SetFont(ns.FONT, 11, "")
+    content.orderSkillText:SetTextColor(unpack(ns.COLORS.mutedText))
+    content.orderSkillText:Hide()
+
+    content.orderConcText = content:CreateFontString(nil, "OVERLAY")
+    content.orderConcText:SetFont(ns.FONT, 11, "")
+    content.orderConcText:SetTextColor(unpack(ns.COLORS.mutedText))
+    content.orderConcText:Hide()
+
     -- ── Concentration checkbox + Craft button (claimed order) ──
-    content.concCheck = KazGUI:CreateCheckbox(content, "Use Concentration", false)
+    content.concCheck = KazGUI:CreateCheckbox(content, "Use Concentration", false, function()
+        -- Re-run crafting operation info when concentration toggled
+        if orderTransaction and selectedOrder then
+            ProfOrders:RefreshOrderCraftingDetails()
+        end
+    end)
     content.concCheck:Hide()
 
     content.craftOrderBtn = ns.CreateButton(content, "Craft", 80, 26)
     content.craftOrderBtn:Hide()
     content.craftOrderBtn:SetScript("OnClick", function()
         if not orderTransaction or not selectedOrder then return end
-        -- Build reagent table: only include crafter-provided optional/finishing slots
         local reagentTbl = {}
         if orderTransaction.CreateCraftingReagentInfoTbl then
             local allReagents = orderTransaction:CreateCraftingReagentInfoTbl()
             for _, info in ipairs(allReagents) do
-                -- Include all — the transaction already knows customer vs crafter allocations
                 table.insert(reagentTbl, info)
             end
         end
@@ -2315,6 +2340,10 @@ function ProfOrders:RefreshDetail()
     content.orderOptFrame:Hide()
     content.orderFinHeader:Hide()
     content.orderFinFrame:Hide()
+    content.orderDetailsHeader:Hide()
+    content.orderQualityText:Hide()
+    content.orderSkillText:Hide()
+    content.orderConcText:Hide()
     content.concCheck:Hide()
     content.craftOrderBtn:Hide()
     for i = 1, MAX_ORDER_OPTIONAL_SLOTS do orderOptSlotFrames[i]:Hide() end
@@ -2412,6 +2441,27 @@ function ProfOrders:RefreshDetail()
                 showedSlots = true
             end
 
+            -- Crafting details section
+            content.orderDetailsHeader:ClearAllPoints()
+            content.orderDetailsHeader:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+            content.orderDetailsHeader:Show()
+            slotsY = slotsY - 14
+
+            content.orderQualityText:ClearAllPoints()
+            content.orderQualityText:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+            content.orderQualityText:Show()
+            slotsY = slotsY - 16
+
+            content.orderSkillText:ClearAllPoints()
+            content.orderSkillText:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+            content.orderSkillText:Show()
+            slotsY = slotsY - 16
+
+            content.orderConcText:ClearAllPoints()
+            content.orderConcText:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+            content.orderConcText:Show()
+            slotsY = slotsY - 20
+
             -- Concentration checkbox + Craft button
             content.concCheck:ClearAllPoints()
             content.concCheck:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
@@ -2423,6 +2473,9 @@ function ProfOrders:RefreshDetail()
             content.craftOrderBtn:Show()
             slotsY = slotsY - 32
             showedSlots = true
+
+            -- Populate crafting operation info
+            self:RefreshOrderCraftingDetails()
         end
     end
 
@@ -2554,6 +2607,67 @@ function ProfOrders:GetNotesAnchorY(numReagents)
 end
 
 --------------------------------------------------------------------
+-- Refresh crafting operation details (quality, skill, concentration)
+--------------------------------------------------------------------
+function ProfOrders:RefreshOrderCraftingDetails()
+    if not orderTransaction or not selectedOrder or not detailFrame then return end
+    local content = detailFrame.content
+    if not content then return end
+
+    local applyConc = content.concCheck:GetChecked()
+    local reagentInfoTbl = orderTransaction:CreateCraftingReagentInfoTbl() or {}
+    local ok, opInfo = pcall(C_TradeSkillUI.GetCraftingOperationInfo, selectedOrder.spellID, reagentInfoTbl, nil, applyConc)
+    if not ok then opInfo = nil end
+
+    if opInfo then
+        -- Quality pips
+        if opInfo.craftingQualityID and opInfo.craftingQualityID > 0 then
+            local qTier = opInfo.craftingQuality or 0
+            local maxTier = opInfo.maxCraftingQuality or 5
+            local pips = ""
+            for i = 1, maxTier do
+                if i <= qTier then
+                    pips = pips .. ns.GetQualityMarkup(i, selectedOrder.spellID)
+                else
+                    pips = pips .. "|cff666666*|r"
+                end
+            end
+            content.orderQualityText:SetText("Quality: " .. pips)
+        else
+            content.orderQualityText:SetText("")
+        end
+
+        -- Skill vs difficulty
+        if opInfo.baseSkill and opInfo.baseDifficulty then
+            local totalSkill = (opInfo.baseSkill or 0) + (opInfo.bonusSkill or 0)
+            content.orderSkillText:SetText("Skill: " .. totalSkill .. "  Difficulty: " .. opInfo.baseDifficulty)
+        else
+            content.orderSkillText:SetText("")
+        end
+
+        -- Concentration
+        local concCurrID = opInfo.concentrationCurrencyID or 0
+        local concCost = opInfo.concentrationCost or 0
+        if concCurrID ~= 0 then
+            local currInfo = C_CurrencyInfo.GetCurrencyInfo(concCurrID)
+            local current = currInfo and currInfo.quantity or 0
+            local maxConc = currInfo and currInfo.maxQuantity or 0
+            local concStr = "Concentration: " .. current .. "/" .. maxConc
+            if concCost > 0 then
+                concStr = concStr .. "  (cost: " .. concCost .. ")"
+            end
+            content.orderConcText:SetText(concStr)
+        else
+            content.orderConcText:SetText("")
+        end
+    else
+        content.orderQualityText:SetText("")
+        content.orderSkillText:SetText("")
+        content.orderConcText:SetText("")
+    end
+end
+
+--------------------------------------------------------------------
 -- Clear detail
 --------------------------------------------------------------------
 function ProfOrders:ClearDetail()
@@ -2576,6 +2690,10 @@ function ProfOrders:ClearDetail()
         content.orderOptFrame:Hide()
         content.orderFinHeader:Hide()
         content.orderFinFrame:Hide()
+        content.orderDetailsHeader:Hide()
+        content.orderQualityText:Hide()
+        content.orderSkillText:Hide()
+        content.orderConcText:Hide()
         content.concCheck:Hide()
         content.craftOrderBtn:Hide()
         for i = 1, MAX_ORDER_OPTIONAL_SLOTS do orderOptSlotFrames[i]:Hide() end
@@ -2744,6 +2862,15 @@ function ProfOrders:OnEvent(event, ...)
             self:UpdateActionButtons()
             self:UpdateClaimCapacity()
             self:RefreshDetail()
+            -- Delayed refresh — GetClaimedOrder may not be ready immediately
+            C_Timer.After(0.3, function()
+                local ok2, claimed2 = pcall(C_CraftingOrders.GetClaimedOrder)
+                if ok2 and claimed2 then
+                    claimedOrder = claimed2
+                    selectedOrder = claimed2
+                    self:RefreshDetail()
+                end
+            end)
         elseif result == 45 then
             -- Timeout — auto-retry
             if pendingClaimRetry and pendingClaimRetry.orderID == orderID then

@@ -532,13 +532,14 @@ local function RebuildSidebar()
 
         local capturedNode = node
         btn:SetScript("OnClick", function()
-            if hasChildren then
-                capturedNode._expanded = not capturedNode._expanded
-            end
             if selectedCatNode == capturedNode then
-                selectedCatNode = nil  -- click again to deselect
+                -- Click selected category: deselect + collapse + search (full results)
+                selectedCatNode = nil
+                if hasChildren then capturedNode._expanded = false end
             else
+                -- Click new category: select + expand + search
                 selectedCatNode = capturedNode
+                if hasChildren then capturedNode._expanded = true end
             end
             RebuildSidebar()
         end)

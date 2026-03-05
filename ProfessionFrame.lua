@@ -349,37 +349,16 @@ local function CreateMainFrame()
     local equipSlots = {}  -- list of slot frames
 
     local function GetProfessionSlotIDs()
-        local baseInfo = C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
-        local childInfo = C_TradeSkillUI.GetChildProfessionInfo()
-        if not baseInfo and not childInfo then return {} end
-
-        -- Parent skill line: base professionID > child parentProfessionID > child professionID
-        local targetID = (baseInfo and baseInfo.professionID and baseInfo.professionID > 0 and baseInfo.professionID)
-            or (childInfo and childInfo.parentProfessionID and childInfo.parentProfessionID > 0 and childInfo.parentProfessionID)
-            or (childInfo and childInfo.professionID)
-        targetID = tonumber(targetID)
-        if not targetID or targetID == 0 then return {} end
-
-        local prof1, prof2, _, fishing, cooking = GetProfessions()
-
-        -- Check each profession index, compare skillLine to our target
-        if cooking then
-            local _, _, _, _, _, _, skillLine = GetProfessionInfo(cooking)
-            if tonumber(skillLine) == targetID then return { 26, 27 } end
+        local info = C_TradeSkillUI.GetChildProfessionInfo()
+        if not info or not info.profession then
+            local baseInfo = C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
+            if baseInfo and baseInfo.profession then
+                info = baseInfo
+            else
+                return {}
+            end
         end
-        if fishing then
-            local _, _, _, _, _, _, skillLine = GetProfessionInfo(fishing)
-            if tonumber(skillLine) == targetID then return { 28 } end
-        end
-        if prof1 then
-            local _, _, _, _, _, _, skillLine = GetProfessionInfo(prof1)
-            if tonumber(skillLine) == targetID then return { 20, 21, 22 } end
-        end
-        if prof2 then
-            local _, _, _, _, _, _, skillLine = GetProfessionInfo(prof2)
-            if tonumber(skillLine) == targetID then return { 23, 24, 25 } end
-        end
-        return {}
+        return C_TradeSkillUI.GetProfessionSlots(info.profession)
     end
 
     local function CreateEquipSlot(index)

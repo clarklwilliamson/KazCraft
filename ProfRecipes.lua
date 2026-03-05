@@ -2989,6 +2989,11 @@ function ProfRecipes:RefreshDetail()
         end
     end
 
+    -- Trim reagent frame right edge when spec column is visible
+    if detail.specNodeFrame:IsShown() then
+        detail.reagentFrame:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -210, 0)
+    end
+
     -- ── SIM Panel ──
     ProfRecipes:RefreshSimPanel(schematic, lastAnchor)
 

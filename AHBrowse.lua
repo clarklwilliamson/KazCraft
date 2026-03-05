@@ -535,7 +535,11 @@ local function RebuildSidebar()
             if hasChildren then
                 capturedNode._expanded = not capturedNode._expanded
             end
-            selectedCatNode = capturedNode
+            if selectedCatNode == capturedNode then
+                selectedCatNode = nil  -- click again to deselect
+            else
+                selectedCatNode = capturedNode
+            end
             RebuildSidebar()
         end)
 
@@ -1075,9 +1079,31 @@ function AHBrowse:Init(contentFrame)
     ns.ApplyBackdrop(searchBox, "searchBg", "searchBorder")
     searchBox:SetFont(ns.FONT, 12, "")
     searchBox:SetTextColor(unpack(ns.COLORS.brightText))
-    searchBox:SetTextInsets(6, 6, 0, 0)
+    searchBox:SetTextInsets(6, 18, 0, 0)
     searchBox:SetAutoFocus(false)
     searchBox:SetMaxLetters(64)
+
+    -- Clear search button (x)
+    local clearBtn = CreateFrame("Button", nil, searchBox)
+    clearBtn:SetSize(16, 16)
+    clearBtn:SetPoint("RIGHT", searchBox, "RIGHT", -2, 0)
+    clearBtn.text = clearBtn:CreateFontString(nil, "OVERLAY")
+    clearBtn.text:SetFont(ns.FONT, 12, "")
+    clearBtn.text:SetPoint("CENTER")
+    clearBtn.text:SetText("x")
+    clearBtn.text:SetTextColor(unpack(ns.COLORS.closeDefault))
+    clearBtn:SetScript("OnEnter", function(self) self.text:SetTextColor(unpack(ns.COLORS.closeHover)) end)
+    clearBtn:SetScript("OnLeave", function(self) self.text:SetTextColor(unpack(ns.COLORS.closeDefault)) end)
+    clearBtn:SetScript("OnClick", function()
+        searchBox:SetText("")
+        searchBox:ClearFocus()
+        AHBrowse:DoSearch()
+    end)
+    clearBtn:Hide()
+    searchBox:HookScript("OnTextChanged", function(self)
+        local hasText = strtrim(self:GetText()) ~= ""
+        if hasText then clearBtn:Show() else clearBtn:Hide() end
+    end)
 
     searchBox:SetScript("OnEditFocusGained", function(self)
         self:SetBackdropBorderColor(unpack(ns.COLORS.searchFocus))

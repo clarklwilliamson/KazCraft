@@ -349,13 +349,16 @@ local function CreateMainFrame()
     local equipSlots = {}  -- list of slot frames
 
     local function GetProfessionSlotIDs()
-        local profInfo = C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
-            or C_TradeSkillUI.GetChildProfessionInfo()
-        if not profInfo then return {} end
+        local baseInfo = C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
+        local childInfo = C_TradeSkillUI.GetChildProfessionInfo()
+        if not baseInfo and not childInfo then return {} end
 
-        -- Get the parent (overall) profession ID for matching
-        local targetID = tonumber(profInfo.parentProfessionID or profInfo.professionID)
-        if not targetID then return {} end
+        -- Parent skill line: base professionID > child parentProfessionID > child professionID
+        local targetID = (baseInfo and baseInfo.professionID and baseInfo.professionID > 0 and baseInfo.professionID)
+            or (childInfo and childInfo.parentProfessionID and childInfo.parentProfessionID > 0 and childInfo.parentProfessionID)
+            or (childInfo and childInfo.professionID)
+        targetID = tonumber(targetID)
+        if not targetID or targetID == 0 then return {} end
 
         local prof1, prof2, _, fishing, cooking = GetProfessions()
 
@@ -821,6 +824,17 @@ end
 -- Event handlers (called from Core.lua)
 --------------------------------------------------------------------
 function ProfFrame:OnTradeSkillShow()
+    -- Toggle: if already open for the same profession, close instead
+    if self:IsShown() then
+        local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
+        local newProf = profInfo and profInfo.professionID
+        local curProf = ns.currentProfInfo and ns.currentProfInfo.professionID
+        if newProf and newProf == curProf then
+            C_TradeSkillUI.CloseTradeSkill()
+            self:Hide()
+            return
+        end
+    end
     self:Show()
 end
 

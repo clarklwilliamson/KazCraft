@@ -45,8 +45,9 @@ end
 -- Top bar — profession icon, name, skill bar, KP, WoW UI, close
 --------------------------------------------------------------------
 local function UpdateTopBar()
+    if not topBar.nameText then return end
     local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
-    if not profInfo then return end
+    if not profInfo or not profInfo.professionName or profInfo.professionName == "" then return end
 
     -- Icon
     if profInfo.parentProfessionID then

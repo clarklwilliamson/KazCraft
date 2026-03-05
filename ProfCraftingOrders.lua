@@ -1316,11 +1316,17 @@ local function CreateCraftSimPanel(parent)
                         local orderProvides = false
                         if rd.orderData and rd.orderData.reagents then
                             for _, oReag in ipairs(rd.orderData.reagents) do
-                                for _, ri in ipairs(slot.items) do
-                                    local iid = ri.item and ri.item:GetItemID() or nil
-                                    if iid and oReag.reagent and oReag.reagent.itemID == iid and (oReag.source == Enum.CraftingOrderReagentSource.Customer or oReag.source == 2) then
-                                        orderProvides = true
-                                        break
+                                if oReag.source ~= Enum.CraftingOrderReagentSource.Crafter then
+                                    local oItemID = oReag.reagentInfo and oReag.reagentInfo.itemID
+                                    if not oItemID then
+                                        oItemID = CraftSimLib and CraftSimLib.RecipeData and CraftSimLib.RecipeData.GetItemIDFromReagentInfo and CraftSimLib.RecipeData.GetItemIDFromReagentInfo(oReag.reagentInfo or oReag.reagent, rd)
+                                    end
+                                    for _, ri in ipairs(slot.items) do
+                                        local iid = ri.item and ri.item:GetItemID() or nil
+                                        if iid and oItemID == iid then
+                                            orderProvides = true
+                                            break
+                                        end
                                     end
                                 end
                                 if orderProvides then break end

@@ -281,7 +281,15 @@ local function GetCraftSimMaterials()
         local amount = cqi.amount or 1
         if recipeData and recipeData.reagentData and recipeData.reagentData.requiredReagents then
             for _, reagent in ipairs(recipeData.reagentData.requiredReagents) do
-                if reagent.hasQuality and reagent.items then
+                -- Skip order-provided reagents (customer provides them)
+                local isOrderReagent = false
+                if recipeData.orderData then
+                    local ok, result = pcall(reagent.IsOrderReagentIn, reagent, recipeData)
+                    isOrderReagent = ok and result
+                end
+                if isOrderReagent then
+                    -- Customer-provided, don't count toward shopping list
+                elseif reagent.hasQuality and reagent.items then
                     -- Quality reagent: each tier has allocated quantity
                     for _, reagentItem in ipairs(reagent.items) do
                         if reagentItem.quantity and reagentItem.quantity > 0 then

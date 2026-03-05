@@ -639,13 +639,7 @@ local function CreateFilterPanel(parent)
         local box = CreateFrame("EditBox", nil, panel, "BackdropTemplate")
         box:SetSize(50, 20)
         box:SetPoint("TOPLEFT", panel, "TOPLEFT", x, yOff)
-        box:SetBackdrop({
-            bgFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeSize = 1,
-        })
-        box:SetBackdropColor(unpack(ns.COLORS.searchBg))
-        box:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
+        ns.ApplyBackdrop(box, "searchBg", "searchBorder")
         box:SetFont(ns.FONT, 10, "")
         box:SetTextColor(unpack(ns.COLORS.brightText))
         box:SetJustifyH("CENTER")
@@ -991,13 +985,7 @@ local function CreateDetailOverlay(parent)
     overlay.qtyBox = CreateFrame("EditBox", nil, overlay, "BackdropTemplate")
     overlay.qtyBox:SetSize(70, 24)
     overlay.qtyBox:SetPoint("LEFT", overlay.qtyLabel, "RIGHT", 8, 0)
-    overlay.qtyBox:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    overlay.qtyBox:SetBackdropColor(unpack(ns.COLORS.searchBg))
-    overlay.qtyBox:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
+    ns.ApplyBackdrop(overlay.qtyBox, "searchBg", "searchBorder")
     overlay.qtyBox:SetFont(ns.FONT, 12, "")
     overlay.qtyBox:SetTextColor(unpack(ns.COLORS.brightText))
     overlay.qtyBox:SetJustifyH("CENTER")
@@ -1060,13 +1048,7 @@ function AHBrowse:Init(contentFrame)
     sidebarFrame:SetWidth(SIDEBAR_WIDTH)
     sidebarFrame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
     sidebarFrame:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 0, 0)
-    sidebarFrame:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    sidebarFrame:SetBackdropColor(unpack(ns.COLORS.panelBg))
-    sidebarFrame:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+    ns.ApplyBackdrop(sidebarFrame, "panelBg", "panelBorder")
 
     sidebarScroll = CreateFrame("ScrollFrame", nil, sidebarFrame, "UIPanelScrollFrameTemplate")
     sidebarScroll:SetPoint("TOPLEFT", 1, -1)
@@ -1090,13 +1072,7 @@ function AHBrowse:Init(contentFrame)
     searchBox:SetHeight(24)
     searchBox:SetPoint("TOPLEFT", sidebarFrame, "TOPRIGHT", 8, -4)
     searchBox:SetPoint("RIGHT", container, "RIGHT", -150, 0)
-    searchBox:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    searchBox:SetBackdropColor(unpack(ns.COLORS.searchBg))
-    searchBox:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
+    ns.ApplyBackdrop(searchBox, "searchBg", "searchBorder")
     searchBox:SetFont(ns.FONT, 12, "")
     searchBox:SetTextColor(unpack(ns.COLORS.brightText))
     searchBox:SetTextInsets(6, 6, 0, 0)

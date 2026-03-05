@@ -203,8 +203,7 @@ local function CreateFooter(parent)
     f:SetHeight(FOOTER_HEIGHT)
     f:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 1, 1)
     f:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -1, 1)
-    f:SetBackdrop({ bgFile = "Interface\\BUTTONS\\WHITE8X8" })
-    f:SetBackdropColor(unpack(ns.COLORS.footerBg))
+    ns.ApplyBgOnly(f, "footerBg")
 
     -- Materials cost
     footer.costText = f:CreateFontString(nil, "OVERLAY")

@@ -293,13 +293,7 @@ local function CreateSearchBar(parent)
     f:SetHeight(SEARCH_HEIGHT)
     f:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     f:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 0)
-    f:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    f:SetBackdropColor(unpack(ns.COLORS.searchBg))
-    f:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
+    ns.ApplyBackdrop(f, "searchBg", "searchBorder")
     f:SetFont(ns.FONT, 12, "")
     f:SetTextColor(unpack(ns.COLORS.brightText))
     f:SetTextInsets(8, 24, 0, 0)
@@ -465,13 +459,11 @@ local function CreateScrollBar(parent, listFrame)
     track:SetWidth(8)
     track:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 0)
     track:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
-    track:SetBackdrop({ bgFile = "Interface\\BUTTONS\\WHITE8X8" })
-    track:SetBackdropColor(unpack(ns.COLORS.scrollTrack))
+    ns.ApplyBgOnly(track, "scrollTrack")
 
     local thumb = CreateFrame("Button", nil, track, "BackdropTemplate")
     thumb:SetWidth(8)
-    thumb:SetBackdrop({ bgFile = "Interface\\BUTTONS\\WHITE8X8" })
-    thumb:SetBackdropColor(unpack(ns.COLORS.scrollThumb))
+    ns.ApplyBgOnly(thumb, "scrollThumb")
     thumb:EnableMouse(true)
     thumb:SetMovable(true)
     track.thumb = thumb
@@ -673,13 +665,7 @@ end
 --------------------------------------------------------------------
 local function CreateDetailPanel(parent)
     local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    f:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    f:SetBackdropColor(unpack(ns.COLORS.panelBg))
-    f:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+    ns.ApplyBackdrop(f, "panelBg", "panelBorder")
 
     -- "Select an order" placeholder
     f.emptyText = f:CreateFontString(nil, "OVERLAY")
@@ -1157,13 +1143,7 @@ end
 
 local function CreateCraftSimPanel(parent)
     local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    f:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    f:SetBackdropColor(unpack(ns.COLORS.panelBg))
-    f:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+    ns.ApplyBackdrop(f, "panelBg", "panelBorder")
 
     -- Header
     local header = f:CreateFontString(nil, "OVERLAY")

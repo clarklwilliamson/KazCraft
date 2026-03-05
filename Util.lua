@@ -107,6 +107,23 @@ function ns.GetQualityMarkup(tier, recipeID, size)
     return KazGUI:GetQualityMarkup(tier, recipeID, size)
 end
 
+--------------------------------------------------------------------------------
+-- Backdrop shims — replace raw SetBackdrop triplets
+--------------------------------------------------------------------------------
+function ns.ApplyBackdrop(frame, bgKey, borderKey)
+    bgKey = bgKey or "backdrop"
+    borderKey = borderKey or "border"
+    local kazBg = COLOR_MAP[bgKey] or bgKey
+    local kazBorder = COLOR_MAP[borderKey] or borderKey
+    KazGUI:ApplyBackdrop(frame, kazBg, kazBorder)
+end
+
+function ns.ApplyBgOnly(frame, bgKey)
+    bgKey = bgKey or "footerBg"
+    frame:SetBackdrop({ bgFile = "Interface\\BUTTONS\\WHITE8X8" })
+    frame:SetBackdropColor(unpack(ns.COLORS[bgKey]))
+end
+
 function ns.CreateScrollFrame(parent, topOffset, bottomOffset)
     return KazGUI:CreateClassicScrollFrame(parent, topOffset, bottomOffset)
 end

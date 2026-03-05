@@ -243,10 +243,7 @@ local function CreateMainFrame()
     footer:SetHeight(32)
     footer:SetPoint("BOTTOMLEFT", mainFrame, "BOTTOMLEFT", 1, 1)
     footer:SetPoint("BOTTOMRIGHT", mainFrame, "BOTTOMRIGHT", -1, 1)
-    footer:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-    })
-    footer:SetBackdropColor(unpack(ns.COLORS.footerBg))
+    ns.ApplyBgOnly(footer, "footerBg")
 
     -- Total cost
     mainFrame.totalText = footer:CreateFontString(nil, "OVERLAY")

@@ -642,25 +642,13 @@ local function CreateLeftPanel(parent)
     leftPanel:SetWidth(LEFT_WIDTH)
     leftPanel:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     leftPanel:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 0, 0)
-    leftPanel:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    leftPanel:SetBackdropColor(unpack(ns.COLORS.panelBg))
-    leftPanel:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+    ns.ApplyBackdrop(leftPanel, "panelBg", "panelBorder")
 
     -- Search box
     searchBox = CreateFrame("EditBox", nil, leftPanel, "BackdropTemplate")
     searchBox:SetSize(LEFT_WIDTH - 44, 22)
     searchBox:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 6, -6)
-    searchBox:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    searchBox:SetBackdropColor(unpack(ns.COLORS.searchBg))
-    searchBox:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
+    ns.ApplyBackdrop(searchBox, "searchBg", "searchBorder")
     searchBox:SetFont(ns.FONT, 14, "")
     searchBox:SetTextColor(unpack(ns.COLORS.brightText))
     searchBox:SetTextInsets(6, 6, 0, 0)
@@ -1072,13 +1060,7 @@ local function CreateRightPanel(parent)
     rightPanel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", 0, 0)
     rightPanel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
-    rightPanel:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    rightPanel:SetBackdropColor(unpack(ns.COLORS.panelBg))
-    rightPanel:SetBackdropBorderColor(unpack(ns.COLORS.panelBorder))
+    ns.ApplyBackdrop(rightPanel, "panelBg", "panelBorder")
 
     -- Detail content (direct child, full area)
     detailFrame = CreateFrame("Frame", nil, rightPanel)
@@ -1684,13 +1666,7 @@ local function CreateRightPanel(parent)
     detail.qtyBox = CreateFrame("EditBox", nil, detail.controlFrame, "BackdropTemplate")
     detail.qtyBox:SetSize(40, 24)
     detail.qtyBox:SetPoint("BOTTOMLEFT", detail.controlFrame, "BOTTOMLEFT", 0, 0)
-    detail.qtyBox:SetBackdrop({
-        bgFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-        edgeSize = 1,
-    })
-    detail.qtyBox:SetBackdropColor(unpack(ns.COLORS.searchBg))
-    detail.qtyBox:SetBackdropBorderColor(unpack(ns.COLORS.searchBorder))
+    ns.ApplyBackdrop(detail.qtyBox, "searchBg", "searchBorder")
     detail.qtyBox:SetFont(ns.FONT, 14, "")
     detail.qtyBox:SetTextColor(unpack(ns.COLORS.brightText))
     detail.qtyBox:SetJustifyH("CENTER")

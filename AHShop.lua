@@ -718,13 +718,9 @@ function AHShop:StartPriceScan()
     end
     if #scanQueue == 0 then
         scanActive = false
-        -- DEBUG: remove after verification
-        print("|cffc8aa64Shop:|r Price scan — all " .. #currentMats .. " items already have live prices.")
         return
     end
     scanActive = true
-    -- DEBUG: remove after verification
-    print("|cffc8aa64Shop:|r Price scan started — " .. #scanQueue .. " items to scan...")
     self:ScanNext()
 end
 
@@ -736,8 +732,6 @@ end
 function AHShop:ScanCurrent()
     if scanIdx > #scanQueue then
         scanActive = false
-        -- DEBUG: remove after verification
-        print("|cffc8aa64Shop:|r Price scan complete — " .. #scanQueue .. " items updated.")
         self:RecalcTotal()
         return
     end

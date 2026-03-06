@@ -54,11 +54,6 @@ function handlers.ADDON_LOADED(addon)
     frame:UnregisterEvent("ADDON_LOADED")
 end
 
--- Mini-profession IDs that use Blizzard's special UI (not a real crafting frame)
-local PASSTHROUGH_PROFESSIONS = {
-    [2950] = true,  -- Alchemy Research (Midnight cauldron)
-}
-
 -- Debug logging (toggle with /kc debug)
 ns.debugMode = false
 function ns.DebugLog(...)
@@ -81,8 +76,8 @@ function handlers.TRADE_SKILL_SHOW()
     ns.DebugLog("TRADE_SKILL_SHOW:", ns.currentProfName, "prev:", tostring(prevProf),
         "profID:", profInfo and profInfo.professionID or "nil")
 
-    -- Let Blizzard handle mini-professions (cauldron menus, etc.)
-    if profInfo and PASSTHROUGH_PROFESSIONS[profInfo.professionID] then
+    -- Let Blizzard handle NPC crafting (cauldrons) and Runeforging (DK weapon enchants)
+    if C_TradeSkillUI.IsNPCCrafting() or C_TradeSkillUI.IsRuneforging() then
         if ProfessionsFrame_LoadUI then ProfessionsFrame_LoadUI() end
         UIParent_OnEvent(UIParent, "TRADE_SKILL_SHOW")
         return

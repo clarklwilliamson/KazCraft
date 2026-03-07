@@ -428,6 +428,7 @@ local PriceCache = ns.PriceCache
 
 function PriceCache:SetPrice(itemID, price)
     if not itemID or not price or price <= 0 then return end
+    if price > MAX_SANE_PRICE then return end -- reject corrupt prices
     KazCraftDB.priceCache[itemID] = { p = price, t = time() }
 end
 
@@ -440,22 +441,24 @@ function PriceCache:GetPrice(itemID, maxAge)
     return nil
 end
 
+local MAX_SANE_PRICE = 100000000000 -- 10,000,000g in copper — sanity cap
+
 function PriceCache:GetBestPrice(itemID)
     local cached = self:GetPrice(itemID)
-    if cached then return cached, "live" end
+    if cached and cached <= MAX_SANE_PRICE then return cached, "live" end
     if ns.TSMData then
         local tsm = ns.TSMData:GetPrice(itemID, "DBMinBuyout")
-        if tsm and tsm > 0 then return tsm, "tsm" end
+        if tsm and tsm > 0 and tsm <= MAX_SANE_PRICE then return tsm, "tsm" end
     end
     return nil, nil
 end
 
 function PriceCache:GetSellPrice(itemID)
     local cached = self:GetPrice(itemID)
-    if cached then return cached, "live" end
+    if cached and cached <= MAX_SANE_PRICE then return cached, "live" end
     if ns.TSMData then
         local tsm = ns.TSMData:GetPrice(itemID, "DBMarket")
-        if tsm and tsm > 0 then return tsm, "tsm" end
+        if tsm and tsm > 0 and tsm <= MAX_SANE_PRICE then return tsm, "tsm" end
     end
     return nil, nil
 end

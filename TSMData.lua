@@ -134,7 +134,8 @@ function TSMData:GetPrice(itemID, priceKey)
     -- If full TSM is loaded, delegate to its API
     if TSM_API and TSM_API.GetCustomPriceValue then
         local ok, val = pcall(TSM_API.GetCustomPriceValue, priceKey, "i:" .. itemID)
-        return ok and val or nil
+        if ok and val and val > 0 and val < 100000000000 then return val end
+        return nil
     end
 
     if not dataAvailable then return nil end

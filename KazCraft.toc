@@ -6,7 +6,7 @@
 ## Version: 2.0.0
 ## SavedVariables: KazCraftDB
 ## RequiredDeps: KazGUILib
-## OptionalDeps: CraftSim, TradeSkillMaster
+## OptionalDeps: CraftSim, TradeSkillMaster, DataStore, DataStore_Characters, DataStore_Crafts, DataStore_Inventory, DataStore_Containers
 ## X-Category: Kaz
 ## X-Flavor: Mainline
 
@@ -25,3 +25,5 @@ AHBrowse.lua
 AHSell.lua
 AHAuctions.lua
 AHUI.lua
+Wishlist.lua
+WishlistUI.lua

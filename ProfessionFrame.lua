@@ -802,26 +802,24 @@ end
 --------------------------------------------------------------------
 -- Event handlers (called from Core.lua)
 --------------------------------------------------------------------
-function ProfFrame:OnTradeSkillShow()
-    -- Toggle: if already open for the same profession, close instead
-    if self:IsShown() then
-        local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
-        local newProf = profInfo and profInfo.professionID
-        local curProf = ns.currentProfInfo and ns.currentProfInfo.professionID
-        if newProf and newProf == curProf then
-            C_TradeSkillUI.CloseTradeSkill()
-            self:Hide()
-            return
-        end
-    end
+-- Track whether SHOW just fired this frame (for switch detection in CLOSE)
+local showFiredThisFrame = false
+
+function ProfFrame:OnTradeSkillShow(newProfInfo)
+    -- Mark that SHOW fired — CLOSE in the same frame is a switch, not a close
+    showFiredThisFrame = true
+    C_Timer.After(0, function() showFiredThisFrame = false end)
+
+    ns.currentProfInfo = newProfInfo
+    ns.currentProfName = newProfInfo and newProfInfo.professionName or "Unknown"
     self:Show()
 end
 
 function ProfFrame:OnTradeSkillClose()
-    if switchingToKazCraft then return end  -- ignore close during switch-back
-    -- Spellbook profession switch fires SHOW (new) BEFORE CLOSE (old).
-    -- If profOpen is true, Show() already ran for the new profession — don't hide it.
-    if profOpen then return end
+    if switchingToKazCraft then return end
+    -- Switching profs fires SHOW (new) then CLOSE (old) in the same frame.
+    -- If SHOW already fired, this CLOSE is for the old profession — ignore.
+    if showFiredThisFrame then return end
     self:Hide()
 end
 

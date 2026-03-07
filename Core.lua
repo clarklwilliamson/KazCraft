@@ -49,9 +49,16 @@ function handlers.ADDON_LOADED(addon)
     if addon ~= addonName then return end
     InitDB()
     SetCharKey()
-    -- NOTE: Blizzard ProfessionsFrame is left open for now (development mode)
-    -- UIParent:UnregisterEvent("TRADE_SKILL_SHOW")
+    -- Suppress Blizzard ProfessionsFrame — KC handles TRADE_SKILL_SHOW
+    UIParent:UnregisterEvent("TRADE_SKILL_SHOW")
     frame:UnregisterEvent("ADDON_LOADED")
+
+    -- Wishlist login scan (delay so DataStore is ready)
+    C_Timer.After(5, function()
+        if ns.Wishlist then
+            ns.Wishlist:AnnounceOnLogin()
+        end
+    end)
 end
 
 -- Debug logging (toggle with /kc debug)
@@ -66,15 +73,9 @@ function ns.DebugLog(...)
 end
 
 function handlers.TRADE_SKILL_SHOW()
-    local prevProf = ns.currentProfName
     SetCharKey()
 
-    -- Determine profession name
     local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
-    ns.currentProfInfo = profInfo
-    ns.currentProfName = profInfo and profInfo.professionName or "Unknown"
-    ns.DebugLog("TRADE_SKILL_SHOW:", ns.currentProfName, "prev:", tostring(prevProf),
-        "profID:", profInfo and profInfo.professionID or "nil")
 
     -- Let Blizzard handle NPC crafting (cauldrons) and Runeforging (DK weapon enchants)
     if C_TradeSkillUI.IsNPCCrafting() or C_TradeSkillUI.IsRuneforging() then
@@ -83,13 +84,18 @@ function handlers.TRADE_SKILL_SHOW()
         return
     end
 
+    ns.DebugLog("TRADE_SKILL_SHOW:", profInfo and profInfo.professionName or "nil",
+        "prev:", tostring(ns.currentProfName),
+        "profID:", profInfo and profInfo.professionID or "nil")
+
+    -- Show/toggle our profession frame — OnTradeSkillShow compares old vs new
+    -- and updates ns.currentProfInfo/Name internally
+    if ns.ProfFrame then
+        ns.ProfFrame:OnTradeSkillShow(profInfo)
+    end
+
     -- Background cache all recipes
     ns.Data:CacheAllRecipes(profInfo)
-
-    -- Show our profession frame (replaces Blizzard ProfessionsFrame)
-    if ns.ProfFrame then
-        ns.ProfFrame:OnTradeSkillShow()
-    end
 end
 
 function handlers.TRADE_SKILL_CLOSE()
@@ -427,6 +433,10 @@ SlashCmdList["KAZCRAFT"] = function(msg)
         ns.debugMode = not ns.debugMode
         print("|cffc8aa64KazCraft:|r Debug " .. (ns.debugMode and "|cff00ff00ON|r" or "|cffff6666OFF|r"))
 
+    elseif msg == "wish" or msg:find("^wish ") then
+        local subMsg = msg:match("^wish%s*(.*)")
+        ns.Wishlist:HandleSlashCommand(subMsg or "")
+
     elseif msg == "help" then
         print("|cffc8aa64KazCraft:|r Commands:")
         print("  /kc — toggle panel")
@@ -434,6 +444,7 @@ SlashCmdList["KAZCRAFT"] = function(msg)
         print("  /kc clear — clear queue")
         print("  /kc shop — print shopping list")
         print("  /kc gathering — gathering list window")
+        print("  /kc wish — crafting wishlist")
         print("  /kc debug — toggle debug logging")
     else
         print("|cffc8aa64KazCraft:|r Unknown command. /kc help for usage.")
@@ -441,3 +452,4 @@ SlashCmdList["KAZCRAFT"] = function(msg)
 end
 KAZ_COMMANDS["craft"] = { handler = SlashCmdList["KAZCRAFT"], alias = "/kc", desc = "Profession + AH" }
 KAZ_COMMANDS["gathering"] = { handler = function() ns.Gathering:Toggle() end, alias = "/kc gathering", desc = "Gathering list" }
+KAZ_COMMANDS["wish"] = { handler = function(msg) ns.Wishlist:HandleSlashCommand(msg) end, alias = "/kc wish", desc = "Crafting wishlist" }

@@ -426,6 +426,7 @@ end
 -- ============================================================================
 ns.PriceCache = {}
 local PriceCache = ns.PriceCache
+local MAX_SANE_PRICE = 100000000000 -- 10,000,000g in copper — sanity cap
 
 function PriceCache:SetPrice(itemID, price)
     if not itemID or not price or price <= 0 then return end
@@ -441,8 +442,6 @@ function PriceCache:GetPrice(itemID, maxAge)
     end
     return nil
 end
-
-local MAX_SANE_PRICE = 100000000000 -- 10,000,000g in copper — sanity cap
 
 function PriceCache:GetBestPrice(itemID)
     local cached = self:GetPrice(itemID)

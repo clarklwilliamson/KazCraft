@@ -496,6 +496,8 @@ end
 --------------------------------------------------------------------
 function AHUI:ShowConfirmDialog(itemID, qty)
     if not mainFrame then return end
+    qty = tonumber(qty) or 0
+    if qty < 1 or qty > 4294967295 then return end -- WoW API uint32 range
     if not confirmDialog then
         confirmDialog = CreateConfirmDialog(mainFrame)
     end

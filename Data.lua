@@ -278,7 +278,7 @@ local function GetCraftSimMaterials()
 
     for _, cqi in ipairs(craftQueue.craftQueueItems) do
         local recipeData = cqi.recipeData
-        local amount = cqi.amount or 1
+        local amount = tonumber(cqi.amount) or 1
         if recipeData and recipeData.reagentData and recipeData.reagentData.requiredReagents then
             for _, reagent in ipairs(recipeData.reagentData.requiredReagents) do
                 -- Skip order-provided reagents (customer provides them)
@@ -295,7 +295,7 @@ local function GetCraftSimMaterials()
                         if reagentItem.quantity and reagentItem.quantity > 0 then
                             local ok, itemID = pcall(function() return reagentItem.item:GetItemID() end)
                             if ok and itemID then
-                                mats[itemID] = (mats[itemID] or 0) + (reagentItem.quantity * amount)
+                                mats[itemID] = (mats[itemID] or 0) + ((tonumber(reagentItem.quantity) or 0) * amount)
                             end
                         end
                     end
@@ -303,7 +303,7 @@ local function GetCraftSimMaterials()
                     -- No quality tiers — single item, use requiredQuantity
                     local ok, itemID = pcall(function() return reagent.items[1].item:GetItemID() end)
                     if ok and itemID then
-                        mats[itemID] = (mats[itemID] or 0) + (reagent.requiredQuantity * amount)
+                        mats[itemID] = (mats[itemID] or 0) + ((tonumber(reagent.requiredQuantity) or 0) * amount)
                     end
                 end
             end
@@ -335,7 +335,7 @@ function Data:GetMaterialList(charKey)
                     if not materials[reagent.itemID] then
                         materials[reagent.itemID] = { itemID = reagent.itemID, need = 0 }
                     end
-                    materials[reagent.itemID].need = materials[reagent.itemID].need + (reagent.quantity * entry.quantity)
+                    materials[reagent.itemID].need = materials[reagent.itemID].need + ((tonumber(reagent.quantity) or 0) * (tonumber(entry.quantity) or 0))
                 end
             end
         end
@@ -353,7 +353,8 @@ function Data:GetMaterialList(charKey)
     -- Enrich with inventory counts and prices
     local result = {}
     for itemID, mat in pairs(materials) do
-        mat.have = C_Item.GetItemCount(itemID, true, false, true, true)
+        mat.have = tonumber(C_Item.GetItemCount(itemID, true, false, true, true)) or 0
+        mat.need = tonumber(mat.need) or 0
         mat.short = math.max(0, mat.need - mat.have)
 
         -- Price: live cache first, TSM fallback

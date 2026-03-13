@@ -131,3 +131,20 @@ end
 function ns.FadeFrame(frame, targetAlpha, duration)
     return KazGUI:FadeFrame(frame, targetAlpha, duration)
 end
+
+--------------------------------------------------------------------------------
+-- Tooltip: SetItemByID replacement
+-- SetItemByID doesn't populate GetItem() → Altoholic/DataStore can't read the
+-- itemLink and won't inject cross-character item counts. SetHyperlink works.
+--------------------------------------------------------------------------------
+function ns.SetTooltipItem(tooltip, itemID)
+    if not itemID then return end
+    local _, itemLink = C_Item.GetItemInfo(itemID)
+    if itemLink then
+        tooltip:SetHyperlink(itemLink)
+    else
+        -- Item not cached yet — fall back to SetItemByID (counts won't show,
+        -- but tooltip still appears; next hover after cache will work)
+        tooltip:SetItemByID(itemID)
+    end
+end

@@ -930,7 +930,7 @@ local function CreateDetailOverlay(parent)
     iconBtn:SetScript("OnEnter", function(self)
         if self._itemID then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetItemByID(self._itemID)
+            ns.SetTooltipItem(GameTooltip, self._itemID)
             GameTooltip:Show()
         end
     end)

@@ -44,7 +44,7 @@ local function CreateRow(parent)
     row.iconBtn:SetScript("OnEnter", function(self)
         if self.itemID then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetItemByID(self.itemID)
+            ns.SetTooltipItem(GameTooltip, self.itemID)
             GameTooltip:Show()
         end
     end)

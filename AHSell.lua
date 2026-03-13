@@ -227,7 +227,7 @@ function AHSell:Init(contentFrame)
     dropTarget:SetScript("OnEnter", function(self)
         if sellItemID then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetItemByID(sellItemID)
+            ns.SetTooltipItem(GameTooltip, sellItemID)
             GameTooltip:Show()
         end
     end)
@@ -809,14 +809,14 @@ function AHSell:LayoutBagGrid(sortedCats)
     local headerIdx = 0
     local yOffset = 0
     local totalItems = 0
-    local hasTSM = ns.TSMData and ns.TSMData:IsAvailable()
+    local hasPrice = ns.PriceCache ~= nil
 
     -- Build "Profitable" group: items where AH price > vendor price
-    if hasTSM then
+    if hasPrice then
         local profitable = {}
         for _, cat in ipairs(sortedCats) do
             for _, item in ipairs(cat.items) do
-                local ahPrice = ns.TSMData:GetPrice(item.itemID, "DBMinBuyout")
+                local ahPrice = ns.PriceCache:GetBestPrice(item.itemID)
                 local vendorTotal = (item.vendorPrice or 0) * item.count
                 if ahPrice and ahPrice > 0 and vendorTotal > 0 and ahPrice > vendorTotal then
                     table.insert(profitable, item)
@@ -825,8 +825,8 @@ function AHSell:LayoutBagGrid(sortedCats)
         end
         if #profitable > 0 then
             table.sort(profitable, function(a, b)
-                local aAH = ns.TSMData:GetPrice(a.itemID, "DBMinBuyout") or 0
-                local bAH = ns.TSMData:GetPrice(b.itemID, "DBMinBuyout") or 0
+                local aAH = ns.PriceCache:GetBestPrice(a.itemID) or 0
+                local bAH = ns.PriceCache:GetBestPrice(b.itemID) or 0
                 local aProfit = aAH - (a.vendorPrice or 0) * a.count
                 local bProfit = bAH - (b.vendorPrice or 0) * b.count
                 return aProfit > bProfit
@@ -902,9 +902,9 @@ function AHSell:LayoutBagGrid(sortedCats)
                     btn.selectBorder:Hide()
                 end
 
-                -- TSM price overlay
-                if hasTSM then
-                    local price = ns.TSMData:GetPrice(item.itemID, "DBMinBuyout")
+                -- AH price overlay
+                if hasPrice then
+                    local price = ns.PriceCache:GetBestPrice(item.itemID)
                     local label = CompactGold(price)
                     if label then
                         btn.priceText:SetText(label)

@@ -259,6 +259,18 @@ end
 function Data:ClearQueue(charKey)
     charKey = charKey or ns.charKey
     KazCraftDB.queues[charKey] = {}
+
+    -- Also clear CraftSim queue if loaded
+    if CraftSimLib and CraftSimLib.CRAFTQ then
+        local ok = pcall(function()
+            if CraftSimLib.CRAFTQ.ClearAll then
+                CraftSimLib.CRAFTQ:ClearAll()
+            end
+            if CraftSimLib.CRAFTQ.UI and CraftSimLib.CRAFTQ.UI.UpdateDisplay then
+                CraftSimLib.CRAFTQ.UI:UpdateDisplay()
+            end
+        end)
+    end
 end
 
 -- Pull CraftSim craft queue materials (soft dependency)
@@ -357,7 +369,7 @@ function Data:GetMaterialList(charKey)
         mat.need = tonumber(mat.need) or 0
         mat.short = math.max(0, mat.need - mat.have)
 
-        -- Price: live cache first, TSM fallback
+        -- Price: live cache first, Auctionator fallback
         mat.price = 0
         if ns.PriceCache then
             local price = ns.PriceCache:GetBestPrice(itemID)
@@ -422,7 +434,7 @@ function Data:HasCraftSimQueue()
 end
 
 -- ============================================================================
--- PriceCache — persistent live AH prices, TSM fallback
+-- PriceCache — persistent live AH prices, Auctionator fallback
 -- ============================================================================
 ns.PriceCache = {}
 local PriceCache = ns.PriceCache
@@ -446,9 +458,10 @@ end
 function PriceCache:GetBestPrice(itemID)
     local cached = self:GetPrice(itemID)
     if cached and cached <= MAX_SANE_PRICE then return cached, "live" end
-    if ns.TSMData then
-        local tsm = ns.TSMData:GetPrice(itemID, "DBMinBuyout")
-        if tsm and tsm > 0 and tsm <= MAX_SANE_PRICE then return tsm, "tsm" end
+    -- Auctionator fallback (from their last full scan)
+    if Auctionator and Auctionator.API and Auctionator.API.v1 then
+        local ok, atr = pcall(Auctionator.API.v1.GetAuctionPriceByItemID, "KazCraft", itemID)
+        if ok and atr and atr > 0 and atr <= MAX_SANE_PRICE then return atr, "auctionator" end
     end
     return nil, nil
 end
@@ -456,11 +469,48 @@ end
 function PriceCache:GetSellPrice(itemID)
     local cached = self:GetPrice(itemID)
     if cached and cached <= MAX_SANE_PRICE then return cached, "live" end
-    if ns.TSMData then
-        local tsm = ns.TSMData:GetPrice(itemID, "DBMarket")
-        if tsm and tsm > 0 and tsm <= MAX_SANE_PRICE then return tsm, "tsm" end
+    -- Auctionator fallback (from their last full scan)
+    if Auctionator and Auctionator.API and Auctionator.API.v1 then
+        local ok, atr = pcall(Auctionator.API.v1.GetAuctionPriceByItemID, "KazCraft", itemID)
+        if ok and atr and atr > 0 and atr <= MAX_SANE_PRICE then return atr, "auctionator" end
     end
     return nil, nil
+end
+
+-- Collect output itemIDs from queued recipes (for AH sell-price scanning)
+function PriceCache:GetQueueOutputItems()
+    local outputs = {}
+    local seen = {}
+    -- KazCraft queue
+    if KazCraftDB.queues then
+        for _, queue in pairs(KazCraftDB.queues) do
+            for _, entry in ipairs(queue) do
+                local cached = KazCraftDB.recipeCache and KazCraftDB.recipeCache[entry.recipeID]
+                if cached and cached.outputItemID and not seen[cached.outputItemID] then
+                    seen[cached.outputItemID] = true
+                    tinsert(outputs, cached.outputItemID)
+                end
+            end
+        end
+    end
+    -- CraftSim queue outputs
+    local CS = ns.CraftSimAPI and ns.CraftSimAPI:GetCraftSim()
+    if CS and CS.CRAFTQ and CS.CRAFTQ.craftQueue then
+        local items = CS.CRAFTQ.craftQueue.craftQueueItems
+        if items then
+            for _, item in ipairs(items) do
+                local rd = item.recipeData
+                if rd and rd.resultData and rd.resultData.expectedItem then
+                    local ok, itemID = pcall(function() return rd.resultData.expectedItem:GetItemID() end)
+                    if ok and itemID and not seen[itemID] then
+                        seen[itemID] = true
+                        tinsert(outputs, itemID)
+                    end
+                end
+            end
+        end
+    end
+    return outputs
 end
 
 -- ============================================================================

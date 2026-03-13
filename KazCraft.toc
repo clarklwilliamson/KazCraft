@@ -1,16 +1,16 @@
 ## Interface: 120001
 ## Category-enUS: Kaz
-## Title: KazCraft
+## Title: |cff00c0ffKaz|r Craft
 ## Notes: Profession frame + AH replacement
 ## Author: Kaz (Claude Code) & Logan
 ## Version: 2.0.0
 ## SavedVariables: KazCraftDB
-## RequiredDeps: KazGUILib
-## OptionalDeps: CraftSim, TradeSkillMaster, DataStore, DataStore_Characters, DataStore_Crafts, DataStore_Inventory, DataStore_Containers
+## RequiredDeps: KazUtil, KazGUILib
+## OptionalDeps: CraftSim, Auctionator, DataStore, DataStore_Characters, DataStore_Crafts, DataStore_Inventory, DataStore_Containers
+## Group: Kaz
 ## X-Category: Kaz
 ## X-Flavor: Mainline
 
-TSMData.lua
 Util.lua
 Data.lua
 Core.lua

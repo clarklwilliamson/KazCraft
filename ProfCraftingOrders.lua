@@ -91,6 +91,7 @@ local orderOptSlotFrames = {}
 local orderFinSlotFrames = {}
 local orderBasicSlotFrames = {}
 local MAX_ORDER_BASIC_SLOTS = 6
+local orderSimRecipeData = nil   -- CraftSim.RecipeData for order optimization
 
 -- Event frame
 local eventFrame
@@ -537,7 +538,7 @@ local function CreateOrderSlotBox(parent, index)
         self:SetBackdropBorderColor(unpack(ns.COLORS.accent))
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if self.itemID then
-            GameTooltip:SetItemByID(self.itemID)
+            ns.SetTooltipItem(GameTooltip, self.itemID)
         elseif self.slotSchematic then
             GameTooltip:SetText(self.slotSchematic.slotText or "Reagent Slot", 1, 1, 1)
             if self._isCustomer then
@@ -936,6 +937,13 @@ local function CreateDetailPanel(parent)
     end)
     content.concCheck:Hide()
 
+    -- Optimize button (runs CraftSim optimization on order)
+    content.optimizeOrderBtn = ns.CreateButton(content, "Optimize", 80, 26)
+    content.optimizeOrderBtn:Hide()
+    content.optimizeOrderBtn:SetScript("OnClick", function()
+        ProfOrders:OptimizeOrder()
+    end)
+
     content.craftOrderBtn = ns.CreateButton(content, "Craft", 80, 26)
     content.craftOrderBtn:Hide()
     content.craftOrderBtn:SetScript("OnClick", function()
@@ -947,7 +955,7 @@ local function CreateDetailPanel(parent)
         end
         local reagentTbl = orderTransaction:CreateCraftingReagentInfoTblIf(predicate)
         local applyConc = content.concCheck:GetChecked()
-        print("|cffc8aa64KazCraft:|r Crafting order", selectedOrder.orderID, "conc:", applyConc)
+        ns.DebugLog("Crafting order", selectedOrder.orderID, "conc:", applyConc)
         C_TradeSkillUI.CraftRecipe(selectedOrder.spellID, 1, reagentTbl, nil, selectedOrder.orderID, applyConc)
     end)
 
@@ -1011,8 +1019,19 @@ local function CreateDetailPanel(parent)
     -- Claim / Start Order button
     f.claimBtn = ns.CreateButton(btnArea, "Claim Order", 110, 26)
     f.claimBtn:SetPoint("RIGHT", btnArea, "RIGHT", 0, 0)
-    f.claimBtn:SetScript("OnClick", function()
-        ProfOrders:OnClaimOrStart()
+    f.claimBtn:SetScript("OnClick", function(self)
+        -- HasRestrictions=true + SecretArguments="AllowedWhenUntainted":
+        -- ClaimOrder MUST be the first API call in this handler.
+        -- ANY addon code before it (debug, tostring, table access) can taint
+        -- the execution context and silently block the call.
+        if self._needsClaim and self._orderID then
+            -- Match Blizzard's exact pattern: inline call, zero intermediates
+            C_CraftingOrders.ClaimOrder(self._orderID, C_TradeSkillUI.GetChildProfessionInfo().profession)
+            -- Debug AFTER — taint doesn't matter anymore
+            ns.DebugLog("ClaimOrder fired for orderID:", self._orderID)
+        elseif self._isClaimed then
+            ProfOrders:OnAlreadyClaimed()
+        end
     end)
 
     -- Decline / Release button
@@ -1400,7 +1419,7 @@ local function CreateCraftSimPanel(parent)
     f.shopListBtn:SetScript("OnClick", function()
         if HasCraftSim() then
             local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
-            print("|cffc8aa64KazCraft:|r Shopping List clicked — CraftSim queue has", #items, "items")
+            ns.DebugLog("Shopping List clicked — CraftSim queue has", #items, "items")
             CraftSimLib.CRAFTQ:CreateAuctionatorShoppingList()
             ProfOrders:RefreshCraftSimQueue()
             C_Timer.After(0.5, function() ProfOrders:RefreshCraftSimQueue() end)
@@ -1466,21 +1485,27 @@ local function CreateCraftSimPanel(parent)
         end
 
         -- No claimed order — find next queue item to claim
+        -- Collect orderID BEFORE the call to keep ClaimOrder in clean context
         local items = CraftSimLib.CRAFTQ.craftQueue.craftQueueItems or {}
-        ns.DebugLog("NextClaim: no claimed order, scanning", #items, "queue items")
+        local nextOrderID, nextIdx
         for idx, item in ipairs(items) do
             local rd = item.recipeData
             if rd and rd.orderData then
-                print("|cffc8aa64KazCraft:|r NextClaim: orderID:", rd.orderData.orderID, "prof:", profession, "(item", idx, ")")
-                C_CraftingOrders.ClaimOrder(rd.orderData.orderID, profession)
-                C_Timer.After(1, function() ProfOrders:RefreshCraftSimQueue() end)
-                return
+                nextOrderID = rd.orderData.orderID
+                nextIdx = idx
+                break
             elseif rd and (item.allowedToCraft or item.canCraftOnce) then
                 -- Non-order craft
                 pcall(rd.Craft, rd, item.amount or 1)
                 C_Timer.After(1, function() ProfOrders:RefreshCraftSimQueue() end)
                 return
             end
+        end
+        -- ClaimOrder MUST be outside the loop — clean execution context
+        if nextOrderID then
+            C_CraftingOrders.ClaimOrder(nextOrderID, C_TradeSkillUI.GetChildProfessionInfo().profession)
+            ns.DebugLog("NextClaim: orderID:", nextOrderID, "(item", nextIdx, ")")
+            C_Timer.After(1, function() ProfOrders:RefreshCraftSimQueue() end)
         end
     end)
 
@@ -1676,19 +1701,29 @@ function ProfOrders:RefreshCraftSimQueue()
                     row.resultIcon:Hide()
                 end
 
-                -- Ø Profit (per unit * amount)
-                local profit = rd.averageProfitCached or 0
-                local totalItemProfit = profit * amt
-                if profit >= 0 then
-                    row.profitText:SetText("|cff33cc33" .. FormatGold(math.floor(profit)) .. "|r")
-                else
-                    row.profitText:SetText("|cffcc3333-" .. FormatGold(math.floor(math.abs(profit))) .. "|r")
-                end
-                totalProfit = totalProfit + totalItemProfit
-
-                -- Crafting Costs
+                -- Crafting cost — prefer our live prices over CraftSim's stale data
                 local craftCost = 0
-                if rd.priceData then
+                if ns.PriceCache and rd.reagentData then
+                    local total, missing = 0, false
+                    for _, reagentSlot in ipairs(rd.reagentData.requiredReagentSlots or {}) do
+                        if reagentSlot.activeReagent then
+                            local rItemID = reagentSlot.activeReagent.itemID
+                            local qty = reagentSlot.maxQuantity or 1
+                            if rItemID then
+                                local val = ns.PriceCache:GetBestPrice(rItemID)
+                                if val and val > 0 then
+                                    total = total + (val * qty)
+                                else
+                                    missing = true
+                                    if ns.AHShop then ns.AHShop:QueueItemScan(rItemID) end
+                                end
+                            end
+                        end
+                    end
+                    if total > 0 and not missing then craftCost = total end
+                end
+                -- Fallback to CraftSim pricing
+                if craftCost == 0 and rd.priceData then
                     if rd.orderData and rd.priceData.craftingCostsNoOrderReagents then
                         craftCost = rd.priceData.craftingCostsNoOrderReagents
                     elseif rd.priceData.craftingCosts then
@@ -1698,6 +1733,32 @@ function ProfOrders:RefreshCraftSimQueue()
                 row.costText:SetText(FormatGold(math.floor(craftCost * amt)))
                 row.costText:SetTextColor(unpack(ns.COLORS.mutedText))
                 totalCost = totalCost + (craftCost * amt)
+
+                -- Ø Profit — live sell price vs live cost, CraftSim fallback
+                local profit
+                local outputItemID
+                if rd.resultData and rd.resultData.expectedItem then
+                    local ok, id = pcall(function() return rd.resultData.expectedItem:GetItemID() end)
+                    if ok and id then outputItemID = id end
+                end
+                if outputItemID and craftCost > 0 and ns.PriceCache then
+                    local sellPrice = ns.PriceCache:GetSellPrice(outputItemID)
+                    if sellPrice then
+                        profit = sellPrice - craftCost
+                    else
+                        if ns.AHShop then ns.AHShop:QueueItemScan(outputItemID) end
+                    end
+                end
+                if not profit then
+                    profit = rd.averageProfitCached or 0
+                end
+                local totalItemProfit = profit * amt
+                if profit >= 0 then
+                    row.profitText:SetText("|cff33cc33" .. FormatGold(math.floor(profit)) .. "|r")
+                else
+                    row.profitText:SetText("|cffcc3333-" .. FormatGold(math.floor(math.abs(profit))) .. "|r")
+                end
+                totalProfit = totalProfit + totalItemProfit
 
                 -- Tools
                 if item.gearEquipped then
@@ -2047,7 +2108,7 @@ function ProfOrders:RequestOrders(force)
     if not ok then
         isLoading = false
         leftPanel.loadingText:Hide()
-        print("|cffc8aa64KazCraft:|r RequestOrders pcall FAILED:", tostring(err))
+        ns.Print("Failed to request orders: " .. tostring(err))
         leftPanel.emptyText:SetText("Error requesting orders")
         leftPanel.emptyText:Show()
     end
@@ -2064,7 +2125,7 @@ function ProfOrders:OnOrdersReceived(result, orderType, useBuckets, moreRows, of
     for k, v in pairs(Enum.CraftingOrderResult) do
         if v == result then resultName = k break end
     end
-    print("|cffc8aa64KazCraft:|r OrdersReceived:", resultName, "type:", tostring(orderType), "buckets:", tostring(useBuckets), "more:", tostring(moreRows))
+    ns.DebugLog("OrdersReceived:", resultName, "type:", tostring(orderType), "buckets:", tostring(useBuckets), "more:", tostring(moreRows))
 
     if result ~= Enum.CraftingOrderResult.Ok then
         leftPanel.emptyText:SetText("Failed to load orders (" .. resultName .. ")")
@@ -2085,7 +2146,7 @@ function ProfOrders:OnOrdersReceived(result, orderType, useBuckets, moreRows, of
         currentOrders = ok and orders or {}
     end
 
-    print("|cffc8aa64KazCraft:|r Got", #currentOrders, (useBuckets and "buckets" or "orders"))
+    ns.DebugLog("Got", #currentOrders, (useBuckets and "buckets" or "orders"))
 
     scrollOffset = 0
     self:FilterAndRefreshList()
@@ -2388,6 +2449,7 @@ function ProfOrders:RefreshDetail()
     content.orderConcText:Hide()
     content.useBestCheck:Hide()
     content.concCheck:Hide()
+    content.optimizeOrderBtn:Hide()
     content.craftOrderBtn:Hide()
     for i = 1, MAX_ORDER_OPTIONAL_SLOTS do orderOptSlotFrames[i]:Hide() end
     for i = 1, MAX_ORDER_FINISHING_SLOTS do orderFinSlotFrames[i]:Hide() end
@@ -2436,6 +2498,15 @@ function ProfOrders:RefreshDetail()
                         table.insert(orderBasicSlots, {slotIndex = slotIndex, slot = slot})
                     end
                 end
+            end
+
+            -- Auto-optimize on first claim via CraftSim
+            if CraftSimLib and CraftSimLib.RecipeData then
+                C_Timer.After(0, function()
+                    if orderTransaction and orderTransaction._orderID == order.orderID then
+                        ProfOrders:OptimizeOrder()
+                    end
+                end)
             end
         end
 
@@ -2578,8 +2649,12 @@ function ProfOrders:RefreshDetail()
             content.concCheck:Show()
             slotsY = slotsY - 24
 
+            content.optimizeOrderBtn:ClearAllPoints()
+            content.optimizeOrderBtn:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+            content.optimizeOrderBtn:Show()
+
             content.craftOrderBtn:ClearAllPoints()
-            content.craftOrderBtn:SetPoint("TOPLEFT", content, "TOPLEFT", 0, slotsY)
+            content.craftOrderBtn:SetPoint("LEFT", content.optimizeOrderBtn, "RIGHT", 8, 0)
             content.craftOrderBtn:Show()
             slotsY = slotsY - 32
             showedSlots = true
@@ -2717,6 +2792,174 @@ function ProfOrders:GetNotesAnchorY(numReagents)
 end
 
 --------------------------------------------------------------------
+-- Optimize order reagents via CraftSim (quality + finishing + conc)
+--------------------------------------------------------------------
+function ProfOrders:OptimizeOrder()
+    if not orderTransaction or not selectedOrder or not detailFrame then return end
+    if not CraftSimLib or not CraftSimLib.RecipeData then
+        ns.Print("CraftSim not loaded — cannot optimize")
+        return
+    end
+
+    local content = detailFrame.content
+    local spellID = selectedOrder.spellID
+    local targetQuality = selectedOrder.minQuality or 1
+
+    -- Create CraftSim RecipeData for this order
+    local ok, rd = pcall(function()
+        return CraftSimLib.RecipeData({ recipeID = spellID })
+    end)
+    if not ok or not rd then
+        ns.Print("Failed to create RecipeData for optimization")
+        return
+    end
+
+    -- Tell CraftSim this is an order (sets baseOperationInfo from order context)
+    if rd.SetOrder then
+        pcall(rd.SetOrder, rd, selectedOrder)
+    end
+
+    orderSimRecipeData = rd
+
+    -- Phase 1: Optimize quality reagent allocation targeting min quality
+    local optResult
+    ok, optResult = pcall(function()
+        return CraftSimLib.REAGENT_OPTIMIZATION:OptimizeReagentAllocation(rd, targetQuality)
+    end)
+    if ok and optResult then
+        -- Apply to CraftSim's internal model
+        pcall(function()
+            rd.reagentData:SetReagentsByOptimizationResult(optResult)
+            rd:Update()
+        end)
+
+        -- Read optimized reagents back and apply to our Blizzard transaction
+        local schematic = nil
+        pcall(function()
+            schematic = ProfessionsUtil.GetRecipeSchematic(spellID, false)
+        end)
+        if schematic and schematic.reagentSlotSchematics then
+            for slotIndex, slot in ipairs(schematic.reagentSlotSchematics) do
+                if slot.reagentType == Enum.CraftingReagentType.Basic and not orderCustomerSlots[slotIndex] then
+                    local inputMode = Professions.GetReagentInputMode and Professions.GetReagentInputMode(slot)
+                    if inputMode == Professions.ReagentInputMode.Quality then
+                        orderTransaction:ClearAllocations(slotIndex)
+                        -- Match CraftSim's optimized quantities by itemID
+                        for qi, r in ipairs(slot.reagents) do
+                            local csReagent = nil
+                            for _, csReq in pairs(rd.reagentData.requiredReagents) do
+                                if csReq.hasQuality then
+                                    for t, csItem in ipairs(csReq.items) do
+                                        if csItem.item:GetItemID() == r.itemID then
+                                            csReagent = csItem
+                                            break
+                                        end
+                                    end
+                                    if csReagent then break end
+                                end
+                            end
+                            if csReagent and csReagent.quantity > 0 then
+                                orderTransaction:OverwriteAllocation(slotIndex, r, csReagent.quantity)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Phase 2: Optimize finishing reagents (async)
+    local hasFinishing = rd.reagentData and rd.reagentData.finishingReagentSlots
+        and #rd.reagentData.finishingReagentSlots > 0
+    if hasFinishing and rd.OptimizeFinishingReagents then
+        pcall(function()
+            rd:OptimizeFinishingReagents({
+                finally = function()
+                    -- Apply finishing reagent results to orderTransaction
+                    ProfOrders:ApplyFinishingFromSim(rd)
+                    ProfOrders:RefreshDetail()
+                    ProfOrders:AutoCheckConcentration()
+                end,
+            })
+        end)
+    else
+        -- No finishing slots — just check concentration and refresh
+        self:AutoCheckConcentration()
+        self:RefreshDetail()
+    end
+
+    ns.DebugLog("Optimized for Tier", targetQuality)
+end
+
+--------------------------------------------------------------------
+-- Apply CraftSim finishing reagent optimization to orderTransaction
+--------------------------------------------------------------------
+function ProfOrders:ApplyFinishingFromSim(rd)
+    if not rd or not orderTransaction then return end
+    local schematic = nil
+    pcall(function()
+        schematic = ProfessionsUtil.GetRecipeSchematic(selectedOrder.spellID, false)
+    end)
+    if not schematic or not schematic.reagentSlotSchematics then return end
+
+    for _, csSlot in ipairs(rd.reagentData.finishingReagentSlots or {}) do
+        if csSlot.activeReagent then
+            local optItemID = csSlot.activeReagent.item:GetItemID()
+            -- Find matching slot in schematic
+            for slotIndex, slot in ipairs(schematic.reagentSlotSchematics) do
+                if slot.reagentType == Enum.CraftingReagentType.Finishing and not orderCustomerSlots[slotIndex] then
+                    for _, r in ipairs(slot.reagents) do
+                        if r.itemID == optItemID then
+                            orderTransaction:OverwriteAllocation(slotIndex, r, 1)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+--------------------------------------------------------------------
+-- Auto-check concentration if needed to hit min quality
+--------------------------------------------------------------------
+function ProfOrders:AutoCheckConcentration()
+    if not orderTransaction or not selectedOrder or not detailFrame then return end
+    local content = detailFrame.content
+    local targetQuality = selectedOrder.minQuality or 0
+    if targetQuality <= 0 then return end
+
+    -- Check current quality WITHOUT concentration
+    local reagentInfoTbl = orderTransaction:CreateCraftingReagentInfoTbl() or {}
+    local ok, opInfo
+    if selectedOrder.orderID then
+        ok, opInfo = pcall(C_TradeSkillUI.GetCraftingOperationInfoForOrder, selectedOrder.spellID, reagentInfoTbl, selectedOrder.orderID, false)
+    end
+    if not ok then opInfo = nil end
+
+    local currentQuality = opInfo and opInfo.craftingQuality or 0
+    if currentQuality >= targetQuality then
+        -- Already hitting target without concentration
+        content.concCheck:SetChecked(false)
+        return
+    end
+
+    -- Need concentration — check if it helps
+    if selectedOrder.orderID then
+        ok, opInfo = pcall(C_TradeSkillUI.GetCraftingOperationInfoForOrder, selectedOrder.spellID, reagentInfoTbl, selectedOrder.orderID, true)
+    end
+    if ok and opInfo and (opInfo.craftingQuality or 0) >= targetQuality then
+        content.concCheck:SetChecked(true)
+        ns.DebugLog("Auto-enabled concentration (needed for Tier", targetQuality .. ")")
+    else
+        content.concCheck:SetChecked(false)
+        if currentQuality < targetQuality then
+            ns.Print("|cffff4444Warning:|r Cannot reach Tier " .. targetQuality .. " even with concentration")
+        end
+    end
+end
+
+--------------------------------------------------------------------
 -- Refresh crafting operation details (quality, skill, concentration)
 --------------------------------------------------------------------
 function ProfOrders:RefreshOrderCraftingDetails()
@@ -2799,6 +3042,7 @@ end
 function ProfOrders:ClearDetail()
     selectedOrder = nil
     orderTransaction = nil
+    orderSimRecipeData = nil
     wipe(orderOptionalSlots)
     wipe(orderFinishingSlots)
     wipe(orderBasicSlots)
@@ -2853,6 +3097,12 @@ function ProfOrders:UpdateActionButtons()
     local isClaimed = claimedOrder and claimedOrder.orderID == order.orderID
     local hasAnyClaimed = claimedOrder ~= nil
 
+    -- Store state on button for taint-free OnClick access
+    -- (OnClick must NOT access selectedOrder/claimedOrder — taints execution context)
+    detailFrame.claimBtn._orderID = order.orderID
+    detailFrame.claimBtn._isClaimed = isClaimed
+    detailFrame.claimBtn._needsClaim = not isClaimed and not hasAnyClaimed
+
     if isClaimed then
         -- This order is claimed by us
         if order.isFulfillable then
@@ -2902,38 +3152,20 @@ end
 --------------------------------------------------------------------
 -- Action handlers
 --------------------------------------------------------------------
-function ProfOrders:OnClaimOrStart()
+-- Called from OnClick when button._isClaimed is true (already claimed, handle craft/shift)
+function ProfOrders:OnAlreadyClaimed()
     local order = selectedOrder
-    if not order or not professionEnum then
-        ns.DebugLog("ClaimOrStart: BAIL — selectedOrder:", selectedOrder ~= nil, "professionEnum:", professionEnum)
-        print("|cffc8aa64KazCraft:|r Claim bail — order:", selectedOrder ~= nil, "prof:", professionEnum)
-        return
-    end
-
-    ns.DebugLog("ClaimOrStart: orderID:", order.orderID, "spellID:", order.spellID, "profEnum:", professionEnum, "fromCS:", order._fromCraftSimQueue)
-
-    -- Check if this order is already claimed by us
-    if claimedOrder and claimedOrder.orderID == order.orderID then
-        -- Shift+click = fallback to Blizzard's recipe UI
-        if IsShiftKeyDown() then
-            ns.DebugLog("ClaimOrStart: Shift+click, opening Blizzard recipe UI", order.spellID)
-            if order.spellID then
-                C_TradeSkillUI.OpenRecipe(order.spellID)
-            end
-        else
-            -- Slots are already visible in the detail panel — just scroll to them
-            ns.DebugLog("ClaimOrStart: already claimed, reagent slots visible in detail panel")
-            print("|cffc8aa64KazCraft:|r Use the reagent slots above to add finishing reagents, then click Craft. Shift+click to open Blizzard UI.")
+    if not order then return end
+    -- Shift+click = fallback to Blizzard's recipe UI
+    if IsShiftKeyDown() then
+        ns.DebugLog("AlreadyClaimed: Shift+click, opening Blizzard recipe UI", order.spellID)
+        if order.spellID then
+            C_TradeSkillUI.OpenRecipe(order.spellID)
         end
-        return
+    else
+        ns.DebugLog("AlreadyClaimed: reagent slots visible in detail panel")
+        ns.Print("Use the reagent slots above to add finishing reagents, then click Craft. Shift+click to open Blizzard UI.")
     end
-
-    -- Claim the order — MUST call directly (no pcall) to preserve hardware event context
-    -- HasRestrictions=true on ClaimOrder requires unbroken hardware event chain
-    local freshProf = C_TradeSkillUI.GetChildProfessionInfo()
-    local profEnum = freshProf and freshProf.profession or professionEnum
-    print("|cffc8aa64KazCraft:|r Claiming orderID:", order.orderID, "prof:", profEnum, "(direct call, no pcall)")
-    C_CraftingOrders.ClaimOrder(order.orderID, profEnum)
 end
 
 function ProfOrders:OnDeclineOrRelease()
@@ -2944,13 +3176,13 @@ function ProfOrders:OnDeclineOrRelease()
     if claimedOrder and claimedOrder.orderID == order.orderID then
         local ok, err = pcall(C_CraftingOrders.ReleaseOrder, order.orderID, professionEnum)
         if not ok then
-            print("|cffc8aa64KazCraft:|r Failed to release order: " .. tostring(err))
+            ns.Print("Failed to release order: " .. tostring(err))
         end
     else
         -- Reject (for personal/guild orders we haven't claimed)
         local ok, err = pcall(C_CraftingOrders.RejectOrder, order.orderID, "", professionEnum)
         if not ok then
-            print("|cffc8aa64KazCraft:|r Failed to reject order: " .. tostring(err))
+            ns.Print("Failed to reject order: " .. tostring(err))
         end
     end
 end
@@ -2961,7 +3193,7 @@ function ProfOrders:OnFulfill()
 
     local ok, err = pcall(C_CraftingOrders.FulfillOrder, order.orderID, "", professionEnum)
     if not ok then
-        print("|cffc8aa64KazCraft:|r Failed to fulfill order: " .. tostring(err))
+            ns.Print("Failed to fulfill order: " .. tostring(err))
     end
 end
 
@@ -2973,16 +3205,16 @@ function ProfOrders:OnEvent(event, ...)
 
     if event == "CRAFTINGORDERS_CLAIM_ORDER_RESPONSE" then
         local result, orderID = ...
-        -- Resolve result name
+        -- Resolve result name for debug
         local resultName = "unknown"
         for k, v in pairs(Enum.CraftingOrderResult) do
             if v == result then resultName = k break end
         end
-        print("|cffc8aa64KazCraft:|r CLAIM_RESPONSE:", resultName, "(code", tostring(result) .. ") orderID:", tostring(orderID))
+        ns.DebugLog("CLAIM_RESPONSE:", resultName, "(code", tostring(result) .. ") orderID:", tostring(orderID))
 
         if result == Enum.CraftingOrderResult.Ok then
             pendingClaimRetry = nil
-            print("|cffc8aa64KazCraft:|r Order claimed!")
+            ns.Print("Order claimed!")
             -- Ensure selectedOrder stays valid — server will remove it from browse list
             local ok, claimed = pcall(C_CraftingOrders.GetClaimedOrder)
             if ok and claimed then
@@ -3002,30 +3234,23 @@ function ProfOrders:OnEvent(event, ...)
                 end
             end)
         elseif result == 45 then
-            -- Timeout — auto-retry
-            if pendingClaimRetry and pendingClaimRetry.orderID == orderID then
-                pendingClaimRetry.attempts = pendingClaimRetry.attempts + 1
-            else
-                pendingClaimRetry = { orderID = orderID, profEnum = professionEnum, attempts = 1 }
-            end
-            if pendingClaimRetry.attempts <= MAX_CLAIM_RETRIES then
-                local attempt = pendingClaimRetry.attempts
-                local retryID = pendingClaimRetry.orderID
-                local retryProf = pendingClaimRetry.profEnum
-                print("|cffc8aa64KazCraft:|r Timeout — retry", attempt .. "/" .. MAX_CLAIM_RETRIES, "in", CLAIM_RETRY_DELAY .. "s...")
-                C_Timer.After(CLAIM_RETRY_DELAY, function()
-                    if pendingClaimRetry and pendingClaimRetry.orderID == retryID then
-                        print("|cffc8aa64KazCraft:|r Retrying claim orderID:", retryID)
-                        pcall(C_CraftingOrders.ClaimOrder, retryID, retryProf)
-                    end
-                end)
-            else
-                print("|cffc8aa64KazCraft:|r Claim timed out after", MAX_CLAIM_RETRIES, "retries. Server may be overloaded.")
-                pendingClaimRetry = nil
-            end
+            -- Timeout — server was slow. Refresh list so UI isn't stuck.
+            ns.Print("Claim timed out — click Claim again to retry.")
+            self:RequestOrders(true)
         else
             pendingClaimRetry = nil
-            print("|cffc8aa64KazCraft:|r Claim failed:", resultName, "(code " .. tostring(result) .. ")")
+            -- User-friendly error messages
+            local msg = "Claim failed"
+            if resultName == "OrderAlreadyClaimed" then
+                msg = "Order already claimed by another crafter"
+            elseif resultName == "CannotClaimMore" then
+                msg = "Already at claim limit"
+            elseif resultName == "InvalidProfession" then
+                msg = "Wrong profession table"
+            end
+            ns.Print(msg .. ".")
+            ns.DebugLog("Claim failed:", resultName, "code:", result)
+            self:RequestOrders(true)
         end
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_ADDED" then
@@ -3040,12 +3265,14 @@ function ProfOrders:OnEvent(event, ...)
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_REMOVED" then
         claimedOrder = nil
+        selectedOrder = nil
         orderTransaction = nil
         wipe(orderOptionalSlots)
         wipe(orderFinishingSlots)
         wipe(orderBasicSlots)
         wipe(orderCustomerSlots)
-        self:UpdateActionButtons()
+        self:ClearDetail()
+        self:UpdateClaimCapacity()
         self:RequestOrders(true)
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_UPDATED" then
@@ -3066,33 +3293,45 @@ function ProfOrders:OnEvent(event, ...)
     elseif event == "CRAFTINGORDERS_RELEASE_ORDER_RESPONSE" then
         local result, orderID = ...
         if result == Enum.CraftingOrderResult.Ok then
-            print("|cffc8aa64KazCraft:|r Order released.")
+            ns.Print("Order released.")
             selectedOrder = nil
+            claimedOrder = nil
             self:ClearDetail()
             self:RequestOrders(true)
+            self:UpdateClaimCapacity()
+        else
+            ns.DebugLog("Release failed, code:", result)
         end
 
     elseif event == "CRAFTINGORDERS_REJECT_ORDER_RESPONSE" then
         local result, orderID = ...
         if result == Enum.CraftingOrderResult.Ok then
-            print("|cffc8aa64KazCraft:|r Order rejected.")
+            ns.Print("Order rejected.")
             selectedOrder = nil
             self:ClearDetail()
             self:RequestOrders(true)
+        else
+            ns.DebugLog("Reject failed, code:", result)
         end
 
     elseif event == "CRAFTINGORDERS_FULFILL_ORDER_RESPONSE" then
         local result, orderID = ...
         if result == Enum.CraftingOrderResult.Ok then
-            print("|cffc8aa64KazCraft:|r Order completed! Payment received.")
+            ns.Print("Order completed! Payment received.")
             selectedOrder = nil
             claimedOrder = nil
             self:ClearDetail()
             self:RequestOrders(true)
+            self:UpdateClaimCapacity()
             -- Refresh CraftSim queue (item should already be removed by our button handler)
             C_Timer.After(0.3, function() self:RefreshCraftSimQueue() end)
         else
-            print("|cffc8aa64KazCraft:|r Fulfill failed (code " .. tostring(result) .. ")")
+            local resultName = "unknown"
+            for k, v in pairs(Enum.CraftingOrderResult) do
+                if v == result then resultName = k break end
+            end
+            ns.Print("Fulfill failed: " .. resultName)
+            ns.DebugLog("Fulfill failed:", resultName, "code:", result)
         end
 
     elseif event == "CRAFTINGORDERS_UPDATE_ORDER_COUNT" then
@@ -3115,7 +3354,8 @@ function ProfOrders:OnEvent(event, ...)
         end
 
     elseif event == "CRAFTINGORDERS_UNEXPECTED_ERROR" then
-        print("|cffc8aa64KazCraft:|r Crafting orders error occurred.")
+        ns.Print("Server error — refreshing orders.")
+        self:RequestOrders(true)
 
     elseif event == "GET_ITEM_INFO_RECEIVED" then
         -- Reward item data loaded — refresh detail if viewing an order

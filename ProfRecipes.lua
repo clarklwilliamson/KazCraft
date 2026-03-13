@@ -969,7 +969,7 @@ local function CreateReagentRow(parent, index)
     row:SetScript("OnEnter", function(self)
         if self.itemID and not IsShiftKeyDown() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetItemByID(self.itemID)
+            ns.SetTooltipItem(GameTooltip, self.itemID)
             GameTooltip:Show()
         end
     end)
@@ -981,7 +981,7 @@ local function CreateReagentRow(parent, index)
             GameTooltip:Hide()
         elseif not GameTooltip:IsOwned(self) and self.itemID and not IsShiftKeyDown() and self:IsMouseOver() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetItemByID(self.itemID)
+            ns.SetTooltipItem(GameTooltip, self.itemID)
             GameTooltip:Show()
         end
     end)
@@ -1025,7 +1025,7 @@ local function CreateReagentSlotBox(parent, index)
         if not IsShiftKeyDown() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             if self.itemID then
-                GameTooltip:SetItemByID(self.itemID)
+                ns.SetTooltipItem(GameTooltip, self.itemID)
             elseif self.slotSchematic then
                 GameTooltip:SetText(self.slotSchematic.slotText or "Optional Reagent", 1, 1, 1)
                 GameTooltip:AddLine("Click to select a reagent", 0.7, 0.7, 0.7)
@@ -1043,7 +1043,7 @@ local function CreateReagentSlotBox(parent, index)
         elseif not GameTooltip:IsOwned(self) and not IsShiftKeyDown() and self:IsMouseOver() then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             if self.itemID then
-                GameTooltip:SetItemByID(self.itemID)
+                ns.SetTooltipItem(GameTooltip, self.itemID)
             elseif self.slotSchematic then
                 GameTooltip:SetText(self.slotSchematic.slotText or "Optional Reagent", 1, 1, 1)
                 GameTooltip:AddLine("Click to select a reagent", 0.7, 0.7, 0.7)
@@ -1375,7 +1375,7 @@ local function CreateRightPanel(parent)
         row.iconBtn:SetScript("OnEnter", function(self)
             if self.itemID then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetItemByID(self.itemID)
+                ns.SetTooltipItem(GameTooltip, self.itemID)
                 GameTooltip:Show()
             end
         end)
@@ -1431,7 +1431,7 @@ local function CreateRightPanel(parent)
 
     -- Finishing dropdowns
     for i = 1, SIM_FINISHING_SLOTS do
-        local dd = KazGUI:CreateDropdown(detail.simFrame, 140, {"None"}, "None", function()
+        local dd = KazGUI:CreateDropdown(detail.simFrame, 200, {"None"}, "None", function()
             ProfRecipes:RefreshSimResults()
         end)
         dd:Hide()
@@ -1593,24 +1593,24 @@ local function CreateRightPanel(parent)
     detail.simStatusText:SetTextColor(unpack(ns.COLORS.mutedText))
     detail.simStatusText:SetText("")
 
-    -- TSM cost / profit (above craft controls)
-    detail.tsmCostLabel = rightPanel:CreateFontString(nil, "OVERLAY")
-    detail.tsmCostLabel:SetFont(ns.FONT, 12, "")
-    detail.tsmCostLabel:SetTextColor(unpack(ns.COLORS.headerText))
-    detail.tsmCostLabel:SetText("To Craft:")
+    -- Craft cost / profit (above craft controls)
+    detail.craftCostLabel = rightPanel:CreateFontString(nil, "OVERLAY")
+    detail.craftCostLabel:SetFont(ns.FONT, 12, "")
+    detail.craftCostLabel:SetTextColor(unpack(ns.COLORS.headerText))
+    detail.craftCostLabel:SetText("To Craft:")
 
-    detail.tsmCostValue = rightPanel:CreateFontString(nil, "OVERLAY")
-    detail.tsmCostValue:SetFont(ns.FONT, 12, "")
-    detail.tsmCostValue:SetPoint("LEFT", detail.tsmCostLabel, "RIGHT", 4, 0)
+    detail.craftCostValue = rightPanel:CreateFontString(nil, "OVERLAY")
+    detail.craftCostValue:SetFont(ns.FONT, 12, "")
+    detail.craftCostValue:SetPoint("LEFT", detail.craftCostLabel, "RIGHT", 4, 0)
 
-    detail.tsmProfitLabel = rightPanel:CreateFontString(nil, "OVERLAY")
-    detail.tsmProfitLabel:SetFont(ns.FONT, 12, "")
-    detail.tsmProfitLabel:SetTextColor(unpack(ns.COLORS.headerText))
-    detail.tsmProfitLabel:SetText("Profit:")
+    detail.craftProfitLabel = rightPanel:CreateFontString(nil, "OVERLAY")
+    detail.craftProfitLabel:SetFont(ns.FONT, 12, "")
+    detail.craftProfitLabel:SetTextColor(unpack(ns.COLORS.headerText))
+    detail.craftProfitLabel:SetText("Profit:")
 
-    detail.tsmProfitValue = rightPanel:CreateFontString(nil, "OVERLAY")
-    detail.tsmProfitValue:SetFont(ns.FONT, 12, "")
-    detail.tsmProfitValue:SetPoint("LEFT", detail.tsmProfitLabel, "RIGHT", 4, 0)
+    detail.craftProfitValue = rightPanel:CreateFontString(nil, "OVERLAY")
+    detail.craftProfitValue:SetFont(ns.FONT, 12, "")
+    detail.craftProfitValue:SetPoint("LEFT", detail.craftProfitLabel, "RIGHT", 4, 0)
 
     -- Craft controls — pinned to bottom of right panel
     detail.controlFrame = CreateFrame("Frame", nil, rightPanel)
@@ -2037,10 +2037,10 @@ function ProfRecipes:RefreshDetail()
         detail.concText:Hide()
         detail.cooldownText:Hide()
         detail.sourceFrame:Hide()
-        detail.tsmCostLabel:Hide()
-        detail.tsmCostValue:Hide()
-        detail.tsmProfitLabel:Hide()
-        detail.tsmProfitValue:Hide()
+        detail.craftCostLabel:Hide()
+        detail.craftCostValue:Hide()
+        detail.craftProfitLabel:Hide()
+        detail.craftProfitValue:Hide()
         detail.controlFrame:Hide()
         detail.favBtn:Hide()
         detail.simFrame:Hide()
@@ -2280,7 +2280,7 @@ function ProfRecipes:RefreshDetail()
                         if self.itemLink then
                             GameTooltip:SetHyperlink(self.itemLink)
                         elseif rBox.itemID then
-                            GameTooltip:SetItemByID(rBox.itemID)
+                            ns.SetTooltipItem(GameTooltip, rBox.itemID)
                         end
                         GameTooltip:Show()
                     end
@@ -3038,44 +3038,44 @@ function ProfRecipes:RefreshDetail()
         end
 
         if craftCost then
-            detail.tsmCostLabel:ClearAllPoints()
-            detail.tsmCostLabel:SetPoint("BOTTOMLEFT", detail.controlFrame, "TOPLEFT", 0, 22)
-            detail.tsmCostValue:SetText(ns.FormatGold(craftCost))
-            detail.tsmCostValue:SetTextColor(unpack(ns.COLORS.brightText))
-            detail.tsmCostLabel:Show()
-            detail.tsmCostValue:Show()
+            detail.craftCostLabel:ClearAllPoints()
+            detail.craftCostLabel:SetPoint("BOTTOMLEFT", detail.controlFrame, "TOPLEFT", 0, 22)
+            detail.craftCostValue:SetText(ns.FormatGold(craftCost))
+            detail.craftCostValue:SetTextColor(unpack(ns.COLORS.brightText))
+            detail.craftCostLabel:Show()
+            detail.craftCostValue:Show()
 
-            detail.tsmProfitLabel:ClearAllPoints()
-            detail.tsmProfitLabel:SetPoint("BOTTOMLEFT", detail.controlFrame, "TOPLEFT", 0, 6)
+            detail.craftProfitLabel:ClearAllPoints()
+            detail.craftProfitLabel:SetPoint("BOTTOMLEFT", detail.controlFrame, "TOPLEFT", 0, 6)
 
             if sellValue then
                 local profit = sellValue - craftCost
-                detail.tsmProfitValue:SetText(ns.FormatGold(math.abs(profit)))
+                detail.craftProfitValue:SetText(ns.FormatGold(math.abs(profit)))
                 if profit >= 0 then
-                    detail.tsmProfitValue:SetTextColor(0.3, 0.85, 0.3)
-                    detail.tsmProfitLabel:SetText("Profit:")
+                    detail.craftProfitValue:SetTextColor(0.3, 0.85, 0.3)
+                    detail.craftProfitLabel:SetText("Profit:")
                 else
-                    detail.tsmProfitValue:SetTextColor(0.85, 0.3, 0.3)
-                    detail.tsmProfitLabel:SetText("Loss:")
+                    detail.craftProfitValue:SetTextColor(0.85, 0.3, 0.3)
+                    detail.craftProfitLabel:SetText("Loss:")
                 end
             else
-                detail.tsmProfitValue:SetText("|cff888888(no price data)|r")
-                detail.tsmProfitValue:SetTextColor(unpack(ns.COLORS.mutedText))
-                detail.tsmProfitLabel:SetText("Profit:")
+                detail.craftProfitValue:SetText("|cff888888(no price data)|r")
+                detail.craftProfitValue:SetTextColor(unpack(ns.COLORS.mutedText))
+                detail.craftProfitLabel:SetText("Profit:")
             end
-            detail.tsmProfitLabel:Show()
-            detail.tsmProfitValue:Show()
+            detail.craftProfitLabel:Show()
+            detail.craftProfitValue:Show()
         else
-            detail.tsmCostLabel:Hide()
-            detail.tsmCostValue:Hide()
-            detail.tsmProfitLabel:Hide()
-            detail.tsmProfitValue:Hide()
+            detail.craftCostLabel:Hide()
+            detail.craftCostValue:Hide()
+            detail.craftProfitLabel:Hide()
+            detail.craftProfitValue:Hide()
         end
     else
-        detail.tsmCostLabel:Hide()
-        detail.tsmCostValue:Hide()
-        detail.tsmProfitLabel:Hide()
-        detail.tsmProfitValue:Hide()
+        detail.craftCostLabel:Hide()
+        detail.craftCostValue:Hide()
+        detail.craftProfitLabel:Hide()
+        detail.craftProfitValue:Hide()
     end
 
     -- Craft controls (pinned to bottom, just show/hide)
@@ -3280,20 +3280,38 @@ function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
             local dd = simFinishingDrops[i]
             dd.slotData = fs.slot
 
-            -- Build options list from slot reagents
+            -- Build options list from slot reagents (with stat bonus text)
             local opts = { "None" }
             local optItemIDs = { 0 }
+            local nameToDisplay = {}  -- plain itemName → display string (for SetSelected lookup)
             for _, r in ipairs(fs.slot.reagents) do
                 local itemName = C_Item.GetItemInfo(r.itemID)
                 if not itemName then
                     C_Item.RequestLoadItemDataByID(r.itemID)
                     itemName = "Item:" .. r.itemID
                 end
-                table.insert(opts, itemName)
+                -- Get stat bonus text (e.g. "Gain 4 Resourcefulness for this craft.")
+                local displayName = itemName
+                if selectedRecipeID then
+                    local ok, bonusText = pcall(C_TradeSkillUI.GetCraftingReagentBonusText,
+                        selectedRecipeID, 1,
+                        {{ reagent = { itemID = r.itemID }, dataSlotIndex = 1, quantity = 1 }})
+                    if ok and bonusText and #bonusText > 0 then
+                        -- Parse "Gain 4 Resourcefulness for this craft." → "+4 Resourcefulness"
+                        -- Also handles "Gain 18 Multicraft", "Gain 5 Crafting Speed", etc.
+                        local stat = bonusText[1]:match("Gain (%d+ .-)%s+for")
+                        if stat then
+                            displayName = itemName .. "  |cff888888(+" .. stat .. ")|r"
+                        end
+                    end
+                end
+                table.insert(opts, displayName)
                 table.insert(optItemIDs, r.itemID)
+                nameToDisplay[itemName] = displayName
             end
             dd:SetOptions(opts)
             dd.optItemIDs = optItemIDs
+            dd.nameToDisplay = nameToDisplay
 
             -- Set default from current transaction (only on recipe change)
             if isNewRecipe then
@@ -3304,7 +3322,7 @@ function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
                         for _, r in ipairs(fs.slot.reagents) do
                             if allocs.GetQuantityAllocated and allocs:GetQuantityAllocated(r) > 0 then
                                 local rName = C_Item.GetItemInfo(r.itemID)
-                                if rName then currentName = rName end
+                                if rName then currentName = nameToDisplay[rName] or rName end
                                 break
                             end
                         end
@@ -3495,6 +3513,8 @@ function ProfRecipes:RefreshSimResults()
                             total = total + (val * qty)
                         else
                             missing = true
+                            -- Queue live scan if AH open
+                            if ns.AHShop then ns.AHShop:QueueItemScan(rItemID) end
                         end
                     end
                 end
@@ -3519,6 +3539,10 @@ function ProfRecipes:RefreshSimResults()
         local outputItemID = currentSchematic.outputItemID
         if outputItemID then
             sellValue = ns.PriceCache:GetSellPrice(outputItemID)
+            -- Queue live scan if AH open and no price yet
+            if not sellValue and ns.AHShop then
+                ns.AHShop:QueueItemScan(outputItemID)
+            end
         end
     end
     if craftCost and sellValue then

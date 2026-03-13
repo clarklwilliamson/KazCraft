@@ -110,7 +110,7 @@ local function CreateMatRow(parent, index)
         row.leftAccent:Show()
         if row._itemID then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetItemByID(row._itemID)
+            ns.SetTooltipItem(GameTooltip, row._itemID)
             GameTooltip:Show()
         end
     end)
@@ -710,9 +710,22 @@ end
 function AHShop:StartPriceScan()
     wipe(scanQueue)
     scanIdx = 0
+    local queued = {}
+    -- Materials (buy prices)
     for _, mat in ipairs(currentMats) do
-        if not livePrices[mat.itemID] then
+        if not livePrices[mat.itemID] and not queued[mat.itemID] then
             tinsert(scanQueue, mat.itemID)
+            queued[mat.itemID] = true
+        end
+    end
+    -- Output items (sell prices) — need these for profit calc
+    if ns.PriceCache then
+        local outputs = ns.PriceCache:GetQueueOutputItems()
+        for _, itemID in ipairs(outputs) do
+            if not livePrices[itemID] and not queued[itemID] then
+                tinsert(scanQueue, itemID)
+                queued[itemID] = true
+            end
         end
     end
     if #scanQueue == 0 then
@@ -721,6 +734,21 @@ function AHShop:StartPriceScan()
     end
     scanActive = true
     self:ScanNext()
+end
+
+-- Queue a single item for scanning (called from recipe detail, crafting orders, etc.)
+function AHShop:QueueItemScan(itemID)
+    if not itemID or livePrices[itemID] then return end
+    if not ns.AHUI or not ns.AHUI:IsAHOpen() then return end
+    for _, id in ipairs(scanQueue) do
+        if id == itemID then return end
+    end
+    tinsert(scanQueue, itemID)
+    if not scanActive then
+        scanActive = true
+        scanIdx = #scanQueue - 1
+        self:ScanNext()
+    end
 end
 
 function AHShop:ScanNext()

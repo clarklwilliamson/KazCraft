@@ -168,10 +168,24 @@ local function BuildDisplayData()
         end
         table.sort(charOrder)
 
+        local emptyCount = 0
+        local upgradeCount = 0
+        for _, need in ipairs(gearNeeds) do
+            if need.currentQuality == 0 then
+                emptyCount = emptyCount + 1
+            else
+                upgradeCount = upgradeCount + 1
+            end
+        end
+        local countParts = {}
+        if emptyCount > 0 then countParts[#countParts + 1] = emptyCount .. " empty" end
+        if upgradeCount > 0 then countParts[#countParts + 1] = upgradeCount .. " upgrade" end
+
+        local targetQ = ns.Wishlist:GetTargetQuality()
         displayData[#displayData + 1] = {
             type = "header",
-            text = "Profession Gear",
-            count = #gearNeeds .. " empty",
+            text = "Profession Gear → " .. ns.Wishlist:GetQualityColor(targetQ) .. ns.Wishlist:GetQualityName(targetQ) .. "|r",
+            count = table.concat(countParts, ", "),
         }
         for _, charName in ipairs(charOrder) do
             for _, need in ipairs(byChar[charName]) do
@@ -182,6 +196,7 @@ local function BuildDisplayData()
                     profession = need.profession,
                     slotName = need.slotName,
                     slotID = need.slotID,
+                    currentQuality = need.currentQuality or 0,
                 }
             end
         end
@@ -252,7 +267,17 @@ function WishlistUI:Refresh()
             local color = entry.classColor or "|cffffffff"
             row.charText:SetText(color .. entry.charName .. "|r")
             row.descText:SetText(entry.profession .. " " .. entry.slotName)
-            row.statusText:SetText("|cffff6666Empty|r")
+
+            -- Status: Empty or current quality
+            local cq = entry.currentQuality or 0
+            if cq == 0 then
+                row.statusText:SetText("|cffff6666Empty|r")
+            else
+                local qColor = ns.Wishlist:GetQualityColor(cq)
+                local qName = ns.Wishlist:GetQualityName(cq)
+                row.statusText:SetText(qColor .. qName .. "|r")
+            end
+
             row.removeBtn:Hide()
             row.removeBtn.itemID = nil
             row.bg:SetColorTexture(1, 0.4, 0.4, 0.04)
@@ -322,8 +347,45 @@ local function CreateMainFrame()
     -- Subtitle
     mainFrame.subtitle = KazGUI:CreateText(mainFrame, KazGUI.Constants.FONT_SIZE_SMALL, "textDim")
     mainFrame.subtitle:SetPoint("TOPLEFT", mainFrame.titleBar, "BOTTOMLEFT", 10, -4)
-    mainFrame.subtitle:SetPoint("TOPRIGHT", mainFrame.titleBar, "BOTTOMRIGHT", -10, -4)
     mainFrame.subtitle:SetJustifyH("LEFT")
+
+    -- Quality toggle buttons (right side of subtitle row)
+    local QUALITY_OPTS = {
+        { quality = 2, label = "Green",  color = {0.12, 1.0, 0.0} },
+        { quality = 3, label = "Blue",   color = {0.0, 0.44, 0.87} },
+        { quality = 4, label = "Epic",   color = {0.64, 0.21, 0.93} },
+    }
+
+    mainFrame.qualityBtns = {}
+    local prevBtn
+    for i, opt in ipairs(QUALITY_OPTS) do
+        local btn = CreateFrame("Button", nil, mainFrame)
+        btn:SetSize(44, 16)
+        btn.label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        btn.label:SetAllPoints()
+        btn.label:SetText(opt.label)
+
+        btn.bg = btn:CreateTexture(nil, "BACKGROUND")
+        btn.bg:SetAllPoints()
+
+        btn.quality = opt.quality
+        btn.optColor = opt.color
+
+        btn:SetScript("OnClick", function(self)
+            ns.Wishlist:SetTargetQuality(self.quality)
+            WishlistUI:UpdateQualityButtons()
+            WishlistUI:Refresh()
+        end)
+
+        if i == 1 then
+            btn:SetPoint("RIGHT", mainFrame.titleBar, "BOTTOMRIGHT", -10, -12)
+        else
+            btn:SetPoint("RIGHT", prevBtn, "LEFT", -4, 0)
+        end
+
+        mainFrame.qualityBtns[i] = btn
+        prevBtn = btn
+    end
 
     -- Scroll frame
     scrollFrame = KazGUI:CreateClassicScrollFrame(mainFrame, HEADER_OFFSET, 28)
@@ -365,6 +427,7 @@ local function CreateMainFrame()
     end)
 
     mainFrame:SetScript("OnShow", function()
+        WishlistUI:UpdateQualityButtons()
         WishlistUI:Refresh()
     end)
 
@@ -381,6 +444,23 @@ local function CreateMainFrame()
     end
 
     return mainFrame
+end
+
+--------------------------------------------------------------------
+-- Quality button highlight
+--------------------------------------------------------------------
+function WishlistUI:UpdateQualityButtons()
+    if not mainFrame or not mainFrame.qualityBtns then return end
+    local targetQ = ns.Wishlist:GetTargetQuality()
+    for _, btn in ipairs(mainFrame.qualityBtns) do
+        if btn.quality == targetQ then
+            btn.bg:SetColorTexture(btn.optColor[1], btn.optColor[2], btn.optColor[3], 0.25)
+            btn.label:SetTextColor(btn.optColor[1], btn.optColor[2], btn.optColor[3])
+        else
+            btn.bg:SetColorTexture(1, 1, 1, 0.04)
+            btn.label:SetTextColor(0.5, 0.5, 0.5)
+        end
+    end
 end
 
 --------------------------------------------------------------------

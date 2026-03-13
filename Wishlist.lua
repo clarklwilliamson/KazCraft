@@ -37,6 +37,25 @@ local DS_PROF_INDICES = {
 }
 
 --------------------------------------------------------------------
+-- Quality constants
+--------------------------------------------------------------------
+local QUALITY_GREEN = 2   -- Uncommon
+local QUALITY_BLUE  = 3   -- Rare
+local QUALITY_EPIC  = 4   -- Epic
+
+local QUALITY_NAMES = {
+    [QUALITY_GREEN] = "Green",
+    [QUALITY_BLUE]  = "Blue",
+    [QUALITY_EPIC]  = "Epic",
+}
+
+local QUALITY_COLORS = {
+    [QUALITY_GREEN] = "|cff1eff00",
+    [QUALITY_BLUE]  = "|cff0070dd",
+    [QUALITY_EPIC]  = "|cffa335ee",
+}
+
+--------------------------------------------------------------------
 -- DB helpers
 --------------------------------------------------------------------
 local function EnsureDB()
@@ -44,11 +63,33 @@ local function EnsureDB()
     if not KazCraftDB.wishlist then
         KazCraftDB.wishlist = {
             consumables = {},  -- { [itemID] = targetQty }
+            targetQuality = QUALITY_GREEN,
         }
     end
     if not KazCraftDB.wishlist.consumables then
         KazCraftDB.wishlist.consumables = {}
     end
+    if not KazCraftDB.wishlist.targetQuality then
+        KazCraftDB.wishlist.targetQuality = QUALITY_GREEN
+    end
+end
+
+function Wishlist:GetTargetQuality()
+    EnsureDB()
+    return KazCraftDB.wishlist.targetQuality
+end
+
+function Wishlist:SetTargetQuality(quality)
+    EnsureDB()
+    KazCraftDB.wishlist.targetQuality = quality
+end
+
+function Wishlist:GetQualityName(quality)
+    return QUALITY_NAMES[quality] or "Unknown"
+end
+
+function Wishlist:GetQualityColor(quality)
+    return QUALITY_COLORS[quality] or "|cffffffff"
 end
 
 --------------------------------------------------------------------
@@ -142,6 +183,7 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
 
     local profs = DataStore:GetProfessions(charKey)
     if not profs then return end
+    local targetQ = self:GetTargetQuality()
 
     for dsIdx, slots in pairs(PROF_SLOTS) do
         local prof = profs[dsIdx]
@@ -149,7 +191,18 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
             for _, slotID in ipairs(slots) do
                 -- GetInventoryItem returns itemID (number) or itemLink (string), or nil
                 local item = DataStore:GetInventoryItem(charKey, slotID)
-                if not item then
+                local currentQuality = 0
+                if item then
+                    -- Get quality from item
+                    local link = type(item) == "string" and item or nil
+                    if link then
+                        currentQuality = select(3, C_Item.GetItemInfo(link)) or 0
+                    else
+                        currentQuality = C_Item.GetItemQualityByID(item) or 0
+                    end
+                end
+
+                if currentQuality < targetQ then
                     needs[#needs + 1] = {
                         charName = charName,
                         charKey = charKey,
@@ -157,6 +210,7 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
                         slotID = slotID,
                         slotName = SLOT_NAMES[slotID] or "Unknown",
                         classColor = DataStore:GetCharacterClassColor(charKey),
+                        currentQuality = currentQuality,
                     }
                 end
             end
@@ -167,6 +221,7 @@ end
 function Wishlist:ScanCurrentCharGear(needs)
     local charName = UnitName("player")
     local charKey = ns.charKey
+    local targetQ = self:GetTargetQuality()
 
     -- Check profession slots via GetInventoryItemID
     for dsIdx, slots in pairs(PROF_SLOTS) do
@@ -187,7 +242,17 @@ function Wishlist:ScanCurrentCharGear(needs)
         if hasProfession then
             for _, slotID in ipairs(slots) do
                 local itemID = GetInventoryItemID("player", slotID)
-                if not itemID then
+                local currentQuality = 0
+                if itemID then
+                    local link = GetInventoryItemLink("player", slotID)
+                    if link then
+                        currentQuality = select(3, C_Item.GetItemInfo(link)) or 0
+                    else
+                        currentQuality = C_Item.GetItemQualityByID(itemID) or 0
+                    end
+                end
+
+                if currentQuality < targetQ then
                     local _, classFile = UnitClass("player")
                     local color = RAID_CLASS_COLORS[classFile]
                     local colorStr = color and color:GenerateHexColorMarkup() or "|cffffffff"
@@ -198,6 +263,7 @@ function Wishlist:ScanCurrentCharGear(needs)
                         slotID = slotID,
                         slotName = SLOT_NAMES[slotID] or "Unknown",
                         classColor = colorStr,
+                        currentQuality = currentQuality,
                     }
                 end
             end
@@ -433,8 +499,18 @@ function Wishlist:AnnounceOnLogin()
     local gearNeeds = self:ScanProfessionGear()
     if #gearNeeds > 0 then
         local gearCount = #gearNeeds
-        print("|cffc8aa64KazWish:|r " .. gearCount .. " profession gear slot" ..
-            (gearCount > 1 and "s" or "") .. " empty across your characters. /kaz wish to view.")
+        local emptyCount = 0
+        for _, need in ipairs(gearNeeds) do
+            if (need.currentQuality or 0) == 0 then emptyCount = emptyCount + 1 end
+        end
+        local upgradeCount = gearCount - emptyCount
+        local parts = {}
+        if emptyCount > 0 then parts[#parts + 1] = emptyCount .. " empty" end
+        if upgradeCount > 0 then parts[#parts + 1] = upgradeCount .. " upgradeable" end
+        local targetQ = self:GetTargetQuality()
+        print("|cffc8aa64KazWish:|r " .. table.concat(parts, ", ") ..
+            " profession gear slots (target: " .. QUALITY_COLORS[targetQ] .. QUALITY_NAMES[targetQ] ..
+            "|r). /kaz wish to view.")
     end
 
     -- Consumable needs
@@ -481,14 +557,20 @@ function Wishlist:HandleSlashCommand(msg)
 
     elseif msg == "scan" or msg == "check" then
         local gearNeeds = self:ScanProfessionGear()
+        local targetQ = self:GetTargetQuality()
         if #gearNeeds == 0 then
-            print("|cffc8aa64KazWish:|r All characters have profession gear equipped.")
+            print("|cffc8aa64KazWish:|r All profession gear at " ..
+                QUALITY_COLORS[targetQ] .. QUALITY_NAMES[targetQ] .. "|r or better.")
         else
-            print("|cffc8aa64KazWish:|r Empty profession gear slots:")
+            print("|cffc8aa64KazWish:|r Profession gear needs (target: " ..
+                QUALITY_COLORS[targetQ] .. QUALITY_NAMES[targetQ] .. "|r):")
             for _, need in ipairs(gearNeeds) do
                 local color = need.classColor or "|cffffffff"
-                print(string.format("  %s%s|r — %s %s",
-                    color, need.charName, need.profession, need.slotName))
+                local cq = need.currentQuality or 0
+                local status = cq == 0 and "|cffff6666Empty|r"
+                    or (QUALITY_COLORS[cq] .. QUALITY_NAMES[cq] .. "|r")
+                print(string.format("  %s%s|r — %s %s [%s]",
+                    color, need.charName, need.profession, need.slotName, status))
             end
         end
 

@@ -61,16 +61,8 @@ function handlers.ADDON_LOADED(addon)
     end)
 end
 
--- Debug logging (toggle with /kc debug)
-ns.debugMode = false
-function ns.DebugLog(...)
-    if not ns.debugMode then return end
-    local parts = {}
-    for i = 1, select("#", ...) do
-        parts[i] = tostring(select(i, ...))
-    end
-    print("|cffc8aa64[KC]|r " .. table.concat(parts, " "))
-end
+-- KazUtil printer: ns.Print (always), ns.DebugLog (only when /kaz dbg kazcraft)
+ns.Print, ns.DebugLog = KazUtil.CreatePrinter("KazCraft")
 
 function handlers.TRADE_SKILL_SHOW()
     SetCharKey()
@@ -381,16 +373,16 @@ SlashCmdList["KAZCRAFT"] = function(msg)
         elseif ns.AHUI and ns.AHUI:IsShown() then
             ns.AHUI:Hide()
         else
-            print("|cff" .. "c8aa64" .. "KazCraft:|r Use at a profession table or auction house.")
+            ns.Print("Use at a profession table or auction house.")
         end
 
     elseif msg == "list" or msg == "queue" then
         local queue = ns.Data:GetCharacterQueue()
         if #queue == 0 then
-            print("|cffc8aa64KazCraft:|r Queue is empty.")
+            ns.Print("Queue is empty.")
             return
         end
-        print("|cffc8aa64KazCraft:|r Queue for " .. (ns.charKey or "?") .. ":")
+        ns.Print("Queue for " .. (ns.charKey or "?") .. ":")
         for i, entry in ipairs(queue) do
             local cached = KazCraftDB.recipeCache[entry.recipeID]
             local name = cached and cached.recipeName or ("Recipe " .. entry.recipeID)
@@ -399,7 +391,7 @@ SlashCmdList["KAZCRAFT"] = function(msg)
 
     elseif msg == "clear" then
         ns.Data:ClearQueue()
-        print("|cffc8aa64KazCraft:|r Queue cleared.")
+        ns.Print("Queue cleared.")
         if ns.ProfFrame and ns.ProfFrame:IsShown() then
             ns.ProfFrame:Refresh()
         end
@@ -410,10 +402,10 @@ SlashCmdList["KAZCRAFT"] = function(msg)
     elseif msg == "shop" or msg == "mats" then
         local mats = ns.Data:GetMaterialList()
         if #mats == 0 then
-            print("|cffc8aa64KazCraft:|r No materials needed (all queues empty).")
+            ns.Print("No materials needed (all queues empty).")
             return
         end
-        print("|cffc8aa64KazCraft:|r Shopping list (all alts):")
+        ns.Print("Shopping list (all alts):")
         for _, mat in ipairs(mats) do
             if mat.short > 0 then
                 local priceStr = mat.price > 0 and (" @ " .. ns.FormatGold(mat.price)) or ""
@@ -430,24 +422,25 @@ SlashCmdList["KAZCRAFT"] = function(msg)
         ns.Gathering:Toggle()
 
     elseif msg == "debug" then
-        ns.debugMode = not ns.debugMode
-        print("|cffc8aa64KazCraft:|r Debug " .. (ns.debugMode and "|cff00ff00ON|r" or "|cffff6666OFF|r"))
+        -- Legacy toggle — use /kaz dbg kazcraft instead
+        ns.Print("Use |cff00ccff/kaz dbg kazcraft|r to toggle debug. View logs with |cff00ccff/kaz log|r.")
 
     elseif msg == "wish" or msg:find("^wish ") then
         local subMsg = msg:match("^wish%s*(.*)")
         ns.Wishlist:HandleSlashCommand(subMsg or "")
 
     elseif msg == "help" then
-        print("|cffc8aa64KazCraft:|r Commands:")
+        ns.Print("Commands:")
         print("  /kc — toggle panel")
         print("  /kc list — show queue")
         print("  /kc clear — clear queue")
         print("  /kc shop — print shopping list")
         print("  /kc gathering — gathering list window")
         print("  /kc wish — crafting wishlist")
-        print("  /kc debug — toggle debug logging")
+        print("  /kaz dbg kazcraft — toggle debug logging")
+        print("  /kaz log — view debug log")
     else
-        print("|cffc8aa64KazCraft:|r Unknown command. /kc help for usage.")
+        ns.Print("Unknown command. /kc help for usage.")
     end
 end
 KAZ_COMMANDS["craft"] = { handler = SlashCmdList["KAZCRAFT"], alias = "/kc", desc = "Profession + AH" }

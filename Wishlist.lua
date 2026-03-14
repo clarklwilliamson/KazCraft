@@ -508,6 +508,33 @@ function Wishlist:ScanCurrentCharGear(needs)
 end
 
 --------------------------------------------------------------------
+-- Slot type mapping for profession gear matching
+--------------------------------------------------------------------
+local TOOL_SLOTS = { [20] = true, [23] = true, [26] = true, [28] = true }
+-- Accessories = everything else (21, 22, 24, 25, 27)
+
+-- Map profession name → subclassID for ItemClass.Profession (19)
+local PROF_SUBCLASS = {}
+
+local function GetProfSubclass()
+    if next(PROF_SUBCLASS) then return PROF_SUBCLASS end
+    PROF_SUBCLASS["Blacksmithing"] = 0
+    PROF_SUBCLASS["Leatherworking"] = 1
+    PROF_SUBCLASS["Alchemy"] = 2
+    PROF_SUBCLASS["Herbalism"] = 3
+    PROF_SUBCLASS["Cooking"] = 4
+    PROF_SUBCLASS["Mining"] = 5
+    PROF_SUBCLASS["Tailoring"] = 6
+    PROF_SUBCLASS["Engineering"] = 7
+    PROF_SUBCLASS["Enchanting"] = 8
+    PROF_SUBCLASS["Fishing"] = 9
+    PROF_SUBCLASS["Skinning"] = 10
+    PROF_SUBCLASS["Jewelcrafting"] = 11
+    PROF_SUBCLASS["Inscription"] = 12
+    return PROF_SUBCLASS
+end
+
+--------------------------------------------------------------------
 -- Enrich gear needs with crafter info from recipeCache
 -- Works offline — no profession window required
 --------------------------------------------------------------------
@@ -651,37 +678,6 @@ function Wishlist:GetCraftableWishes()
     end
 
     return craftable
-end
-
---------------------------------------------------------------------
--- Slot type mapping for profession gear matching
---------------------------------------------------------------------
-local TOOL_SLOTS = { [20] = true, [23] = true, [26] = true, [28] = true }
--- Accessories = everything else (21, 22, 24, 25, 27)
-
--- Map profession name → subclassID for ItemClass.Profession (19)
--- Used to match "this recipe outputs a Mining tool" to "Jengri needs a Mining Tool"
-local PROF_SUBCLASS = {}
--- Built lazily on first use since Enum values may not be available at load
-
-local function GetProfSubclass()
-    if next(PROF_SUBCLASS) then return PROF_SUBCLASS end
-    -- Enum.ItemProfessionSubclass (Retail 12.0)
-    -- These map profession names to the item subclass that filters profession gear
-    PROF_SUBCLASS["Blacksmithing"] = 0
-    PROF_SUBCLASS["Leatherworking"] = 1
-    PROF_SUBCLASS["Alchemy"] = 2
-    PROF_SUBCLASS["Herbalism"] = 3
-    PROF_SUBCLASS["Cooking"] = 4
-    PROF_SUBCLASS["Mining"] = 5
-    PROF_SUBCLASS["Tailoring"] = 6
-    PROF_SUBCLASS["Engineering"] = 7
-    PROF_SUBCLASS["Enchanting"] = 8
-    PROF_SUBCLASS["Fishing"] = 9
-    PROF_SUBCLASS["Skinning"] = 10
-    PROF_SUBCLASS["Jewelcrafting"] = 11
-    PROF_SUBCLASS["Inscription"] = 12
-    return PROF_SUBCLASS
 end
 
 --------------------------------------------------------------------

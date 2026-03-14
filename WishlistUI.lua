@@ -153,8 +153,8 @@ end
 local function BuildDisplayData()
     wipe(displayData)
 
-    -- Section 1: Profession Gear
-    local gearNeeds = ns.Wishlist:ScanProfessionGear()
+    -- Section 1: Profession Gear (filtered to what current toon can craft)
+    local gearNeeds = ns.Wishlist:ScanCraftableGearNeeds()
     if #gearNeeds > 0 then
         -- Group by character
         local byChar = {}
@@ -184,7 +184,7 @@ local function BuildDisplayData()
         local targetQ = ns.Wishlist:GetTargetQuality()
         displayData[#displayData + 1] = {
             type = "header",
-            text = "Profession Gear → " .. ns.Wishlist:GetQualityColor(targetQ) .. ns.Wishlist:GetQualityName(targetQ) .. "|r",
+            text = "Profession Gear - " .. ns.Wishlist:GetQualityColor(targetQ) .. ns.Wishlist:GetQualityName(targetQ) .. "|r",
             count = table.concat(countParts, ", "),
         }
         for _, charName in ipairs(charOrder) do

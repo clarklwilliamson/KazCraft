@@ -462,9 +462,12 @@ local function CreateMainFrame()
             switchingToBlizzard = false
             return
         end
-        -- Close the profession entirely
+        -- ESC key path: mainFrame:Hide() fires OnHide directly (not via ProfFrame:Hide)
+        -- Close the profession if still open
         if profOpen then
             profOpen = false
+            userClosedThisFrame = true
+            C_Timer.After(0, function() userClosedThisFrame = false end)
             C_TradeSkillUI.CloseTradeSkill()
         end
     end)
@@ -606,16 +609,23 @@ function ProfFrame:Show()
 end
 
 function ProfFrame:Hide()
-    profOpen = false
     if mainFrame then
         mainFrame:SetScript("OnUpdate", nil)
     end
     if expansionMenu then expansionMenu:Hide() end
-    if mainFrame and mainFrame:IsShown() then
-        mainFrame:Hide()
-    end
     if ns.ProfessionUI then
         ns.ProfessionUI:Hide()
+    end
+    -- Close the trade skill BEFORE setting profOpen = false
+    -- (OnHide checks profOpen to decide whether to call CloseTradeSkill)
+    if profOpen then
+        profOpen = false
+        userClosedThisFrame = true
+        C_Timer.After(0, function() userClosedThisFrame = false end)
+        C_TradeSkillUI.CloseTradeSkill()
+    end
+    if mainFrame and mainFrame:IsShown() then
+        mainFrame:Hide()
     end
 end
 
@@ -804,8 +814,13 @@ end
 --------------------------------------------------------------------
 -- Track whether SHOW just fired this frame (for switch detection in CLOSE)
 local showFiredThisFrame = false
+-- Guard: when user explicitly closes, ignore TRADE_SKILL_SHOW for the rest of the frame
+local userClosedThisFrame = false
 
 function ProfFrame:OnTradeSkillShow(newProfInfo)
+    -- If user just clicked close, don't reopen in the same frame
+    if userClosedThisFrame then return end
+
     -- Mark that SHOW fired — CLOSE in the same frame is a switch, not a close
     showFiredThisFrame = true
     C_Timer.After(0, function() showFiredThisFrame = false end)

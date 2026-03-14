@@ -56,6 +56,79 @@ local simReagentRows = {}     -- UI rows for quality reagent editing
 local simFinishingDrops = {}  -- Dropdown frames for finishing reagents
 
 --------------------------------------------------------------------
+-- Own slot filter state (Blizzard's SetInventorySlotFilter doesn't
+-- work when their profession frame is replaced — we post-filter)
+--------------------------------------------------------------------
+local ownSlotFilters = {}   -- [slotName] = true means HIDDEN
+local anySlotFilterActive = false
+
+local function UpdateSlotFilterActive()
+    anySlotFilterActive = false
+    for _, v in pairs(ownSlotFilters) do
+        if v then anySlotFilterActive = true; return end
+    end
+end
+
+-- Map itemEquipLoc strings to filter slot display names
+-- Built dynamically when filter menu populates
+local equipLocToFilterName = {}
+
+-- Manual overrides where _G[invtype] doesn't match GetFilterableInventorySlotName
+local EQUIPLOC_DISPLAY_OVERRIDES = {
+    INVTYPE_PROFESSION_GEAR = "Profession Accessory",
+    INVTYPE_NON_EQUIP_IGNORE = "Created Items",
+    INVTYPE_RANGEDRIGHT = "Main Hand",  -- retail: guns are main hand
+}
+
+local function BuildEquipLocMap()
+    wipe(equipLocToFilterName)
+    local slotCount = C_TradeSkillUI.GetAllFilterableInventorySlotsCount() or 0
+    -- Collect filter display names
+    local filterNames = {}
+    for i = 1, slotCount do
+        local name = C_TradeSkillUI.GetFilterableInventorySlotName(i)
+        if name and name ~= "" then
+            filterNames[name] = true
+        end
+    end
+    -- Try all known INVTYPE globals to build the reverse map
+    local invTypes = {
+        "INVTYPE_HEAD", "INVTYPE_NECK", "INVTYPE_SHOULDER", "INVTYPE_BODY",
+        "INVTYPE_CHEST", "INVTYPE_WAIST", "INVTYPE_LEGS", "INVTYPE_FEET",
+        "INVTYPE_WRIST", "INVTYPE_HAND", "INVTYPE_FINGER", "INVTYPE_TRINKET",
+        "INVTYPE_WEAPON", "INVTYPE_SHIELD", "INVTYPE_RANGED", "INVTYPE_CLOAK",
+        "INVTYPE_2HWEAPON", "INVTYPE_BAG", "INVTYPE_TABARD", "INVTYPE_ROBE",
+        "INVTYPE_WEAPONMAINHAND", "INVTYPE_WEAPONOFFHAND", "INVTYPE_HOLDABLE",
+        "INVTYPE_PROFESSION_TOOL", "INVTYPE_PROFESSION_GEAR",
+        "INVTYPE_NON_EQUIP_IGNORE", "INVTYPE_RANGEDRIGHT",
+    }
+    for _, invtype in ipairs(invTypes) do
+        -- Check manual override first, then _G global
+        local displayName = EQUIPLOC_DISPLAY_OVERRIDES[invtype] or _G[invtype]
+        if displayName and filterNames[displayName] then
+            equipLocToFilterName[invtype] = displayName
+        end
+    end
+end
+
+-- Given a recipeID, return the equip slot display name or nil
+local function GetRecipeEquipSlotName(recipeID)
+    local link = C_TradeSkillUI.GetRecipeItemLink(recipeID)
+    if not link then return nil end
+    local _, _, _, equipLoc = C_Item.GetItemInfoInstant(link)
+    if not equipLoc or equipLoc == "" then return nil end
+    return equipLocToFilterName[equipLoc]
+end
+
+-- Returns true if recipe should be EXCLUDED by slot filter
+local function IsRecipeSlotFiltered(recipeID)
+    if not anySlotFilterActive then return false end
+    local slotName = GetRecipeEquipSlotName(recipeID)
+    if not slotName then return true end  -- unclassifiable → hide when filtering
+    return ownSlotFilters[slotName] or false
+end
+
+--------------------------------------------------------------------
 -- Category tree → flat display list
 --------------------------------------------------------------------
 local function BuildCategoryTree(recipeIDs, childProfID, learnedFilter)
@@ -68,7 +141,7 @@ local function BuildCategoryTree(recipeIDs, childProfID, learnedFilter)
     for _, recipeID in ipairs(recipeIDs) do
         local info = C_TradeSkillUI.GetRecipeInfo(recipeID)
         if info and (not childProfID or C_TradeSkillUI.IsRecipeInSkillLine(recipeID, childProfID)) then
-            if learnedFilter == nil or info.learned == learnedFilter then
+            if (learnedFilter == nil or info.learned == learnedFilter) and not IsRecipeSlotFiltered(recipeID) then
                 hasAny = true
                 local catID = info.categoryID
                 local curCat = catID
@@ -753,6 +826,8 @@ local SOURCE_NAMES = {
 
 local function BuildFilterDisplayList()
     filterDisplayList = {}
+    debugSlotLogCount = 0  -- reset debug log counter
+    BuildEquipLocMap()     -- rebuild equip loc → filter name mapping
     -- Top-level checkboxes
     table.insert(filterDisplayList, { type = "check", text = "Show Learned",
         getter = function() return C_TradeSkillUI.GetShowLearned() end,
@@ -793,9 +868,16 @@ local function BuildFilterDisplayList()
             for slotIdx = 1, slotCount do
                 local name = C_TradeSkillUI.GetFilterableInventorySlotName(slotIdx)
                 if name and name ~= "" then
+                    local slotName = name  -- capture for closure
                     table.insert(filterDisplayList, { type = "check", text = name, indent = true,
-                        getter = function() return not C_TradeSkillUI.IsInventorySlotFiltered(slotIdx) end,
-                        setter = function(v) C_TradeSkillUI.SetInventorySlotFilter(slotIdx, not v) end })
+                        isSlotFilter = true,
+                        getter = function()
+                            return not ownSlotFilters[slotName]
+                        end,
+                        setter = function(v)
+                            ownSlotFilters[slotName] = not v or nil
+                            UpdateSlotFilterActive()
+                        end })
                 end
             end
         end
@@ -808,9 +890,17 @@ local function CreateFilterRow(parent, index)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * FILTER_ROW_HEIGHT)
     row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -(index - 1) * FILTER_ROW_HEIGHT)
 
+    -- Full-row clickable button (for headers AND label-area clicks)
+    row.hitBtn = CreateFrame("Button", nil, row)
+    row.hitBtn:SetAllPoints()
+    row.hitBtn:Hide()
+    row.hitBtn:RegisterForClicks("LeftButtonUp")
+
     row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
     row.check:SetSize(20, 20)
     row.check:SetPoint("LEFT", row, "LEFT", 6, 0)
+    -- Raise above hitBtn so checkbox eats its own clicks
+    row.check:SetFrameLevel(row.hitBtn:GetFrameLevel() + 2)
 
     row.arrow = row:CreateFontString(nil, "OVERLAY")
     row.arrow:SetFont(ns.FONT, 12, "")
@@ -820,12 +910,6 @@ local function CreateFilterRow(parent, index)
     row.label = row:CreateFontString(nil, "OVERLAY")
     row.label:SetFont(ns.FONT, 14, "")
     row.label:SetTextColor(unpack(ns.COLORS.brightText))
-
-    -- Full-row clickable button (for headers AND checkboxes)
-    row.hitBtn = CreateFrame("Button", nil, row)
-    row.hitBtn:SetAllPoints()
-    row.hitBtn:Hide()
-    row.hitBtn:RegisterForClicks("LeftButtonUp")
 
     return row
 end
@@ -863,21 +947,23 @@ local function UpdateFilterRow(row, entry)
         row.check:ClearAllPoints()
         row.check:SetPoint("LEFT", row, "LEFT", entry.indent and 20 or 6, 0)
         row.check:SetChecked(entry.getter())
+        row.check:EnableMouse(true)
         row.check:SetScript("OnClick", function(self)
-            entry.setter(self:GetChecked())
+            local newVal = self:GetChecked()
+            entry.setter(newVal)
+            -- Slot filters are ours — refresh directly (no Blizzard event fires)
+            -- Other filters (learned/sources) use Blizzard API which fires TRADE_SKILL_LIST_UPDATE
+            if entry.isSlotFilter then
+                ProfRecipes:RefreshRecipeList()
+            end
         end)
         row.label:ClearAllPoints()
         row.label:SetPoint("LEFT", row.check, "RIGHT", 2, 0)
         row.label:SetText(entry.text)
         row.label:SetFont(ns.FONT, 14, "")
         row.label:SetTextColor(unpack(ns.COLORS.brightText))
-        -- Full row click toggles the checkbox
-        row.hitBtn:Show()
-        row.hitBtn:SetScript("OnClick", function()
-            local newVal = not entry.getter()
-            entry.setter(newVal)
-            row.check:SetChecked(newVal)
-        end)
+        -- No hitBtn for checkbox rows — checkbox handles its own clicks
+        row.hitBtn:Hide()
     end
 end
 
@@ -1466,29 +1552,76 @@ local function CreateRightPanel(parent)
     -- Optimize button
     detail.simOptBtn = ns.CreateButton(detail.simFrame, "Optimize", 70, 22)
     detail.simOptBtn:SetScript("OnClick", function()
+        ns.DebugLog("SIM Optimize clicked — simRecipeData:", simRecipeData and "OK" or "nil",
+            "CraftSimLib:", CraftSimLib and "OK" or "nil",
+            "recipeID:", tostring(selectedRecipeID),
+            "schematic:", currentSchematic and "OK" or "nil")
         if not simRecipeData or not CraftSimLib then return end
         if not selectedRecipeID or not currentSchematic then return end
 
         detail.simStatusText:SetText("")
         local applyConc = detail.concCheck:GetChecked() and true or false
 
-        -- Compare rank with cheapest (all-R1) vs best (all-R3) reagents
+        -- Build quality slot info from schematic (bag-independent)
+        local simQualitySlots = {}
+        if currentSchematic.reagentSlotSchematics then
+            for slotIndex, slot in ipairs(currentSchematic.reagentSlotSchematics) do
+                if slot.reagentType == Enum.CraftingReagentType.Basic
+                    and Professions and Professions.GetReagentInputMode
+                    and Professions.GetReagentInputMode(slot) == Professions.ReagentInputMode.Quality then
+                    table.insert(simQualitySlots, { slotIndex = slotIndex, slot = slot })
+                end
+            end
+        end
+
+        -- Build reagent info tables directly (no bag dependency)
+        local function BuildReagentInfoForTier(useMaxTier)
+            local tbl = {}
+            for _, qs in ipairs(simQualitySlots) do
+                local slot = qs.slot
+                local numTiers = #slot.reagents
+                local needed = slot.quantityRequired or 0
+                for t = 1, numTiers do
+                    local qty = 0
+                    if useMaxTier then
+                        qty = (t == numTiers) and needed or 0
+                    else
+                        qty = (t == 1) and needed or 0
+                    end
+                    table.insert(tbl, {
+                        itemID = slot.reagents[t].itemID,
+                        dataSlotIndex = qs.slotIndex,
+                        quantity = qty,
+                    })
+                end
+            end
+            return tbl
+        end
+
+        -- Compare rank with cheapest (all-R1) vs best (all-max-tier) reagents
         local cheapRank, bestRank = 0, 0
-        pcall(function()
-            local cheapTxn = CreateProfessionsRecipeTransaction(currentSchematic)
-            Professions.AllocateAllBasicReagents(cheapTxn, false)
-            local cheapReagents = cheapTxn:CreateCraftingReagentInfoTbl() or {}
+        ns.DebugLog("SIM Optimize: qualitySlots:", #simQualitySlots)
+        local ok, err = pcall(function()
+            local cheapReagents = BuildReagentInfoForTier(false)
+            ns.DebugLog("SIM Optimize: cheapReagents:", #cheapReagents, "entries")
             local cheapOp = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, cheapReagents, nil, applyConc)
             cheapRank = cheapOp and cheapOp.craftingQuality or 0
+            ns.DebugLog("SIM Optimize: cheapRank:", cheapRank)
 
-            local bestTxn = CreateProfessionsRecipeTransaction(currentSchematic)
-            Professions.AllocateAllBasicReagents(bestTxn, true)
-            local bestReagents = bestTxn:CreateCraftingReagentInfoTbl() or {}
+            local bestReagents = BuildReagentInfoForTier(true)
             local bestOp = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, bestReagents, nil, applyConc)
             bestRank = bestOp and bestOp.craftingQuality or 0
+            ns.DebugLog("SIM Optimize: bestRank:", bestRank)
         end)
+        if not ok then
+            ns.DebugLog("SIM Optimize ERROR:", tostring(err))
+            detail.simStatusText:SetText("|cffff4444Error: " .. tostring(err) .. "|r")
+            return
+        end
 
+        ns.DebugLog("SIM Optimize: cheapRank:", cheapRank, "bestRank:", bestRank)
         if cheapRank > 0 and cheapRank == bestRank then
+            ns.DebugLog("SIM Optimize: same rank — use cheapest")
             -- Same rank regardless of mat quality — use cheapest
             for i = 1, MAX_SIM_REAGENT_ROWS do
                 local row = simReagentRows[i]
@@ -1511,36 +1644,74 @@ local function CreateRightPanel(parent)
             return
         end
 
-        -- Ranks differ — CraftSim optimization is useful
-        -- Phase 1: Optimize quality reagent tiers (synchronous)
-        local ok, result = pcall(function()
-            return CraftSimLib.REAGENT_OPTIMIZATION:OptimizeReagentAllocation(simRecipeData)
+        -- Ranks differ — check if all-best achieves higher rank without concentration
+        -- For personal crafting: if best mats = higher rank, always use best mats
+        -- (small cost increase beats spending concentration)
+        local bestNoConc = 0
+        pcall(function()
+            local bestReagents2 = BuildReagentInfoForTier(true)
+            local bestOp2 = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, bestReagents2, nil, false)
+            bestNoConc = bestOp2 and bestOp2.craftingQuality or 0
         end)
-        if ok and result and result.reagents then
-            local rowIdx = 0
-            for _, reagent in pairs(result.reagents) do
-                if reagent.hasQuality then
-                    rowIdx = rowIdx + 1
-                    local row = simReagentRows[rowIdx]
-                    if row and row:IsShown() then
-                        for t = 1, 3 do
-                            local qty = 0
-                            if reagent.items and reagent.items[t] then
-                                qty = reagent.items[t].quantity or 0
+
+        ns.DebugLog("SIM Optimize: bestNoConc:", bestNoConc, "vs cheapRank:", cheapRank)
+        if bestNoConc > cheapRank then
+            ns.DebugLog("SIM Optimize: best mats win — filling all-best")
+            -- All-best achieves higher rank without concentration — use it
+            for i = 1, MAX_SIM_REAGENT_ROWS do
+                local row = simReagentRows[i]
+                if not row:IsShown() then break end
+                local slot = row.slotData
+                if slot then
+                    local needed = slot.quantityRequired or 0
+                    local numQualities = slot.reagents and #slot.reagents or 1
+                    for t = 1, 3 do
+                        if row.edits[t]:IsShown() then
+                            if t == numQualities then
+                                row.edits[t]:SetText(tostring(needed))
+                            else
+                                row.edits[t]:SetText("0")
                             end
-                            row.edits[t]:SetText(tostring(qty))
                         end
                     end
                 end
             end
-        end
-
-        -- Show rank improvement info
-        if cheapRank > 0 and bestRank > 0 then
             local cheapPip = ns.GetQualityMarkup(cheapRank, selectedRecipeID)
-            local bestPip = ns.GetQualityMarkup(bestRank, selectedRecipeID)
-            detail.simStatusText:SetText("R1 mats " .. cheapPip .. " → best " .. bestPip)
+            local bestPip = ns.GetQualityMarkup(bestNoConc, selectedRecipeID)
+            detail.simStatusText:SetText("Best mats " .. bestPip .. " — zero conc")
             detail.simStatusText:SetTextColor(0.3, 1, 0.3)
+        else
+            -- Best mats don't improve rank — fall through to CraftSim optimizer
+            -- (useful when concentration is needed and CraftSim can optimize cost)
+            local ok, result = pcall(function()
+                return CraftSimLib.REAGENT_OPTIMIZATION:OptimizeReagentAllocation(simRecipeData)
+            end)
+            if ok and result and result.reagents then
+                local rowIdx = 0
+                for _, reagent in pairs(result.reagents) do
+                    if reagent.hasQuality then
+                        rowIdx = rowIdx + 1
+                        local row = simReagentRows[rowIdx]
+                        if row and row:IsShown() then
+                            for t = 1, 3 do
+                                local qty = 0
+                                if reagent.items and reagent.items[t] then
+                                    qty = reagent.items[t].quantity or 0
+                                end
+                                row.edits[t]:SetText(tostring(qty))
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- Show rank improvement info
+            if cheapRank > 0 and bestRank > 0 then
+                local cheapPip = ns.GetQualityMarkup(cheapRank, selectedRecipeID)
+                local bestPip = ns.GetQualityMarkup(bestRank, selectedRecipeID)
+                detail.simStatusText:SetText("R1 mats " .. cheapPip .. " - best " .. bestPip)
+                detail.simStatusText:SetTextColor(0.3, 1, 0.3)
+            end
         end
 
         -- Phase 2: Optimize finishing reagents (async — uses CraftSim's profit-based picker)
@@ -1582,6 +1753,8 @@ local function CreateRightPanel(parent)
     -- Apply button — writes sim allocation back to the real transaction
     detail.simApplyBtn = ns.CreateButton(detail.simFrame, "Apply", 60, 22)
     detail.simApplyBtn:SetScript("OnClick", function()
+        ns.DebugLog("SIM Apply clicked — transaction:", currentTransaction and "OK" or "nil",
+            "recipeID:", tostring(selectedRecipeID))
         ProfRecipes:ApplySimToTransaction()
     end)
 
@@ -1622,16 +1795,35 @@ local function CreateRightPanel(parent)
     detail.bestQualCheck = CreateFrame("CheckButton", nil, detail.controlFrame, "UICheckButtonTemplate")
     detail.bestQualCheck:SetSize(22, 22)
     detail.bestQualCheck:SetPoint("TOPLEFT", detail.controlFrame, "TOPLEFT", 0, 0)
-    detail.bestQualCheck:SetChecked(KazCraftDB and KazCraftDB.settings and KazCraftDB.settings.useBestQuality)
+    detail.bestQualCheck:SetChecked(Professions.ShouldAllocateBestQualityReagents())
     detail.bestQualCheck:SetScript("OnClick", function(self)
-        if KazCraftDB and KazCraftDB.settings then
-            KazCraftDB.settings.useBestQuality = self:GetChecked() and true or false
+        local useBest = self:GetChecked() and true or false
+        -- Toggle the Blizzard CVar (same as their checkbox)
+        Professions.SetShouldAllocateBestQualityReagents(useBest)
+        -- Fill SIM editboxes directly (bag-independent, for planning)
+        for i = 1, MAX_SIM_REAGENT_ROWS do
+            local row = simReagentRows[i]
+            if not row:IsShown() then break end
+            local slot = row.slotData
+            if slot then
+                local needed = slot.quantityRequired or 0
+                local numTiers = slot.reagents and #slot.reagents or 1
+                for t = 1, 3 do
+                    if row.edits[t]:IsShown() then
+                        if useBest then
+                            row.edits[t]:SetText(t == numTiers and tostring(needed) or "0")
+                        else
+                            row.edits[t]:SetText(t == 1 and tostring(needed) or "0")
+                        end
+                    end
+                end
+            end
         end
-        -- Re-allocate basic reagents with new quality preference
+        -- Also update the transaction for the Craft button
         if currentTransaction and Professions and Professions.AllocateAllBasicReagents then
-            Professions.AllocateAllBasicReagents(currentTransaction, self:GetChecked() and true or false)
+            pcall(Professions.AllocateAllBasicReagents, currentTransaction, useBest)
         end
-        ProfRecipes:RefreshDetail()
+        ProfRecipes:RefreshSimResults()
     end)
 
     detail.bestQualLabel = detail.controlFrame:CreateFontString(nil, "OVERLAY")
@@ -2053,7 +2245,7 @@ function ProfRecipes:RefreshDetail()
 
     -- Sync Best Quality checkbox with global setting
     -- Force off for no-quality-output recipes (higher tier reagents = wasted gold)
-    local useBest = KazCraftDB and KazCraftDB.settings and KazCraftDB.settings.useBestQuality
+    local useBest = Professions.ShouldAllocateBestQualityReagents()
     if not info.supportsQualities then useBest = false end
     if detail.bestQualCheck then
         detail.bestQualCheck:SetChecked(useBest and true or false)
@@ -2345,7 +2537,7 @@ function ProfRecipes:RefreshDetail()
                     currentTransaction = CreateProfessionsRecipeTransaction(currentSchematic)
                     currentTransaction:SetRecraft(true)
                     currentTransaction:SetRecraftAllocation(itemGUID)
-                    local bestQ = KazCraftDB and KazCraftDB.settings and KazCraftDB.settings.useBestQuality
+                    local bestQ = Professions.ShouldAllocateBestQualityReagents()
                     pcall(Professions.AllocateAllBasicReagents, currentTransaction, bestQ and true or false)
                     ProfRecipes:RefreshDetail()
                 end)
@@ -3230,18 +3422,17 @@ function ProfRecipes:RefreshSimPanel(schematic, detailAnchor)
             end
         end
 
-        -- Pre-populate from current transaction allocation (only on recipe change)
+        -- Pre-populate SIM editboxes (bag-independent, based on Use Best setting)
         local needed = slot.quantityRequired or 0
+        local numTiers = #slot.reagents
+        local useBest = Professions.ShouldAllocateBestQualityReagents()
         for t = 1, 3 do
             if isNewRecipe then
-                local allocated = 0
-                if currentTransaction and slot.reagents[t] then
-                    local allocs = currentTransaction:GetAllocations(qs.slotIndex)
-                    if allocs and type(allocs.GetQuantityAllocated) == "function" then
-                        allocated = allocs:GetQuantityAllocated(slot.reagents[t])
-                    end
+                if useBest then
+                    row.edits[t]:SetText(t == numTiers and tostring(needed) or "0")
+                else
+                    row.edits[t]:SetText(t == 1 and tostring(needed) or "0")
                 end
-                row.edits[t]:SetText(tostring(allocated))
             end
             -- Hide T3 edit if only 2 tiers exist
             if t > #slot.reagents then
@@ -3469,6 +3660,7 @@ function ProfRecipes:RefreshSimResults()
         reagentInfoTbl = simRecipeData.reagentData:GetCraftingReagentInfoTbl()
     end)
     local applyConc = detail.concCheck:GetChecked() and true or false
+
     local opInfo = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, reagentInfoTbl, nil, applyConc)
 
     -- Quality display
@@ -3683,6 +3875,9 @@ function ProfRecipes:Show()
     else
         ns.DebugLog("Recipes:Show — selectedRecipeID:", tostring(selectedRecipeID), "prof:", ns.currentProfName)
     end
+    -- Reset slot filters on profession switch
+    wipe(ownSlotFilters)
+    anySlotFilterActive = false
     leftPanel:Show()
     rightPanel:Show()
     self:OnResize()  -- recalculate visible rows from actual panel height

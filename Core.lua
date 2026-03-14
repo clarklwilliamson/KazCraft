@@ -16,9 +16,7 @@ local DB_DEFAULTS = {
     ahPosition = {},
     profSize = nil,
     profCollapses = {},
-    settings = {
-        useBestQuality = true,
-    },
+    settings = {},
     lastRecipeID = {},
 }
 
@@ -292,9 +290,12 @@ function handlers.AUCTION_CANCELED()
     if ns.AHAuctions then ns.AHAuctions:OnAuctionCanceled() end
 end
 
--- Throttle ready → AHShop search queue
+-- Throttle ready → AHShop search queue + AHBrowse retry
 function handlers.AUCTION_HOUSE_THROTTLED_SYSTEM_READY()
     if ns.AHShop then ns.AHShop:OnThrottleReady() end
+    if ns.AHBrowse and ns.AHBrowse._pendingSearch then
+        ns.AHBrowse:DoSearch()
+    end
 end
 
 -- Gold update

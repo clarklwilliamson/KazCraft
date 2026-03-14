@@ -624,19 +624,24 @@ end
 --------------------------------------------------------------------
 -- Search + show listings for selected material
 --------------------------------------------------------------------
+-- Pending user-initiated search (priority over background scan)
+local pendingUserSearch = nil
+
 function AHShop:SearchAndShowListings(itemID)
     if not ns.AHUI or not ns.AHUI:IsAHOpen() then
         print("|cffc8aa64KazCraft:|r Auction House is not open.")
         return
     end
 
+    pendingSearchItemID = itemID
+
     if not C_AuctionHouse.IsThrottledMessageSystemReady() then
-        print("|cffc8aa64KazCraft:|r AH throttled, wait a moment...")
+        -- Queue for when throttle clears — takes priority over background scan
+        pendingUserSearch = itemID
         return
     end
 
-    pendingSearchItemID = itemID
-
+    pendingUserSearch = nil
     local itemKey = C_AuctionHouse.MakeItemKey(itemID)
     local sorts = { { sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false } }
     C_AuctionHouse.SendSearchQuery(itemKey, sorts, true)
@@ -772,6 +777,16 @@ function AHShop:ScanCurrent()
 end
 
 function AHShop:OnThrottleReady()
+    -- User-initiated search takes priority over background scan
+    if pendingUserSearch then
+        local itemID = pendingUserSearch
+        pendingUserSearch = nil
+        pendingSearchItemID = itemID
+        local itemKey = C_AuctionHouse.MakeItemKey(itemID)
+        local sorts = {{ sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false }}
+        C_AuctionHouse.SendSearchQuery(itemKey, sorts, true)
+        return
+    end
     if scanActive then
         self:ScanCurrent()
     end

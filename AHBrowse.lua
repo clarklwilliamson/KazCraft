@@ -1316,9 +1316,12 @@ end
 function AHBrowse:DoSearch()
     if not ns.AHUI or not ns.AHUI:IsAHOpen() then return end
     if not C_AuctionHouse.IsThrottledMessageSystemReady() then
-        self:SetStatus("Throttled...")
+        self:SetStatus("Throttled — queued...")
+        -- Retry when throttle clears
+        self._pendingSearch = true
         return
     end
+    self._pendingSearch = nil
 
     local text = searchBox and strtrim(searchBox:GetText()) or ""
     local catNode = selectedCatNode

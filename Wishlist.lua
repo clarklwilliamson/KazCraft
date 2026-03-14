@@ -10,6 +10,15 @@ local addonName, ns = ...
 local Wishlist = {}
 ns.Wishlist = Wishlist
 
+-- Separate debug printer so /kaz dbg kazwish (or /kaz dbg wish) works
+local WishPrint, WishDebug
+if KazUtil and KazUtil.CreatePrinter then
+    WishPrint, WishDebug = KazUtil.CreatePrinter("KazWish")
+else
+    WishPrint = function() end
+    WishDebug = function() end
+end
+
 --------------------------------------------------------------------
 -- Profession slot mapping
 --------------------------------------------------------------------
@@ -371,6 +380,93 @@ local function GetProfSubclass()
 end
 
 --------------------------------------------------------------------
+-- Build set of profession:slotType combos the current toon can craft
+-- Scans learned recipes in the current expansion's skill line
+--------------------------------------------------------------------
+function Wishlist:GetCraftableGearSlots()
+    local result = {}
+
+    local profSubclasses = GetProfSubclass()
+    local subclassToProf = {}
+    for profName, subID in pairs(profSubclasses) do
+        subclassToProf[subID] = profName
+    end
+
+    -- Filter to current expansion — require valid profession data
+    local childProfInfo = C_TradeSkillUI.GetChildProfessionInfo()
+    local childProfID = childProfInfo and childProfInfo.professionID
+    if not childProfID or childProfID == 0 then
+        return result
+    end
+
+    local allRecipeIDs = C_TradeSkillUI.GetAllRecipeIDs()
+    if allRecipeIDs then
+        for _, recipeID in ipairs(allRecipeIDs) do
+            local recipeInfo = C_TradeSkillUI.GetRecipeInfo(recipeID)
+            if recipeInfo and recipeInfo.learned
+                and (not childProfID or C_TradeSkillUI.IsRecipeInSkillLine(recipeID, childProfID)) then
+                local outputItemID = nil
+                local cached = KazCraftDB and KazCraftDB.recipeCache and KazCraftDB.recipeCache[recipeID]
+                if cached then
+                    outputItemID = cached.outputItemID
+                else
+                    local schematic = C_TradeSkillUI.GetRecipeSchematic(recipeID, false)
+                    if schematic then outputItemID = schematic.outputItemID end
+                end
+
+                if outputItemID then
+                    local _, _, _, equipSlot, _, classID, subclassID = C_Item.GetItemInfoInstant(outputItemID)
+                    if classID == Enum.ItemClass.Profession and subclassID then
+                        local profName = subclassToProf[subclassID]
+                        if profName then
+                            local isTool = (equipSlot == "INVTYPE_PROFESSION_TOOL")
+                            local isAcc = (equipSlot == "INVTYPE_PROFESSION_GEAR" or equipSlot == "INVTYPE_PROFESSION_ACCESSORY")
+                            if isTool then
+                                result[profName .. ":tool"] = true
+                            elseif isAcc then
+                                result[profName .. ":acc"] = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    WishDebug("KazWish craftable slots:")
+    for k in pairs(result) do
+        WishDebug("  ", k)
+    end
+
+    return result
+end
+
+--------------------------------------------------------------------
+-- Scan all chars but filter to gear the current toon can craft
+--------------------------------------------------------------------
+function Wishlist:ScanCraftableGearNeeds()
+    local allNeeds = self:ScanProfessionGear()
+    local craftable = self:GetCraftableGearSlots()
+
+    -- If no recipe data yet, fall back to current char only
+    if not next(craftable) then
+        local needs = {}
+        self:ScanCurrentCharGear(needs)
+        return needs
+    end
+
+    local filtered = {}
+    for _, need in ipairs(allNeeds) do
+        local isTool = TOOL_SLOTS[need.slotID]
+        local key = need.profession .. ":" .. (isTool and "tool" or "acc")
+        if craftable[key] then
+            filtered[#filtered + 1] = need
+        end
+    end
+    return filtered
+end
+
+--------------------------------------------------------------------
 -- Find craftable recipes for gear wishes
 --------------------------------------------------------------------
 function Wishlist:FindGearRecipes(gearNeeds)
@@ -386,15 +482,22 @@ function Wishlist:FindGearRecipes(gearNeeds)
     end
 
     -- Scan all known recipes for profession gear
-    local results = {}  -- { { recipeID, recipeName, qty, needs = {...} } }
-    local seen = {}  -- deduplicate by profession+slotType
+    -- Collect ALL candidates per profession+slotType, then pick best match for target quality
+    local candidates = {}  -- { [key] = { {recipeID, recipeName, outputQuality, ...}, ... } }
 
     local allRecipeIDs = C_TradeSkillUI.GetAllRecipeIDs()
     if not allRecipeIDs then return {} end
 
+    -- Filter to current expansion's skill line (Midnight > TWW > etc.)
+    local childProfInfo = C_TradeSkillUI.GetChildProfessionInfo()
+    local childProfID = childProfInfo and childProfInfo.professionID
+
+    local targetQ = self:GetTargetQuality()
+
     for _, recipeID in ipairs(allRecipeIDs) do
         local recipeInfo = C_TradeSkillUI.GetRecipeInfo(recipeID)
-        if recipeInfo and recipeInfo.learned then
+        if recipeInfo and recipeInfo.learned
+            and (not childProfID or C_TradeSkillUI.IsRecipeInSkillLine(recipeID, childProfID)) then
             -- Check if output is profession gear
             local outputItemID = nil
             local cached = KazCraftDB.recipeCache and KazCraftDB.recipeCache[recipeID]
@@ -407,28 +510,44 @@ function Wishlist:FindGearRecipes(gearNeeds)
             end
 
             if outputItemID then
-                local _, _, _, _, _, _, _, _, equipSlot, _, _, classID, subclassID = GetItemInfo(outputItemID)
+                -- Use GetItemInfoInstant for classID/equipSlot (always synchronous)
+                local _, _, _, equipSlot, _, classID, subclassID = C_Item.GetItemInfoInstant(outputItemID)
                 if classID == Enum.ItemClass.Profession then
                     local isTool = (equipSlot == "INVTYPE_PROFESSION_TOOL")
                     local isAcc = (equipSlot == "INVTYPE_PROFESSION_GEAR" or equipSlot == "INVTYPE_PROFESSION_ACCESSORY")
 
                     if isTool or isAcc then
+                        -- Get rarity: prefer first qualityItemID (R1 = base tier), then fallback
+                        local rarityItemID = outputItemID
+                        if cached and cached.qualityItemIDs and cached.qualityItemIDs[1] then
+                            rarityItemID = cached.qualityItemIDs[1]
+                        end
+                        local _, _, outputRarity = GetItemInfo(rarityItemID)
+                        if not outputRarity then
+                            outputRarity = C_Item.GetItemQualityByID(rarityItemID)
+                        end
+                        if not outputRarity then
+                            -- Last resort: try the base outputItemID
+                            _, _, outputRarity = GetItemInfo(outputItemID)
+                        end
+
                         -- Match profession by subclass
                         local profSubclasses = GetProfSubclass()
                         for profName, subID in pairs(profSubclasses) do
                             if subclassID == subID then
                                 local slotType = isTool and "tool" or "acc"
                                 local key = profName .. ":" .. slotType
-                                if needed[key] and not seen[key] then
-                                    seen[key] = true
-                                    results[#results + 1] = {
+                                if needed[key] then
+                                    if not candidates[key] then candidates[key] = {} end
+                                    candidates[key][#candidates[key] + 1] = {
                                         recipeID = recipeID,
                                         recipeName = recipeInfo.name,
-                                        qty = #needed[key],
-                                        needs = needed[key],
                                         profession = profName,
                                         slotType = slotType,
+                                        outputQuality = outputRarity or 1,
                                     }
+                                    WishDebug("KazWish candidate:", recipeInfo.name,
+                                        "rarity:", tostring(outputRarity), "key:", key)
                                 end
                                 break
                             end
@@ -437,6 +556,31 @@ function Wishlist:FindGearRecipes(gearNeeds)
                 end
             end
         end
+    end
+
+    -- Pick best recipe per key: closest to target quality without exceeding it
+    -- e.g., target Green(2): prefer quality 2 recipe over quality 4
+    local results = {}
+    for key, cands in pairs(candidates) do
+        table.sort(cands, function(a, b)
+            -- Prefer recipe whose output quality is <= target and closest to it
+            local aDist = (a.outputQuality <= targetQ) and (targetQ - a.outputQuality) or 100
+            local bDist = (b.outputQuality <= targetQ) and (targetQ - b.outputQuality) or 100
+            if aDist ~= bDist then return aDist < bDist end
+            -- Fallback: prefer lower quality (cheaper)
+            return a.outputQuality < b.outputQuality
+        end)
+        local best = cands[1]
+        WishDebug("KazWish pick:", key, "->", best.recipeName,
+            "rarity:", best.outputQuality, "from", #cands, "candidates, target:", targetQ)
+        results[#results + 1] = {
+            recipeID = best.recipeID,
+            recipeName = best.recipeName,
+            qty = #needed[key],
+            needs = needed[key],
+            profession = best.profession,
+            slotType = best.slotType,
+        }
     end
 
     return results
@@ -448,8 +592,8 @@ end
 function Wishlist:QueueCraftable()
     local queued = 0
 
-    -- Gear wishes
-    local gearNeeds = self:ScanProfessionGear()
+    -- Gear wishes (filtered to current toon's craftable professions)
+    local gearNeeds = self:ScanCraftableGearNeeds()
     if #gearNeeds > 0 and C_TradeSkillUI.IsTradeSkillReady() then
         local gearRecipes = self:FindGearRecipes(gearNeeds)
         for _, entry in ipairs(gearRecipes) do
@@ -481,9 +625,13 @@ function Wishlist:QueueCraftable()
     end
 
     if queued == 0 then
-        print("|cffc8aa64KazWish:|r Nothing to queue — open a profession first for gear, or add consumables.")
+        print("|cffc8aa64KazWish:|r Nothing to queue -- open a profession first for gear, or add consumables.")
     else
         print(string.format("|cffc8aa64KazWish:|r Queued %d items into KazCraft.", queued))
+        -- Refresh KC queue panel if visible
+        if ns.ProfessionUI and ns.ProfessionUI.RefreshQueue then
+            ns.ProfessionUI:RefreshQueue()
+        end
     end
 
     return queued

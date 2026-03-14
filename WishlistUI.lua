@@ -261,6 +261,9 @@ function WishlistUI:Refresh()
     ReleaseAll()
     BuildDisplayData()
 
+    -- Update content width to match scroll frame (handles resize)
+    scrollFrame.content:SetWidth(scrollFrame:GetWidth())
+
     local yOffset = 0
     for _, entry in ipairs(displayData) do
         if entry.type == "header" then

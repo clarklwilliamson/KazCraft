@@ -42,9 +42,20 @@ local function CreateRow(parent)
     row.icon = row.iconBtn:CreateTexture(nil, "ARTWORK")
     row.icon:SetAllPoints()
     row.iconBtn:SetScript("OnEnter", function(self)
-        if self.itemID then
+        if self.itemLink then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetHyperlink(self.itemLink)
+            GameTooltip:Show()
+        elseif self.itemID then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             ns.SetTooltipItem(GameTooltip, self.itemID)
+            GameTooltip:Show()
+        elseif self.tooltipText then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(self.tooltipText, 1, 1, 1)
+            if self.tooltipSub then
+                GameTooltip:AddLine(self.tooltipSub, 0.7, 0.7, 0.7)
+            end
             GameTooltip:Show()
         end
     end)
@@ -203,6 +214,7 @@ local function BuildDisplayData()
                     slotID = need.slotID,
                     currentQuality = need.currentQuality or 0,
                     currentItemName = need.currentItemName,
+                    currentItemLink = need.currentItemLink,
                     craftable = need.craftable,
                     crafterText = need.crafterText,
                     bestCrafter = need.bestCrafter,
@@ -268,9 +280,17 @@ function WishlistUI:Refresh()
             row:SetPoint("TOPLEFT", scrollFrame.content, "TOPLEFT", 0, -yOffset)
             row:SetPoint("RIGHT", scrollFrame.content, "RIGHT", 0, 0)
 
-            -- Profession icon
+            -- Icon: show equipped item icon if available, else generic gear
             row.iconBtn.itemID = nil
-            row.icon:SetTexture("Interface\\Icons\\INV_Misc_Gear_01")
+            row.iconBtn.itemLink = entry.currentItemLink or nil
+            row.iconBtn.tooltipText = entry.profession .. " " .. entry.slotName
+            row.iconBtn.tooltipSub = entry.currentItemName and ("Equipped: " .. entry.currentItemName) or "Empty slot"
+            if entry.currentItemLink then
+                local icon = C_Item.GetItemIconByID(entry.currentItemLink)
+                row.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_Gear_01")
+            else
+                row.icon:SetTexture("Interface\\Icons\\INV_Misc_Gear_01")
+            end
             row.iconBtn:Show()
 
             local color = entry.classColor or "|cffffffff"
@@ -386,6 +406,14 @@ local function CreateMainFrame()
         title = "KazWishlist",
         strata = "HIGH",
         escClose = true,
+        resizable = true,
+        minSize = { 400, 300 },
+        onResize = function()
+            WishlistUI:Refresh()
+            -- Save size
+            local w, h = mainFrame:GetSize()
+            KazCraftDB.wishSize = { w, h }
+        end,
     })
 
     -- Subtitle
@@ -485,6 +513,12 @@ local function CreateMainFrame()
         local pos = KazCraftDB.wishPosition
         mainFrame:ClearAllPoints()
         mainFrame:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
+    end
+
+    -- Restore saved size
+    if KazCraftDB and KazCraftDB.wishSize then
+        local sz = KazCraftDB.wishSize
+        mainFrame:SetSize(sz[1], sz[2])
     end
 
     return mainFrame

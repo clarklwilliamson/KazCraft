@@ -422,9 +422,11 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
                 local item = DataStore:GetInventoryItem(charKey, slotID)
                 local currentQuality = 0
                 local currentItemName = nil
+                local currentItemLink = nil
                 if item then
                     local link = type(item) == "string" and item or nil
                     if link then
+                        currentItemLink = link
                         currentItemName, _, currentQuality = C_Item.GetItemInfo(link)
                         currentQuality = currentQuality or 0
                     else
@@ -443,6 +445,7 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
                         classColor = DataStore:GetCharacterClassColor(charKey),
                         currentQuality = currentQuality,
                         currentItemName = currentItemName,
+                        currentItemLink = currentItemLink,
                     }
                 end
             end

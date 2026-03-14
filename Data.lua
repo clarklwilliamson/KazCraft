@@ -4,7 +4,8 @@ ns.Data = {}
 local Data = ns.Data
 
 -- Cache a single recipe schematic into SavedVariables
-function Data:CacheSchematic(recipeID, profName)
+-- charKey: optional, tags recipe as known by this character
+function Data:CacheSchematic(recipeID, profName, charKey)
     local schematic = C_TradeSkillUI.GetRecipeSchematic(recipeID, false)
     if not schematic then return end
 
@@ -27,6 +28,10 @@ function Data:CacheSchematic(recipeID, profName)
     -- Quality variant itemIDs (e.g., R1/R2/R3/R4/R5 versions of the output)
     local qualityItemIDs = C_TradeSkillUI.GetRecipeQualityItemIDs(recipeID)
 
+    -- Preserve existing knownBy when re-caching
+    local existing = KazCraftDB.recipeCache[recipeID]
+    local knownBy = existing and existing.knownBy or {}
+
     KazCraftDB.recipeCache[recipeID] = {
         recipeName = schematic.name,
         icon = schematic.icon,
@@ -34,7 +39,13 @@ function Data:CacheSchematic(recipeID, profName)
         reagents = reagents,
         outputItemID = schematic.outputItemID,
         qualityItemIDs = qualityItemIDs or nil,
+        knownBy = knownBy,
     }
+
+    -- Tag who knows this recipe
+    if charKey then
+        KazCraftDB.recipeCache[recipeID].knownBy[charKey] = true
+    end
 
     return KazCraftDB.recipeCache[recipeID]
 end
@@ -46,6 +57,7 @@ function Data:CacheAllRecipes(profInfo)
     self._caching = true
 
     local profName = profInfo.professionName or ""
+    local charKey = ns.charKey
     local recipeIDs = C_TradeSkillUI.GetProfessionSpells(profInfo.profession)
     if not recipeIDs or #recipeIDs == 0 then
         self._caching = false
@@ -66,8 +78,17 @@ function Data:CacheAllRecipes(profInfo)
         local batchEnd = math.min(idx + batchSize - 1, total)
         for i = idx, batchEnd do
             local id = recipeIDs[i]
+            local recipeInfo = C_TradeSkillUI.GetRecipeInfo(id)
+            local isLearned = recipeInfo and recipeInfo.learned
+
             if not KazCraftDB.recipeCache[id] then
-                self:CacheSchematic(id, profName)
+                if isLearned then
+                    self:CacheSchematic(id, profName, charKey)
+                end
+            elseif isLearned and charKey then
+                local entry = KazCraftDB.recipeCache[id]
+                entry.knownBy = entry.knownBy or {}
+                entry.knownBy[charKey] = true
             end
         end
 
@@ -99,6 +120,168 @@ function Data:BuildItemToRecipeIndex()
             end
         end
     end
+end
+
+-- Scan all DataStore characters' known recipes and tag knownBy on cached entries
+-- Also captures profession skill levels from DataStore (overall rank as fallback)
+function Data:ScanKnownRecipes()
+    if not DataStore then return end
+    local cache = KazCraftDB.recipeCache
+    KazCraftDB.professionSkills = KazCraftDB.professionSkills or {}
+
+    local tagged = 0
+    local skillsCaptured = 0
+    for account in pairs(DataStore:GetAccounts()) do
+        for realm in pairs(DataStore:GetRealms(account)) do
+            for charName, dsKey in pairs(DataStore:GetCharacters(realm, account)) do
+                local kazKey = charName .. "-" .. realm
+
+                -- Get both primary professions
+                for i = 1, 2 do
+                    local prof, profName, rank
+                    if i == 1 then
+                        rank, _, _, profName = DataStore:GetProfession1(dsKey)
+                        if profName then
+                            prof = DataStore:GetProfession(dsKey, profName)
+                        end
+                    else
+                        rank, _, _, profName = DataStore:GetProfession2(dsKey)
+                        if profName then
+                            prof = DataStore:GetProfession(dsKey, profName)
+                        end
+                    end
+
+                    -- Cache skill level from DataStore (only if we don't have live data)
+                    if profName and rank and rank > 0 then
+                        KazCraftDB.professionSkills[kazKey] = KazCraftDB.professionSkills[kazKey] or {}
+                        if not KazCraftDB.professionSkills[kazKey][profName] then
+                            KazCraftDB.professionSkills[kazKey][profName] = rank
+                            skillsCaptured = skillsCaptured + 1
+                        end
+                    end
+
+                    if prof and cache and next(cache) then
+                        DataStore:IterateRecipes(prof, 0, 0, function(recipeData)
+                            if recipeData then
+                                local _, recipeID, isLearned = DataStore:GetRecipeInfo(recipeData)
+                                if isLearned and recipeID and cache[recipeID] then
+                                    local entry = cache[recipeID]
+                                    entry.knownBy = entry.knownBy or {}
+                                    if not entry.knownBy[kazKey] then
+                                        entry.knownBy[kazKey] = true
+                                        tagged = tagged + 1
+                                    end
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+    end
+
+    ns.DebugLog("ScanKnownRecipes: tagged " .. tagged .. " recipe-character pairs, " ..
+        skillsCaptured .. " skill levels from DataStore")
+end
+
+-- Cache current character's profession skill level (expansion-specific)
+function Data:CacheSkillLevel()
+    local profInfo = C_TradeSkillUI.GetChildProfessionInfo()
+    if not profInfo or not profInfo.professionName then return end
+
+    local charKey = ns.charKey
+    if not charKey then return end
+
+    local skillLevel = (profInfo.skillLevel or 0) + (profInfo.skillModifier or 0)
+    local profName = profInfo.professionName
+
+    KazCraftDB.professionSkills = KazCraftDB.professionSkills or {}
+    KazCraftDB.professionSkills[charKey] = KazCraftDB.professionSkills[charKey] or {}
+    KazCraftDB.professionSkills[charKey][profName] = skillLevel
+
+    ns.DebugLog("CacheSkillLevel:", charKey, profName, "=", skillLevel)
+end
+
+-- Get the best crafter for a recipe (highest skill in that profession)
+function Data:GetBestCrafter(recipeID)
+    local cached = KazCraftDB.recipeCache[recipeID]
+    if not cached or not cached.knownBy then return nil end
+
+    local profName = cached.professionName
+    local skills = KazCraftDB.professionSkills or {}
+
+    local best = nil
+    local bestSkill = -1
+
+    for charKey in pairs(cached.knownBy) do
+        local charSkills = skills[charKey]
+        local skill = charSkills and charSkills[profName] or 0
+        if skill > bestSkill then
+            bestSkill = skill
+            best = charKey
+        end
+    end
+
+    return best, bestSkill > 0 and bestSkill or nil
+end
+
+-- Get list of characters who can craft a specific item
+function Data:GetCraftersForItem(itemID)
+    if not itemID or not ns.itemToRecipe then return nil end
+    local recipeID = ns.itemToRecipe[itemID]
+    if not recipeID then return nil end
+    return self:GetCraftersForRecipe(recipeID)
+end
+
+-- Get list of characters who know a specific recipe, enriched with class color
+function Data:GetCraftersForRecipe(recipeID)
+    if not recipeID then return nil end
+    local entry = KazCraftDB.recipeCache[recipeID]
+    if not entry or not entry.knownBy then return nil end
+
+    local crafters = {}
+    for kazKey in pairs(entry.knownBy) do
+        local charName, realm = kazKey:match("^(.-)%-(.+)$")
+        local classColor = nil
+
+        -- Try to get class color from DataStore
+        if DataStore and DataStore.GetCharacterClass then
+            for account in pairs(DataStore:GetAccounts()) do
+                local dsKey = account .. "." .. realm .. "." .. charName
+                local ok, _, englishClass = pcall(DataStore.GetCharacterClass, DataStore, dsKey)
+                if ok and englishClass then
+                    local cc = RAID_CLASS_COLORS[englishClass]
+                    if cc then
+                        classColor = cc:GenerateHexColorMarkup()
+                    end
+                    break
+                end
+            end
+        end
+
+        -- Skill level from our cache
+        local profName = entry.professionName
+        local skills = KazCraftDB.professionSkills or {}
+        local charSkills = skills[kazKey]
+        local skill = charSkills and charSkills[profName] or nil
+
+        table.insert(crafters, {
+            key = kazKey,
+            name = charName,
+            realm = realm,
+            classColor = classColor,
+            coloredName = classColor and (classColor .. charName .. "|r") or charName,
+            skill = skill,
+        })
+    end
+
+    -- Sort by skill (highest first), then name
+    table.sort(crafters, function(a, b)
+        local sa, sb = a.skill or 0, b.skill or 0
+        if sa ~= sb then return sa > sb end
+        return a.name < b.name
+    end)
+    return crafters
 end
 
 -- Get the queue for a character

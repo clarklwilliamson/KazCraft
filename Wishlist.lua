@@ -65,6 +65,31 @@ local QUALITY_COLORS = {
 }
 
 --------------------------------------------------------------------
+-- Gear plan states
+--------------------------------------------------------------------
+local STATE_EMPTY   = "empty"    -- No gear in slot, need base craft
+local STATE_UPGRADE = "upgrade"  -- Have gear, can upgrade quality (recraft)
+local STATE_QUEUED  = "queued"   -- Already in a character's craft queue
+local STATE_READY   = "ready"    -- Have mats, ready to craft
+local STATE_BLOCKED = "blocked"  -- Missing mats or no known crafter
+
+local STATE_COLORS = {
+    [STATE_EMPTY]   = "|cff808080",  -- Gray
+    [STATE_UPGRADE] = "|cffffcc00",  -- Yellow
+    [STATE_QUEUED]  = "|cff4499ff",  -- Blue
+    [STATE_READY]   = "|cff00ff00",  -- Green
+    [STATE_BLOCKED] = "|cffff6666",  -- Red
+}
+
+local STATE_LABELS = {
+    [STATE_EMPTY]   = "Need base craft",
+    [STATE_UPGRADE] = "Upgradeable",
+    [STATE_QUEUED]  = "Queued",
+    [STATE_READY]   = "Ready to craft",
+    [STATE_BLOCKED] = "Blocked",
+}
+
+--------------------------------------------------------------------
 -- DB helpers
 --------------------------------------------------------------------
 local function EnsureDB()
@@ -80,6 +105,9 @@ local function EnsureDB()
     end
     if not KazCraftDB.wishlist.targetQuality then
         KazCraftDB.wishlist.targetQuality = QUALITY_GREEN
+    end
+    if not KazCraftDB.wishlist.gearPlans then
+        KazCraftDB.wishlist.gearPlans = {}
     end
 end
 
@@ -128,6 +156,198 @@ function Wishlist:AddFromLink(link, qty)
     local itemID = link:match("item:(%d+)")
     if not itemID then return false end
     self:AddConsumable(tonumber(itemID), qty)
+    return true
+end
+
+--------------------------------------------------------------------
+-- Gear plan management
+--------------------------------------------------------------------
+
+-- Set a gear plan for a character's slot
+function Wishlist:SetGearPlan(charKey, slotID, targetItemID, targetQuality)
+    EnsureDB()
+    KazCraftDB.wishlist.gearPlans[charKey] = KazCraftDB.wishlist.gearPlans[charKey] or {}
+    KazCraftDB.wishlist.gearPlans[charKey][slotID] = {
+        targetItemID = targetItemID,
+        targetQuality = targetQuality or QUALITY_EPIC,
+        state = STATE_EMPTY,
+        queuedTo = nil,
+        queuedRecipeID = nil,
+    }
+end
+
+-- Remove a gear plan
+function Wishlist:RemoveGearPlan(charKey, slotID)
+    EnsureDB()
+    if KazCraftDB.wishlist.gearPlans[charKey] then
+        KazCraftDB.wishlist.gearPlans[charKey][slotID] = nil
+        if not next(KazCraftDB.wishlist.gearPlans[charKey]) then
+            KazCraftDB.wishlist.gearPlans[charKey] = nil
+        end
+    end
+end
+
+-- Get a gear plan entry
+function Wishlist:GetGearPlan(charKey, slotID)
+    EnsureDB()
+    return KazCraftDB.wishlist.gearPlans[charKey]
+        and KazCraftDB.wishlist.gearPlans[charKey][slotID]
+end
+
+-- Evaluate current state of a gear plan entry
+function Wishlist:EvaluateGearPlanState(charKey, slotID)
+    local plan = self:GetGearPlan(charKey, slotID)
+    if not plan then return nil end
+
+    -- Check current equipment in slot
+    local currentQuality = 0
+    local currentItemID = nil
+    if DataStore and DataStore.GetInventoryItem then
+        local charName, realm = charKey:match("^(.-)%-(.+)$")
+        if charName and realm then
+            -- Find DS key
+            for account in pairs(DataStore:GetAccounts() or {}) do
+                local dsKey = account .. "." .. realm .. "." .. charName
+                local item = DataStore:GetInventoryItem(dsKey, slotID)
+                if item then
+                    currentItemID = type(item) == "number" and item or nil
+                    local link = type(item) == "string" and item or nil
+                    if link then
+                        currentQuality = select(3, C_Item.GetItemInfo(link)) or 0
+                    elseif currentItemID then
+                        currentQuality = C_Item.GetItemQualityByID(currentItemID) or 0
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    -- If already queued, keep queued state unless queue entry is gone
+    if plan.state == STATE_QUEUED and plan.queuedTo then
+        local queue = ns.Data:GetCharacterQueue(plan.queuedTo)
+        local stillQueued = false
+        for _, entry in ipairs(queue) do
+            if entry.recipeID == plan.queuedRecipeID then
+                stillQueued = true
+                break
+            end
+        end
+        if stillQueued then return STATE_QUEUED end
+        -- Queue entry gone — re-evaluate
+        plan.queuedTo = nil
+        plan.queuedRecipeID = nil
+    end
+
+    -- Already at target?
+    if currentQuality >= plan.targetQuality then
+        return "complete"
+    end
+
+    -- Find recipe for target item
+    local recipeID = plan.targetItemID and ns.itemToRecipe and ns.itemToRecipe[plan.targetItemID]
+    if not recipeID then
+        plan.state = STATE_BLOCKED
+        return STATE_BLOCKED
+    end
+
+    -- Anyone know the recipe?
+    local cached = KazCraftDB.recipeCache[recipeID]
+    if not cached or not cached.knownBy or not next(cached.knownBy) then
+        plan.state = STATE_BLOCKED
+        return STATE_BLOCKED
+    end
+
+    -- Determine if empty or upgrade
+    if currentQuality == 0 then
+        plan.state = STATE_EMPTY
+    else
+        plan.state = STATE_UPGRADE
+    end
+
+    return plan.state
+end
+
+-- Get all gear plans with current state, flattened for display
+function Wishlist:GetAllGearPlans()
+    EnsureDB()
+    local results = {}
+
+    for charKey, slots in pairs(KazCraftDB.wishlist.gearPlans) do
+        local charName, realm = charKey:match("^(.-)%-(.+)$")
+        local classColor = nil
+
+        if DataStore and DataStore.GetCharacterClassColor then
+            for account in pairs(DataStore:GetAccounts() or {}) do
+                local dsKey = account .. "." .. realm .. "." .. charName
+                local ok, color = pcall(DataStore.GetCharacterClassColor, DataStore, dsKey)
+                if ok and color then
+                    classColor = color
+                    break
+                end
+            end
+        end
+
+        for slotID, plan in pairs(slots) do
+            local state = self:EvaluateGearPlanState(charKey, slotID)
+            if state ~= "complete" then
+                local itemName = plan.targetItemID and
+                    (C_Item.GetItemNameByID(plan.targetItemID) or ("Item " .. plan.targetItemID)) or "?"
+                results[#results + 1] = {
+                    charKey = charKey,
+                    charName = charName or charKey,
+                    classColor = classColor,
+                    slotID = slotID,
+                    slotName = SLOT_NAMES[slotID] or ("Slot " .. slotID),
+                    targetItemID = plan.targetItemID,
+                    targetQuality = plan.targetQuality,
+                    state = state,
+                    stateColor = STATE_COLORS[state] or "|cffffffff",
+                    stateLabel = STATE_LABELS[state] or state,
+                    queuedTo = plan.queuedTo,
+                    plan = plan,
+                }
+            end
+        end
+    end
+
+    -- Sort: blocked first, then empty, upgrade, queued, ready
+    local stateOrder = { [STATE_BLOCKED]=1, [STATE_EMPTY]=2, [STATE_UPGRADE]=3, [STATE_QUEUED]=4, [STATE_READY]=5 }
+    table.sort(results, function(a, b)
+        local oa, ob = stateOrder[a.state] or 99, stateOrder[b.state] or 99
+        if oa ~= ob then return oa < ob end
+        if a.charName ~= b.charName then return a.charName < b.charName end
+        return a.slotID < b.slotID
+    end)
+
+    return results
+end
+
+-- Queue a gear plan item to the best crafter
+function Wishlist:QueueGearPlan(charKey, slotID)
+    local plan = self:GetGearPlan(charKey, slotID)
+    if not plan then return false, "No plan" end
+
+    local recipeID = plan.targetItemID and ns.itemToRecipe and ns.itemToRecipe[plan.targetItemID]
+    if not recipeID then return false, "No recipe found" end
+
+    local crafter, skill = ns.Data:GetBestCrafter(recipeID)
+    if not crafter then return false, "No known crafter" end
+
+    -- Queue to the best crafter (not current character)
+    ns.Data:AddToQueue(recipeID, 1, crafter)
+
+    -- Update plan state
+    plan.state = STATE_QUEUED
+    plan.queuedTo = crafter
+    plan.queuedRecipeID = recipeID
+
+    local skillStr = skill and (" (skill " .. skill .. ")") or ""
+    local cached = KazCraftDB.recipeCache[recipeID]
+    local recipeName = cached and cached.recipeName or ("Recipe " .. recipeID)
+    print(string.format("|cffc8aa64KazWish:|r Queued %s to %s%s",
+        recipeName, crafter, skillStr))
+
     return true
 end
 
@@ -661,6 +881,23 @@ function Wishlist:AnnounceOnLogin()
             "|r). /kaz wish to view.")
     end
 
+    -- Gear plan needs
+    local plans = self:GetAllGearPlans()
+    if #plans > 0 then
+        local stateCount = {}
+        for _, p in ipairs(plans) do
+            stateCount[p.state] = (stateCount[p.state] or 0) + 1
+        end
+        local parts2 = {}
+        if stateCount[STATE_EMPTY] then parts2[#parts2 + 1] = stateCount[STATE_EMPTY] .. " empty" end
+        if stateCount[STATE_UPGRADE] then parts2[#parts2 + 1] = stateCount[STATE_UPGRADE] .. " upgradeable" end
+        if stateCount[STATE_QUEUED] then parts2[#parts2 + 1] = stateCount[STATE_QUEUED] .. " queued" end
+        if stateCount[STATE_BLOCKED] then parts2[#parts2 + 1] = stateCount[STATE_BLOCKED] .. " blocked" end
+        if #parts2 > 0 then
+            print("|cffc8aa64KazWish:|r Gear plans: " .. table.concat(parts2, ", ") .. ". /kaz wish plans")
+        end
+    end
+
     -- Consumable needs
     local consumables = self:ScanConsumables()
     local needCount = 0
@@ -738,6 +975,94 @@ function Wishlist:HandleSlashCommand(msg)
             print("|cffc8aa64KazWish:|r All consumables at target.")
         end
 
+    elseif msg:find("^who ") then
+        -- /kaz wish who [item link or itemID]
+        local link = msg:match("|c.-|h|r") or msg:match("|Hitem:.-|h.-|h")
+        local itemID
+        if link then
+            itemID = tonumber(link:match("item:(%d+)"))
+        else
+            itemID = tonumber(msg:match("^who%s+(%d+)"))
+        end
+        if itemID then
+            local crafters = ns.Data:GetCraftersForItem(itemID)
+            if crafters and #crafters > 0 then
+                local names = {}
+                for _, c in ipairs(crafters) do
+                    local entry = c.coloredName
+                    if c.skill then entry = entry .. " (" .. c.skill .. ")" end
+                    table.insert(names, entry)
+                end
+                print("|cffc8aa64KazWish:|r Crafted by: " .. table.concat(names, ", "))
+            else
+                print("|cffc8aa64KazWish:|r No known crafters for that item.")
+            end
+        else
+            print("|cffc8aa64KazWish:|r Usage: /kaz wish who [item link]")
+        end
+
+    elseif msg == "plans" then
+        -- Show all gear plans with states
+        local plans = self:GetAllGearPlans()
+        if #plans == 0 then
+            print("|cffc8aa64KazWish:|r No gear plans set. Use /kaz wish plan [char-realm] [slotID] [itemID] [quality]")
+        else
+            print("|cffc8aa64KazWish:|r Gear plans:")
+            for _, p in ipairs(plans) do
+                local color = p.classColor or "|cffffffff"
+                local qColor = QUALITY_COLORS[p.targetQuality] or "|cffffffff"
+                local qName = QUALITY_NAMES[p.targetQuality] or "R" .. p.targetQuality
+                local extra = ""
+                if p.state == STATE_QUEUED and p.queuedTo then
+                    extra = " → " .. p.queuedTo
+                end
+                print(string.format("  %s%s|r %s — %s%s|r [%s%s|r]%s",
+                    color, p.charName, p.slotName,
+                    qColor, qName,
+                    p.stateColor, p.stateLabel, extra))
+            end
+        end
+
+    elseif msg:find("^plan ") then
+        -- /kaz wish plan Char-Realm slotID itemID [quality]
+        local args = msg:match("^plan%s+(.*)")
+        local charKey, slotStr, itemStr, qualStr = args:match("^(%S+)%s+(%d+)%s+(%d+)%s*(%d*)")
+        if charKey and slotStr and itemStr then
+            local slotID = tonumber(slotStr)
+            local targetItemID = tonumber(itemStr)
+            local targetQuality = tonumber(qualStr) or QUALITY_EPIC
+            self:SetGearPlan(charKey, slotID, targetItemID, targetQuality)
+            local itemName = C_Item.GetItemNameByID(targetItemID) or ("Item " .. targetItemID)
+            print(string.format("|cffc8aa64KazWish:|r Set plan: %s slot %d → %s R%d",
+                charKey, slotID, itemName, targetQuality))
+        else
+            print("|cffc8aa64KazWish:|r Usage: /kaz wish plan Char-Realm slotID itemID [quality]")
+        end
+
+    elseif msg:find("^best ") then
+        -- /kaz wish best [item link or recipeID]
+        local link = msg:match("|c.-|h|r") or msg:match("|Hitem:.-|h.-|h")
+        local recipeID
+        if link then
+            local itemID = tonumber(link:match("item:(%d+)"))
+            recipeID = itemID and ns.itemToRecipe and ns.itemToRecipe[itemID]
+        else
+            recipeID = tonumber(msg:match("^best%s+(%d+)"))
+        end
+        if recipeID then
+            local crafter, skill = ns.Data:GetBestCrafter(recipeID)
+            if crafter then
+                local skillStr = skill and (" (skill " .. skill .. ")") or ""
+                local cached = KazCraftDB.recipeCache[recipeID]
+                local name = cached and cached.recipeName or ("Recipe " .. recipeID)
+                print("|cffc8aa64KazWish:|r Best crafter for " .. name .. ": " .. crafter .. skillStr)
+            else
+                print("|cffc8aa64KazWish:|r No known crafter for that recipe.")
+            end
+        else
+            print("|cffc8aa64KazWish:|r Usage: /kaz wish best [item link]")
+        end
+
     elseif msg == "queue" then
         self:QueueCraftable()
 
@@ -745,7 +1070,11 @@ function Wishlist:HandleSlashCommand(msg)
         print("|cffc8aa64KazWish:|r Commands:")
         print("  /kaz wish — open wishlist window")
         print("  /kaz wish scan — print needs to chat")
+        print("  /kaz wish plans — show gear plans with states")
+        print("  /kaz wish plan [char] [slot] [itemID] [quality] — set gear plan")
         print("  /kaz wish queue — queue craftable items into KazCraft")
+        print("  /kaz wish who [link] — show who can craft an item (with skill)")
+        print("  /kaz wish best [link] — show best crafter for an item")
         print("  /kaz wish add [link] [qty] — add consumable")
         print("  /kaz wish remove [itemID] — remove consumable")
 

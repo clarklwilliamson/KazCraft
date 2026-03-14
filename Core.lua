@@ -18,6 +18,7 @@ local DB_DEFAULTS = {
     profCollapses = {},
     settings = {},
     lastRecipeID = {},
+    professionSkills = {},
 }
 
 -- Event handlers
@@ -32,8 +33,13 @@ function handlers.ADDON_LOADED(addon)
     UIParent:UnregisterEvent("TRADE_SKILL_SHOW")
     frame:UnregisterEvent("ADDON_LOADED")
 
-    -- Wishlist login scan (delay so DataStore is ready)
+    -- Delayed login scan (DataStore needs time to load)
     C_Timer.After(5, function()
+        -- Tag knownBy on cached recipes from all alts via DataStore
+        ns.Data:ScanKnownRecipes()
+        -- Build reverse index (itemID → recipeID) from any previously cached recipes
+        ns.Data:BuildItemToRecipeIndex()
+
         if ns.Wishlist then
             ns.Wishlist:AnnounceOnLogin()
         end
@@ -66,8 +72,9 @@ function handlers.TRADE_SKILL_SHOW()
         ns.ProfFrame:OnTradeSkillShow(profInfo)
     end
 
-    -- Background cache all recipes
+    -- Background cache all recipes + capture skill level
     ns.Data:CacheAllRecipes(profInfo)
+    ns.Data:CacheSkillLevel()
 end
 
 function handlers.TRADE_SKILL_CLOSE()
@@ -94,6 +101,7 @@ function handlers.TRADE_SKILL_DATA_SOURCE_CHANGED()
     ns.DebugLog("DATA_SOURCE_CHANGED:", ns.currentProfName, "prev:", tostring(prevProf),
         "profID:", profInfo and profInfo.professionID or "nil")
     ns.Data:CacheAllRecipes(profInfo)
+    ns.Data:CacheSkillLevel()
     if ns.ProfFrame then
         ns.ProfFrame:OnTradeSkillDataSourceChanged()
     end

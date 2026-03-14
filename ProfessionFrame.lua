@@ -36,9 +36,12 @@ local TAB_DEFS = {
 -- When switching to Blizzard UI, manually call UIParent_OnEvent().
 --------------------------------------------------------------------
 local function RestoreBlizzardProf()
-    -- Manually trigger Blizzard's handler to load + show ProfessionsFrame
-    if ProfessionsFrame_LoadUI then ProfessionsFrame_LoadUI() end
+    -- Temporarily re-register TRADE_SKILL_SHOW on UIParent so Blizzard's
+    -- full initialization path runs (LoadUI + ShowUIPanel + frame OnEvent flow)
+    UIParent:RegisterEvent("TRADE_SKILL_SHOW")
     UIParent_OnEvent(UIParent, "TRADE_SKILL_SHOW")
+    -- Re-suppress after Blizzard has handled it
+    UIParent:UnregisterEvent("TRADE_SKILL_SHOW")
 end
 
 --------------------------------------------------------------------

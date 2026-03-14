@@ -1574,13 +1574,14 @@ local function CreateRightPanel(parent)
             end
         end
 
-        -- Build reagent info tables directly (no bag dependency)
+        -- Build reagent info using Blizzard's CreateCraftingReagentInfo (bag-independent)
+        -- First arg is the reagent TABLE (has .itemID), not a raw itemID
         local function BuildReagentInfoForTier(useMaxTier)
             local tbl = {}
             for _, qs in ipairs(simQualitySlots) do
                 local slot = qs.slot
-                local numTiers = #slot.reagents
                 local needed = slot.quantityRequired or 0
+                local numTiers = #slot.reagents
                 for t = 1, numTiers do
                     local qty = 0
                     if useMaxTier then
@@ -1588,11 +1589,7 @@ local function CreateRightPanel(parent)
                     else
                         qty = (t == 1) and needed or 0
                     end
-                    table.insert(tbl, {
-                        itemID = slot.reagents[t].itemID,
-                        dataSlotIndex = qs.slotIndex,
-                        quantity = qty,
-                    })
+                    table.insert(tbl, Professions.CreateCraftingReagentInfo(slot.reagents[t], qs.slotIndex, qty))
                 end
             end
             return tbl
@@ -1648,11 +1645,14 @@ local function CreateRightPanel(parent)
         -- For personal crafting: if best mats = higher rank, always use best mats
         -- (small cost increase beats spending concentration)
         local bestNoConc = 0
-        pcall(function()
+        local ok2, err2 = pcall(function()
             local bestReagents2 = BuildReagentInfoForTier(true)
             local bestOp2 = C_TradeSkillUI.GetCraftingOperationInfo(selectedRecipeID, bestReagents2, nil, false)
             bestNoConc = bestOp2 and bestOp2.craftingQuality or 0
         end)
+        if not ok2 then
+            ns.DebugLog("SIM Optimize bestNoConc ERROR:", tostring(err2))
+        end
 
         ns.DebugLog("SIM Optimize: bestNoConc:", bestNoConc, "vs cheapRank:", cheapRank)
         if bestNoConc > cheapRank then

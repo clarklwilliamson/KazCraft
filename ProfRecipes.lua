@@ -2243,16 +2243,6 @@ function ProfRecipes:RefreshDetail()
     detail.emptyText:Hide()
     detail.favBtn:Show()
 
-    -- Sync Best Quality checkbox with global setting
-    -- Force off for no-quality-output recipes (higher tier reagents = wasted gold)
-    local useBest = Professions.ShouldAllocateBestQualityReagents()
-    if not info.supportsQualities then useBest = false end
-    if detail.bestQualCheck then
-        detail.bestQualCheck:SetChecked(useBest and true or false)
-        detail.bestQualCheck:SetEnabled(info.supportsQualities and true or false)
-        detail.bestQualCheck:SetAlpha(info.supportsQualities and 1 or 0.4)
-    end
-
     local info = C_TradeSkillUI.GetRecipeInfo(selectedRecipeID)
     if not info then
         -- Recipe not valid in current profession context — clear stale selection
@@ -2265,6 +2255,16 @@ function ProfRecipes:RefreshDetail()
         detail.controlFrame:Hide()
         detail.simFrame:Hide()
         return
+    end
+
+    -- Sync Best Quality checkbox with Blizzard CVar
+    -- Force off for no-quality-output recipes (higher tier reagents = wasted gold)
+    local useBest = Professions.ShouldAllocateBestQualityReagents()
+    if not info.supportsQualities then useBest = false end
+    if detail.bestQualCheck then
+        detail.bestQualCheck:SetChecked(useBest and true or false)
+        detail.bestQualCheck:SetEnabled(info.supportsQualities and true or false)
+        detail.bestQualCheck:SetAlpha(info.supportsQualities and 1 or 0.4)
     end
 
     -- Name

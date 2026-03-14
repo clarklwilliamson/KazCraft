@@ -126,6 +126,11 @@ end
 -- Also captures profession skill levels from DataStore (overall rank as fallback)
 function Data:ScanKnownRecipes()
     if not DataStore then return end
+    -- DataStore_Crafts mixins may not be registered yet
+    if not DataStore.GetProfession1 then
+        ns.DebugLog("ScanKnownRecipes: DataStore_Crafts not ready, skipping")
+        return
+    end
     local cache = KazCraftDB.recipeCache
     KazCraftDB.professionSkills = KazCraftDB.professionSkills or {}
 

@@ -9,7 +9,7 @@ ns.WishlistUI = WishlistUI
 
 local KazGUI = LibStub("KazGUILib-1.0")
 
-local FRAME_WIDTH = 420
+local FRAME_WIDTH = 500
 local FRAME_HEIGHT = 500
 local ROW_HEIGHT = 26
 local ICON_SIZE = 22
@@ -60,7 +60,7 @@ local function CreateRow(parent)
     -- Description
     row.descText = KazGUI:CreateText(row, KazGUI.Constants.FONT_SIZE_NORMAL, "textNormal")
     row.descText:SetPoint("LEFT", row.charText, "RIGHT", 5, 0)
-    row.descText:SetPoint("RIGHT", row, "RIGHT", -80, 0)
+    row.descText:SetPoint("RIGHT", row, "RIGHT", -120, 0)
     row.descText:SetJustifyH("LEFT")
     row.descText:SetWordWrap(false)
 
@@ -68,7 +68,7 @@ local function CreateRow(parent)
     row.statusText = KazGUI:CreateText(row, KazGUI.Constants.FONT_SIZE_NORMAL, "textNormal")
     row.statusText:SetPoint("RIGHT", row, "RIGHT", -8, 0)
     row.statusText:SetJustifyH("RIGHT")
-    row.statusText:SetWidth(70)
+    row.statusText:SetWidth(110)
 
     -- Remove button (consumables only)
     row.removeBtn = CreateFrame("Button", nil, row)
@@ -153,8 +153,10 @@ end
 local function BuildDisplayData()
     wipe(displayData)
 
-    -- Section 1: Profession Gear (filtered to what current toon can craft)
-    local gearNeeds = ns.Wishlist:ScanCraftableGearNeeds()
+    -- Section 1: Profession Gear (ALL characters, ALL professions — enriched with crafter info)
+    local gearNeeds = ns.Wishlist:ScanProfessionGear()
+    ns.Wishlist:EnrichNeedsWithCrafters(gearNeeds)
+
     if #gearNeeds > 0 then
         -- Group by character
         local byChar = {}
@@ -170,21 +172,24 @@ local function BuildDisplayData()
 
         local emptyCount = 0
         local upgradeCount = 0
+        local craftableCount = 0
         for _, need in ipairs(gearNeeds) do
             if need.currentQuality == 0 then
                 emptyCount = emptyCount + 1
             else
                 upgradeCount = upgradeCount + 1
             end
+            if need.craftable then craftableCount = craftableCount + 1 end
         end
         local countParts = {}
         if emptyCount > 0 then countParts[#countParts + 1] = emptyCount .. " empty" end
         if upgradeCount > 0 then countParts[#countParts + 1] = upgradeCount .. " upgrade" end
+        if craftableCount > 0 then countParts[#countParts + 1] = craftableCount .. " craftable" end
 
         local targetQ = ns.Wishlist:GetTargetQuality()
         displayData[#displayData + 1] = {
             type = "header",
-            text = "Profession Gear - " .. ns.Wishlist:GetQualityColor(targetQ) .. ns.Wishlist:GetQualityName(targetQ) .. "|r",
+            text = "Profession Gear → " .. ns.Wishlist:GetQualityColor(targetQ) .. ns.Wishlist:GetQualityName(targetQ) .. "|r",
             count = table.concat(countParts, ", "),
         }
         for _, charName in ipairs(charOrder) do
@@ -197,6 +202,10 @@ local function BuildDisplayData()
                     slotName = need.slotName,
                     slotID = need.slotID,
                     currentQuality = need.currentQuality or 0,
+                    currentItemName = need.currentItemName,
+                    craftable = need.craftable,
+                    crafterText = need.crafterText,
+                    bestCrafter = need.bestCrafter,
                 }
             end
         end
@@ -266,21 +275,56 @@ function WishlistUI:Refresh()
 
             local color = entry.classColor or "|cffffffff"
             row.charText:SetText(color .. entry.charName .. "|r")
-            row.descText:SetText(entry.profession .. " " .. entry.slotName)
 
-            -- Status: Empty or current quality
+            -- Description: profession slot + current item
             local cq = entry.currentQuality or 0
+            local descParts = { entry.profession .. " " .. entry.slotName }
+            if cq > 0 and entry.currentItemName then
+                local qColor = ns.Wishlist:GetQualityColor(cq)
+                descParts[#descParts + 1] = " [" .. qColor .. entry.currentItemName .. "|r]"
+            end
+            row.descText:SetText(table.concat(descParts))
+
+            -- Status: quality state + crafter
             if cq == 0 then
-                row.statusText:SetText("|cffff6666Empty|r")
+                if entry.craftable and entry.bestCrafter then
+                    local crafterName = entry.bestCrafter:match("^(.-)%-") or entry.bestCrafter
+                    row.statusText:SetText("|cffff6666Empty|r → " .. crafterName)
+                else
+                    row.statusText:SetText("|cffff6666Empty|r")
+                end
             else
                 local qColor = ns.Wishlist:GetQualityColor(cq)
                 local qName = ns.Wishlist:GetQualityName(cq)
-                row.statusText:SetText(qColor .. qName .. "|r")
+                if entry.craftable and entry.bestCrafter then
+                    local crafterName = entry.bestCrafter:match("^(.-)%-") or entry.bestCrafter
+                    row.statusText:SetText(qColor .. qName .. "|r → " .. crafterName)
+                else
+                    row.statusText:SetText(qColor .. qName .. "|r")
+                end
             end
+
+            -- Tooltip with full crafter list on hover
+            row:SetScript("OnEnter", function(self)
+                if entry.crafterText then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:AddLine(entry.profession .. " " .. entry.slotName, 1, 1, 1)
+                    if entry.currentItemName then
+                        local cqLocal = entry.currentQuality or 0
+                        local qcLocal = ns.Wishlist:GetQualityColor(cqLocal)
+                        GameTooltip:AddLine("Equipped: " .. (entry.currentItemName or "None"), 0.8, 0.8, 0.8)
+                    else
+                        GameTooltip:AddLine("Equipped: None", 0.5, 0.5, 0.5)
+                    end
+                    GameTooltip:AddLine("Crafters: " .. entry.crafterText, 0.7, 0.85, 1.0)
+                    GameTooltip:Show()
+                end
+            end)
+            row:SetScript("OnLeave", GameTooltip_Hide)
 
             row.removeBtn:Hide()
             row.removeBtn.itemID = nil
-            row.bg:SetColorTexture(1, 0.4, 0.4, 0.04)
+            row.bg:SetColorTexture(entry.craftable and 0.3 or 1, entry.craftable and 0.6 or 0.4, entry.craftable and 0.3 or 0.4, 0.04)
             row:Show()
             rows[#rows + 1] = row
             yOffset = yOffset + ROW_HEIGHT

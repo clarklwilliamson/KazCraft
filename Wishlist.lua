@@ -421,13 +421,15 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
                 -- GetInventoryItem returns itemID (number) or itemLink (string), or nil
                 local item = DataStore:GetInventoryItem(charKey, slotID)
                 local currentQuality = 0
+                local currentItemName = nil
                 if item then
-                    -- Get quality from item
                     local link = type(item) == "string" and item or nil
                     if link then
-                        currentQuality = select(3, C_Item.GetItemInfo(link)) or 0
+                        currentItemName, _, currentQuality = C_Item.GetItemInfo(link)
+                        currentQuality = currentQuality or 0
                     else
                         currentQuality = C_Item.GetItemQualityByID(item) or 0
+                        currentItemName = C_Item.GetItemNameByID(item)
                     end
                 end
 
@@ -440,6 +442,7 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
                         slotName = SLOT_NAMES[slotID] or "Unknown",
                         classColor = DataStore:GetCharacterClassColor(charKey),
                         currentQuality = currentQuality,
+                        currentItemName = currentItemName,
                     }
                 end
             end
@@ -472,12 +475,15 @@ function Wishlist:ScanCurrentCharGear(needs)
             for _, slotID in ipairs(slots) do
                 local itemID = GetInventoryItemID("player", slotID)
                 local currentQuality = 0
+                local currentItemName = nil
                 if itemID then
                     local link = GetInventoryItemLink("player", slotID)
                     if link then
-                        currentQuality = select(3, C_Item.GetItemInfo(link)) or 0
+                        currentItemName, _, currentQuality = C_Item.GetItemInfo(link)
+                        currentQuality = currentQuality or 0
                     else
                         currentQuality = C_Item.GetItemQualityByID(itemID) or 0
+                        currentItemName = C_Item.GetItemNameByID(itemID)
                     end
                 end
 
@@ -493,9 +499,88 @@ function Wishlist:ScanCurrentCharGear(needs)
                         slotName = SLOT_NAMES[slotID] or "Unknown",
                         classColor = colorStr,
                         currentQuality = currentQuality,
+                        currentItemName = currentItemName,
                     }
                 end
             end
+        end
+    end
+end
+
+--------------------------------------------------------------------
+-- Enrich gear needs with crafter info from recipeCache
+-- Works offline — no profession window required
+--------------------------------------------------------------------
+function Wishlist:EnrichNeedsWithCrafters(needs)
+    local profSubclasses = GetProfSubclass()
+    local subclassToProf = {}
+    for profName, subID in pairs(profSubclasses) do
+        subclassToProf[subID] = profName
+    end
+
+    -- Build gear recipe lookup: { ["Engineering:tool"] = { {recipeID, recipeName, knownBy}, ... } }
+    local gearRecipes = {}
+    for recipeID, cached in pairs(KazCraftDB.recipeCache or {}) do
+        if cached.outputItemID and cached.knownBy and next(cached.knownBy) then
+            local _, _, _, equipSlot, _, classID, subclassID = C_Item.GetItemInfoInstant(cached.outputItemID)
+            if classID == Enum.ItemClass.Profession and subclassID then
+                local profName = subclassToProf[subclassID]
+                if profName then
+                    local isTool = (equipSlot == "INVTYPE_PROFESSION_TOOL")
+                    local isAcc = (equipSlot == "INVTYPE_PROFESSION_GEAR" or equipSlot == "INVTYPE_PROFESSION_ACCESSORY")
+                    if isTool or isAcc then
+                        local key = profName .. ":" .. (isTool and "tool" or "acc")
+                        if not gearRecipes[key] then gearRecipes[key] = {} end
+                        gearRecipes[key][#gearRecipes[key] + 1] = {
+                            recipeID = recipeID,
+                            recipeName = cached.recipeName,
+                            knownBy = cached.knownBy,
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    -- Enrich each need
+    local skills = KazCraftDB.professionSkills or {}
+    for _, need in ipairs(needs) do
+        local isTool = TOOL_SLOTS[need.slotID]
+        local key = need.profession .. ":" .. (isTool and "tool" or "acc")
+        local recipes = gearRecipes[key]
+
+        if recipes then
+            -- Collect all unique crafters across matching recipes
+            local crafterSet = {}
+            for _, recipe in ipairs(recipes) do
+                for charKey in pairs(recipe.knownBy) do
+                    crafterSet[charKey] = true
+                end
+            end
+
+            -- Find best crafter (highest profession skill)
+            local bestCrafter = nil
+            local bestSkill = -1
+            local crafterNames = {}
+            for charKey in pairs(crafterSet) do
+                local cName = charKey:match("^(.-)%-") or charKey
+                local charSkills = skills[charKey]
+                local skill = charSkills and charSkills[need.profession] or 0
+                crafterNames[#crafterNames + 1] = cName .. (skill > 0 and (" (" .. skill .. ")") or "")
+                if skill > bestSkill then
+                    bestSkill = skill
+                    bestCrafter = charKey
+                end
+            end
+
+            need.craftable = true
+            need.crafterText = table.concat(crafterNames, ", ")
+            need.bestCrafter = bestCrafter
+            need.bestCrafterSkill = bestSkill > 0 and bestSkill or nil
+            need.recipeID = recipes[1].recipeID
+        else
+            need.craftable = false
+            need.crafterText = nil
         end
     end
 end
@@ -812,17 +897,43 @@ end
 function Wishlist:QueueCraftable()
     local queued = 0
 
-    -- Gear wishes (filtered to current toon's craftable professions)
-    local gearNeeds = self:ScanCraftableGearNeeds()
-    if #gearNeeds > 0 and C_TradeSkillUI.IsTradeSkillReady() then
-        local gearRecipes = self:FindGearRecipes(gearNeeds)
-        for _, entry in ipairs(gearRecipes) do
-            ns.Data:AddToQueue(entry.recipeID, entry.qty)
-            print(string.format("|cffc8aa64KazWish:|r Queued %s x%d (%s %s)",
-                entry.recipeName, entry.qty, entry.profession,
-                entry.slotType == "tool" and "Tool" or "Accessory"))
-            queued = queued + entry.qty
+    -- Gear wishes — enriched with crafter info from cache (no profession window needed)
+    local gearNeeds = self:ScanProfessionGear()
+    self:EnrichNeedsWithCrafters(gearNeeds)
+
+    -- Group by best crafter + recipeID to batch
+    local gearBatch = {}  -- { [crafterKey..recipeID] = { recipeID, crafter, count, recipeName, profession, slotType } }
+    for _, need in ipairs(gearNeeds) do
+        if need.craftable and need.recipeID and need.bestCrafter then
+            local batchKey = need.bestCrafter .. ":" .. need.recipeID
+            if not gearBatch[batchKey] then
+                local isTool = TOOL_SLOTS[need.slotID]
+                gearBatch[batchKey] = {
+                    recipeID = need.recipeID,
+                    crafter = need.bestCrafter,
+                    count = 0,
+                    recipeName = need.recipeName or ("Recipe " .. need.recipeID),
+                    profession = need.profession,
+                    slotType = isTool and "Tool" or "Accessory",
+                }
+            end
+            gearBatch[batchKey].count = gearBatch[batchKey].count + 1
         end
+    end
+
+    for _, batch in pairs(gearBatch) do
+        ns.Data:AddToQueue(batch.recipeID, batch.count, batch.crafter)
+        local crafterName = batch.crafter:match("^(.-)%-") or batch.crafter
+        local skillStr = ""
+        local skills = KazCraftDB.professionSkills or {}
+        local charSkills = skills[batch.crafter]
+        if charSkills and charSkills[batch.profession] then
+            skillStr = " (" .. charSkills[batch.profession] .. ")"
+        end
+        print(string.format("|cffc8aa64KazWish:|r Queued %s x%d → %s%s (%s %s)",
+            batch.recipeName, batch.count, crafterName, skillStr,
+            batch.profession, batch.slotType))
+        queued = queued + batch.count
     end
 
     -- Consumable wishes
@@ -832,11 +943,13 @@ function Wishlist:QueueCraftable()
             if wish.need > 0 then
                 local recipeID = ns.itemToRecipe[wish.itemID]
                 if recipeID then
-                    local recipeInfo = C_TradeSkillUI.GetRecipeInfo(recipeID)
-                    if recipeInfo and recipeInfo.learned then
-                        ns.Data:AddToQueue(recipeID, wish.need)
-                        print(string.format("|cffc8aa64KazWish:|r Queued %s x%d",
-                            wish.itemName, wish.need))
+                    -- Queue to best crafter for this recipe
+                    local crafter = ns.Data:GetBestCrafter(recipeID)
+                    if crafter then
+                        ns.Data:AddToQueue(recipeID, wish.need, crafter)
+                        local crafterName = crafter:match("^(.-)%-") or crafter
+                        print(string.format("|cffc8aa64KazWish:|r Queued %s x%d → %s",
+                            wish.itemName, wish.need, crafterName))
                         queued = queued + wish.need
                     end
                 end
@@ -845,10 +958,9 @@ function Wishlist:QueueCraftable()
     end
 
     if queued == 0 then
-        print("|cffc8aa64KazWish:|r Nothing to queue -- open a profession first for gear, or add consumables.")
+        print("|cffc8aa64KazWish:|r Nothing to queue — no known crafters in recipe cache.")
     else
         print(string.format("|cffc8aa64KazWish:|r Queued %d items into KazCraft.", queued))
-        -- Refresh KC queue panel if visible
         if ns.ProfessionUI and ns.ProfessionUI.RefreshQueue then
             ns.ProfessionUI:RefreshQueue()
         end

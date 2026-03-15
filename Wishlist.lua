@@ -46,6 +46,12 @@ local DS_PROF_INDICES = {
 }
 
 --------------------------------------------------------------------
+-- Expansion constant
+--------------------------------------------------------------------
+-- GetItemInfo expacID: Classic=0, TBC=1, ..., DF=9, TWW=10, Midnight=11
+local CURRENT_EXPAC_ID = 11
+
+--------------------------------------------------------------------
 -- Quality constants
 --------------------------------------------------------------------
 local QUALITY_GREEN = 2   -- Uncommon
@@ -423,19 +429,28 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
                 local currentQuality = 0
                 local currentItemName = nil
                 local currentItemLink = nil
+                local isCurrentExpac = false
                 if item then
                     local link = type(item) == "string" and item or nil
                     if link then
                         currentItemLink = link
-                        currentItemName, _, currentQuality = C_Item.GetItemInfo(link)
-                        currentQuality = currentQuality or 0
+                        local name, _, quality, _, _, _, _, _, _, _, _, _, _, _, expacID = C_Item.GetItemInfo(link)
+                        currentItemName = name
+                        currentQuality = quality or 0
+                        -- Midnight = expansion 11 (12.0). TWW = 10, DF = 9, etc.
+                        isCurrentExpac = expacID and expacID >= CURRENT_EXPAC_ID
                     else
                         currentQuality = C_Item.GetItemQualityByID(item) or 0
                         currentItemName = C_Item.GetItemNameByID(item)
                     end
                 end
 
-                if currentQuality < targetQ then
+                -- Needs gear if: empty, outdated expansion, or below target quality
+                local needsGear = (currentQuality == 0)
+                    or (not isCurrentExpac)
+                    or (currentQuality < targetQ)
+
+                if needsGear then
                     needs[#needs + 1] = {
                         charName = charName,
                         charKey = charKey,
@@ -446,6 +461,7 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
                         currentQuality = currentQuality,
                         currentItemName = currentItemName,
                         currentItemLink = currentItemLink,
+                        outdated = (currentQuality > 0 and not isCurrentExpac),
                     }
                 end
             end
@@ -479,18 +495,27 @@ function Wishlist:ScanCurrentCharGear(needs)
                 local itemID = GetInventoryItemID("player", slotID)
                 local currentQuality = 0
                 local currentItemName = nil
+                local currentItemLink = nil
+                local isCurrentExpac = false
                 if itemID then
                     local link = GetInventoryItemLink("player", slotID)
                     if link then
-                        currentItemName, _, currentQuality = C_Item.GetItemInfo(link)
-                        currentQuality = currentQuality or 0
+                        currentItemLink = link
+                        local name, _, quality, _, _, _, _, _, _, _, _, _, _, _, expacID = C_Item.GetItemInfo(link)
+                        currentItemName = name
+                        currentQuality = quality or 0
+                        isCurrentExpac = expacID and expacID >= CURRENT_EXPAC_ID
                     else
                         currentQuality = C_Item.GetItemQualityByID(itemID) or 0
                         currentItemName = C_Item.GetItemNameByID(itemID)
                     end
                 end
 
-                if currentQuality < targetQ then
+                local needsGear = (currentQuality == 0)
+                    or (not isCurrentExpac)
+                    or (currentQuality < targetQ)
+
+                if needsGear then
                     local _, classFile = UnitClass("player")
                     local color = RAID_CLASS_COLORS[classFile]
                     local colorStr = color and color:GenerateHexColorMarkup() or "|cffffffff"
@@ -503,6 +528,8 @@ function Wishlist:ScanCurrentCharGear(needs)
                         classColor = colorStr,
                         currentQuality = currentQuality,
                         currentItemName = currentItemName,
+                        currentItemLink = currentItemLink,
+                        outdated = (currentQuality > 0 and not isCurrentExpac),
                     }
                 end
             end

@@ -182,11 +182,14 @@ local function BuildDisplayData()
         table.sort(charOrder)
 
         local emptyCount = 0
+        local outdatedCount = 0
         local upgradeCount = 0
         local craftableCount = 0
         for _, need in ipairs(gearNeeds) do
             if need.currentQuality == 0 then
                 emptyCount = emptyCount + 1
+            elseif need.outdated then
+                outdatedCount = outdatedCount + 1
             else
                 upgradeCount = upgradeCount + 1
             end
@@ -194,6 +197,7 @@ local function BuildDisplayData()
         end
         local countParts = {}
         if emptyCount > 0 then countParts[#countParts + 1] = emptyCount .. " empty" end
+        if outdatedCount > 0 then countParts[#countParts + 1] = outdatedCount .. " outdated" end
         if upgradeCount > 0 then countParts[#countParts + 1] = upgradeCount .. " upgrade" end
         if craftableCount > 0 then countParts[#countParts + 1] = craftableCount .. " craftable" end
 
@@ -215,6 +219,7 @@ local function BuildDisplayData()
                     currentQuality = need.currentQuality or 0,
                     currentItemName = need.currentItemName,
                     currentItemLink = need.currentItemLink,
+                    outdated = need.outdated,
                     craftable = need.craftable,
                     crafterText = need.crafterText,
                     bestCrafter = need.bestCrafter,
@@ -309,22 +314,19 @@ function WishlistUI:Refresh()
             row.descText:SetText(table.concat(descParts))
 
             -- Status: quality state + crafter
+            local crafterSuffix = ""
+            if entry.craftable and entry.bestCrafter then
+                crafterSuffix = " → " .. (entry.bestCrafter:match("^(.-)%-") or entry.bestCrafter)
+            end
+
             if cq == 0 then
-                if entry.craftable and entry.bestCrafter then
-                    local crafterName = entry.bestCrafter:match("^(.-)%-") or entry.bestCrafter
-                    row.statusText:SetText("|cffff6666Empty|r → " .. crafterName)
-                else
-                    row.statusText:SetText("|cffff6666Empty|r")
-                end
+                row.statusText:SetText("|cffff6666Empty|r" .. crafterSuffix)
+            elseif entry.outdated then
+                row.statusText:SetText("|cffff9900TWW|r" .. crafterSuffix)
             else
                 local qColor = ns.Wishlist:GetQualityColor(cq)
                 local qName = ns.Wishlist:GetQualityName(cq)
-                if entry.craftable and entry.bestCrafter then
-                    local crafterName = entry.bestCrafter:match("^(.-)%-") or entry.bestCrafter
-                    row.statusText:SetText(qColor .. qName .. "|r → " .. crafterName)
-                else
-                    row.statusText:SetText(qColor .. qName .. "|r")
-                end
+                row.statusText:SetText(qColor .. qName .. "|r" .. crafterSuffix)
             end
 
             -- Tooltip with full crafter list on hover

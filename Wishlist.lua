@@ -435,13 +435,19 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
                     if link then
                         currentItemLink = link
                         local name, _, quality, _, _, _, _, _, _, _, _, _, _, _, expacID = C_Item.GetItemInfo(link)
-                        currentItemName = name
+                        -- GetItemInfo may return name with brackets in some cases; strip them
+                        if name then
+                            currentItemName = name:gsub("^%[", ""):gsub("%]$", "")
+                        end
                         currentQuality = quality or 0
                         -- Midnight = expansion 11 (12.0). TWW = 10, DF = 9, etc.
                         isCurrentExpac = expacID and expacID >= CURRENT_EXPAC_ID
                     else
                         currentQuality = C_Item.GetItemQualityByID(item) or 0
-                        currentItemName = C_Item.GetItemNameByID(item)
+                        local rawName = C_Item.GetItemNameByID(item)
+                        if rawName then
+                            currentItemName = rawName:gsub("^%[", ""):gsub("%]$", "")
+                        end
                     end
                 end
 
@@ -502,12 +508,17 @@ function Wishlist:ScanCurrentCharGear(needs)
                     if link then
                         currentItemLink = link
                         local name, _, quality, _, _, _, _, _, _, _, _, _, _, _, expacID = C_Item.GetItemInfo(link)
-                        currentItemName = name
+                        if name then
+                            currentItemName = name:gsub("^%[", ""):gsub("%]$", "")
+                        end
                         currentQuality = quality or 0
                         isCurrentExpac = expacID and expacID >= CURRENT_EXPAC_ID
                     else
                         currentQuality = C_Item.GetItemQualityByID(itemID) or 0
-                        currentItemName = C_Item.GetItemNameByID(itemID)
+                        local rawName = C_Item.GetItemNameByID(itemID)
+                        if rawName then
+                            currentItemName = rawName:gsub("^%[", ""):gsub("%]$", "")
+                        end
                     end
                 end
 

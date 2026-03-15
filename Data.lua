@@ -125,12 +125,17 @@ end
 -- Scan all DataStore characters' known recipes and tag knownBy on cached entries
 -- Also captures profession skill levels from DataStore (overall rank as fallback)
 function Data:ScanKnownRecipes()
+    local function log(msg)
+        KazUtil._logBuffer[#KazUtil._logBuffer + 1] = {
+            time = date("%H:%M:%S"), addon = "KazCraft", level = "info", msg = msg,
+        }
+    end
     if not DataStore then
-        ns.DebugLog("ScanKnownRecipes: DataStore not loaded")
+        log("ScanKnownRecipes: DataStore not loaded")
         return
     end
     if not DataStore.GetProfession1 then
-        ns.DebugLog("ScanKnownRecipes: DataStore_Crafts not ready (GetProfession1 missing)")
+        log("ScanKnownRecipes: DataStore_Crafts not ready (GetProfession1 missing)")
         return
     end
     local cache = KazCraftDB.recipeCache
@@ -195,7 +200,7 @@ function Data:ScanKnownRecipes()
         end
     end
 
-    ns.DebugLog("ScanKnownRecipes: DS has " .. dsRecipesTotal .. " recipes, " ..
+    log("ScanKnownRecipes: DS has " .. dsRecipesTotal .. " recipes, " ..
         dsRecipesLearned .. " learned, " .. dsRecipesMatched .. " match our cache, " ..
         tagged .. " newly tagged, " .. skillsCaptured .. " skills")
 end

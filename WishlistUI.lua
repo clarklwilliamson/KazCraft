@@ -293,13 +293,11 @@ function WishlistUI:Refresh()
             row.iconBtn.itemLink = entry.currentItemLink or nil
             row.iconBtn.tooltipText = entry.profession .. " " .. entry.slotName
             row.iconBtn.tooltipSub = entry.currentItemName and ("Equipped: " .. entry.currentItemName) or "Empty slot"
-            local isTool = (entry.slotName == "Tool")
-            local fallbackIcon = isTool and 133468 or 136243
             if entry.currentItemLink then
                 local icon = C_Item.GetItemIconByID(entry.currentItemLink)
-                row.icon:SetTexture(icon or fallbackIcon)
+                row.icon:SetTexture(icon or 134400)  -- 134400 = INV_Misc_QuestionMark
             else
-                row.icon:SetTexture(fallbackIcon)
+                row.icon:SetTexture(134400)  -- question mark for empty slots
             end
             row.iconBtn:Show()
 

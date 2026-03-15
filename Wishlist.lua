@@ -721,11 +721,22 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
                 end
             end
 
+            -- Pick highest recipeID (newest expansion recipe wins)
+            local bestRecipeID = 0
+            local bestRecipeName = nil
+            for _, recipe in ipairs(recipes) do
+                if recipe.recipeID > bestRecipeID then
+                    bestRecipeID = recipe.recipeID
+                    bestRecipeName = recipe.recipeName
+                end
+            end
+
             need.craftable = true
             need.crafterText = table.concat(crafterNames, ", ")
             need.bestCrafter = bestCrafter
             need.bestCrafterSkill = bestSkill > 0 and bestSkill or nil
-            need.recipeID = recipes[1].recipeID
+            need.recipeID = bestRecipeID
+            need.recipeName = bestRecipeName
         else
             need.craftable = false
             need.crafterText = nil

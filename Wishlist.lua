@@ -673,94 +673,55 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
         WishDebug("After rescan:", gearRecipeCount, "recipes with knownBy")
     end
 
-    -- Build profession > character lookup from our own professionSkills cache
-    -- This is populated whenever ANY character opens their profession -- no DataStore dependency
-    local profCrafters = {}  -- { ["Engineering"] = { "Shuwa-Blackrock", ... } }
-    for charKey, charSkills in pairs(KazCraftDB.professionSkills or {}) do
-        for profName in pairs(charSkills) do
-            if not profCrafters[profName] then profCrafters[profName] = {} end
-            profCrafters[profName][#profCrafters[profName] + 1] = charKey
-        end
-    end
-
-    -- Also add DataStore professions as fallback (covers characters that haven't opened profs in KC)
-    if DataStore and DataStore.GetProfession1 then
-        local seen = {}
-        for charKey in pairs(KazCraftDB.professionSkills or {}) do seen[charKey] = true end
-        for account in pairs(DataStore:GetAccounts() or {}) do
-            for realm in pairs(DataStore:GetRealms(account) or {}) do
-                for charName, dsKey in pairs(DataStore:GetCharacters(realm, account) or {}) do
-                    local kazKey = charName .. "-" .. realm
-                    if not seen[kazKey] then
-                        for i = 1, 2 do
-                            local _, _, _, profName
-                            if i == 1 then
-                                _, _, _, profName = DataStore:GetProfession1(dsKey)
-                            else
-                                _, _, _, profName = DataStore:GetProfession2(dsKey)
-                            end
-                            if profName then
-                                if not profCrafters[profName] then profCrafters[profName] = {} end
-                                profCrafters[profName][#profCrafters[profName] + 1] = kazKey
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- Enrich each need
+    -- Enrich each need -- uses knownBy from recipe cache (populated by ScanKnownRecipes)
     local skills = KazCraftDB.professionSkills or {}
+    local targetQ = self:GetTargetQuality()
     for _, need in ipairs(needs) do
         local isTool = TOOL_SLOTS[need.slotID]
         local key = need.profession .. ":" .. (isTool and "tool" or "acc")
         local recipes = gearRecipes[key]
 
         if recipes then
-            -- Collect crafters: prefer knownBy, fall back to profession lookup
-            local crafterSet = {}
-            local crafterProfName = recipes[1].crafterProf
-            for _, recipe in ipairs(recipes) do
-                for charKey in pairs(recipe.knownBy) do
-                    crafterSet[charKey] = true
-                end
-            end
-
-            -- Fallback: if knownBy is empty, find anyone with the crafter profession
-            if not next(crafterSet) and crafterProfName and profCrafters[crafterProfName] then
-                for _, charKey in ipairs(profCrafters[crafterProfName]) do
-                    crafterSet[charKey] = true
-                end
-            end
-
-            -- Find best crafter -- use the CRAFTER'S profession skill, not the target profession
-            local bestCrafter = nil
-            local bestSkill = -1
-            local crafterNames = {}
-            for charKey in pairs(crafterSet) do
-                local cName = charKey:match("^(.-)%-") or charKey
-                local charSkills = skills[charKey]
-                local skill = charSkills and charSkills[crafterProfName] or 0
-                crafterNames[#crafterNames + 1] = cName .. (skill > 0 and (" (" .. skill .. ")") or "")
-                if skill > bestSkill then
-                    bestSkill = skill
-                    bestCrafter = charKey
-                end
-            end
-
-            -- Pick best recipe: must match target quality, prefer highest recipeID (newest expansion)
-            local targetQ = self:GetTargetQuality()
+            -- Find best recipe+crafter PAIR: recipe must be known by at least one crafter,
+            -- output quality <= target, prefer highest recipeID (newest expansion),
+            -- then pick highest-skilled crafter who knows THAT recipe
             local bestRecipeID = 0
             local bestRecipeName = nil
+            local bestCrafter = nil
+            local bestSkill = -1
+            local bestCrafterProf = nil
+
             for _, recipe in ipairs(recipes) do
                 if recipe.outputQuality <= targetQ and recipe.recipeID > bestRecipeID then
-                    bestRecipeID = recipe.recipeID
-                    bestRecipeName = recipe.recipeName
+                    -- Check if anyone actually knows this recipe (via knownBy)
+                    if recipe.knownBy and next(recipe.knownBy) then
+                        bestRecipeID = recipe.recipeID
+                        bestRecipeName = recipe.recipeName
+                        bestCrafterProf = recipe.crafterProf
+                    end
                 end
             end
 
-            if bestRecipeID > 0 and next(crafterSet) then
+            -- Now find the best crafter for the chosen recipe
+            local crafterNames = {}
+            if bestRecipeID > 0 then
+                for _, recipe in ipairs(recipes) do
+                    if recipe.recipeID == bestRecipeID and recipe.knownBy then
+                        for charKey in pairs(recipe.knownBy) do
+                            local cName = charKey:match("^(.-)%-") or charKey
+                            local charSkills = skills[charKey]
+                            local skill = charSkills and charSkills[bestCrafterProf] or 0
+                            crafterNames[#crafterNames + 1] = cName .. (skill > 0 and (" (" .. skill .. ")") or "")
+                            if skill > bestSkill then
+                                bestSkill = skill
+                                bestCrafter = charKey
+                            end
+                        end
+                    end
+                end
+            end
+
+            if bestRecipeID > 0 and bestCrafter then
                 need.craftable = true
                 need.crafterText = table.concat(crafterNames, ", ")
                 need.bestCrafter = bestCrafter

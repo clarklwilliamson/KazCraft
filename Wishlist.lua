@@ -594,11 +594,19 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
                     if isTool or isAcc then
                         local key = targetProf .. ":" .. (isTool and "tool" or "acc")
                         if not gearRecipes[key] then gearRecipes[key] = {} end
+                        -- Get output quality from first quality variant or base item
+                        local outQuality = 0
+                        if cached.qualityItemIDs and cached.qualityItemIDs[1] then
+                            outQuality = C_Item.GetItemQualityByID(cached.qualityItemIDs[1]) or 0
+                        elseif cached.outputItemID then
+                            outQuality = C_Item.GetItemQualityByID(cached.outputItemID) or 0
+                        end
                         gearRecipes[key][#gearRecipes[key] + 1] = {
                             recipeID = recipeID,
                             recipeName = cached.recipeName,
                             knownBy = cached.knownBy or {},
                             crafterProf = cached.professionName or "",
+                            outputQuality = outQuality,
                         }
                         gearRecipeCount = gearRecipeCount + 1
                     end
@@ -741,22 +749,28 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
                 end
             end
 
-            -- Pick highest recipeID (newest expansion recipe wins)
+            -- Pick best recipe: must match target quality, prefer highest recipeID (newest expansion)
+            local targetQ = self:GetTargetQuality()
             local bestRecipeID = 0
             local bestRecipeName = nil
             for _, recipe in ipairs(recipes) do
-                if recipe.recipeID > bestRecipeID then
+                if recipe.outputQuality <= targetQ and recipe.recipeID > bestRecipeID then
                     bestRecipeID = recipe.recipeID
                     bestRecipeName = recipe.recipeName
                 end
             end
 
-            need.craftable = true
-            need.crafterText = table.concat(crafterNames, ", ")
-            need.bestCrafter = bestCrafter
-            need.bestCrafterSkill = bestSkill > 0 and bestSkill or nil
-            need.recipeID = bestRecipeID
-            need.recipeName = bestRecipeName
+            if bestRecipeID > 0 and next(crafterSet) then
+                need.craftable = true
+                need.crafterText = table.concat(crafterNames, ", ")
+                need.bestCrafter = bestCrafter
+                need.bestCrafterSkill = bestSkill > 0 and bestSkill or nil
+                need.recipeID = bestRecipeID
+                need.recipeName = bestRecipeName
+            else
+                need.craftable = false
+                need.crafterText = nil
+            end
         else
             need.craftable = false
             need.crafterText = nil

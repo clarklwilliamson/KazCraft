@@ -292,8 +292,7 @@ function WishlistUI:Refresh()
             row.iconBtn.itemID = nil
             row.iconBtn.itemLink = entry.currentItemLink or nil
             row.iconBtn.tooltipText = entry.profession .. " " .. entry.slotName
-            local cleanEquipName = entry.currentItemName and entry.currentItemName:gsub("^%[", ""):gsub("%]$", "")
-            row.iconBtn.tooltipSub = cleanEquipName and ("Equipped: " .. cleanEquipName) or "Empty slot"
+            row.iconBtn.tooltipSub = entry.currentItemName and ("Equipped: " .. entry.currentItemName) or "Empty slot"
             local isTool = (entry.slotName == "Tool")
             local fallbackIcon = isTool and 133468 or 136243
             if entry.currentItemLink then
@@ -312,8 +311,7 @@ function WishlistUI:Refresh()
             local descParts = { entry.profession .. " " .. entry.slotName }
             if cq > 0 and entry.currentItemName then
                 local qColor = ns.Wishlist:GetQualityColor(cq)
-                local cleanName = entry.currentItemName:gsub("^%[", ""):gsub("%]$", "")
-                descParts[#descParts + 1] = " " .. qColor .. cleanName .. "|r"
+                descParts[#descParts + 1] = " " .. qColor .. entry.currentItemName .. "|r"
             end
             row.descText:SetText(table.concat(descParts))
 

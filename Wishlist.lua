@@ -434,20 +434,14 @@ function Wishlist:ScanCharGear(charKey, charName, needs)
                     local link = type(item) == "string" and item or nil
                     if link then
                         currentItemLink = link
-                        local name, _, quality, _, _, _, _, _, _, _, _, _, _, _, expacID = C_Item.GetItemInfo(link)
-                        -- GetItemInfo may return name with brackets in some cases; strip them
-                        if name then
-                            currentItemName = name:gsub("^%[", ""):gsub("%]$", "")
-                        end
+                        -- Extract clean name from link format |h[Name]|h
+                        currentItemName = link:match("%[(.-)%]")
+                        local _, _, quality, _, _, _, _, _, _, _, _, _, _, _, expacID = C_Item.GetItemInfo(link)
                         currentQuality = quality or 0
-                        -- Midnight = expansion 11 (12.0). TWW = 10, DF = 9, etc.
                         isCurrentExpac = expacID and expacID >= CURRENT_EXPAC_ID
                     else
                         currentQuality = C_Item.GetItemQualityByID(item) or 0
-                        local rawName = C_Item.GetItemNameByID(item)
-                        if rawName then
-                            currentItemName = rawName:gsub("^%[", ""):gsub("%]$", "")
-                        end
+                        currentItemName = C_Item.GetItemNameByID(item)
                     end
                 end
 
@@ -507,18 +501,13 @@ function Wishlist:ScanCurrentCharGear(needs)
                     local link = GetInventoryItemLink("player", slotID)
                     if link then
                         currentItemLink = link
-                        local name, _, quality, _, _, _, _, _, _, _, _, _, _, _, expacID = C_Item.GetItemInfo(link)
-                        if name then
-                            currentItemName = name:gsub("^%[", ""):gsub("%]$", "")
-                        end
+                        currentItemName = link:match("%[(.-)%]")
+                        local _, _, quality, _, _, _, _, _, _, _, _, _, _, _, expacID = C_Item.GetItemInfo(link)
                         currentQuality = quality or 0
                         isCurrentExpac = expacID and expacID >= CURRENT_EXPAC_ID
                     else
                         currentQuality = C_Item.GetItemQualityByID(itemID) or 0
-                        local rawName = C_Item.GetItemNameByID(itemID)
-                        if rawName then
-                            currentItemName = rawName:gsub("^%[", ""):gsub("%]$", "")
-                        end
+                        currentItemName = C_Item.GetItemNameByID(itemID)
                     end
                 end
 
@@ -656,14 +645,6 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
         WishDebug("After rescan:", gearRecipeCount, "recipes with knownBy")
     end
 
-    for key, recipes in pairs(gearRecipes) do
-        local crafterCount = 0
-        for _, r in ipairs(recipes) do
-            for _ in pairs(r.knownBy) do crafterCount = crafterCount + 1 end
-        end
-        WishDebug("  ", key, ":", #recipes, "recipes,", crafterCount, "crafter entries")
-    end
-
     -- Build profession → character lookup from our own professionSkills cache
     -- This is populated whenever ANY character opens their profession — no DataStore dependency
     local profCrafters = {}  -- { ["Engineering"] = { "Shuwa-Blackrock", ... } }
@@ -701,11 +682,6 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
         end
     end
 
-    -- Debug: show what DataStore found
-    for profName, chars in pairs(profCrafters) do
-        WishDebug("  DS crafters for", profName, ":", table.concat(chars, ", "))
-    end
-
     -- Enrich each need
     local skills = KazCraftDB.professionSkills or {}
     for _, need in ipairs(needs) do
@@ -724,14 +700,9 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
             end
 
             -- Fallback: if knownBy is empty, find anyone with the crafter profession
-            if not next(crafterSet) then
-                if crafterProfName and profCrafters[crafterProfName] then
-                    for _, charKey in ipairs(profCrafters[crafterProfName]) do
-                        crafterSet[charKey] = true
-                    end
-                    WishDebug("  Fallback for", key, "— crafterProf:", crafterProfName, "found", #profCrafters[crafterProfName], "chars")
-                else
-                    WishDebug("  Fallback MISS for", key, "— crafterProf:", tostring(crafterProfName), "in DS:", profCrafters[crafterProfName] and "yes" or "no")
+            if not next(crafterSet) and crafterProfName and profCrafters[crafterProfName] then
+                for _, charKey in ipairs(profCrafters[crafterProfName]) do
+                    crafterSet[charKey] = true
                 end
             end
 

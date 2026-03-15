@@ -408,7 +408,7 @@ function ProfUI:Show()
 
     -- Update header
     local charName = ns.charKey and ns.charKey:match("^(.-)%-") or "?"
-    headerText:SetText("Queue — " .. (ns.currentProfName or "?"))
+    headerText:SetText("Queue - " .. charName)
 
     -- Dock to KC's ProfFrame
     mainFrame:ClearAllPoints()

@@ -1954,7 +1954,22 @@ local function CreateRightPanel(parent)
             ns.Data:CacheSchematic(selectedRecipeID, ns.currentProfName, ns.charKey)
         end
 
-        ns.Data:QueueWithSubRecipes(selectedRecipeID, qty)
+        -- Capture reagent allocation from current transaction (Optimize > Apply state)
+        local reagents = nil
+        if currentTransaction then
+            local reagentInfoTbl = currentTransaction:CreateCraftingReagentInfoTbl()
+            if reagentInfoTbl and #reagentInfoTbl > 0 then
+                reagents = {}
+                for _, ri in ipairs(reagentInfoTbl) do
+                    if ri.itemID and ri.quantity and ri.quantity > 0 then
+                        reagents[#reagents + 1] = { itemID = ri.itemID, quantity = ri.quantity }
+                    end
+                end
+                if #reagents == 0 then reagents = nil end
+            end
+        end
+
+        ns.Data:QueueWithSubRecipes(selectedRecipeID, qty, nil, reagents)
         local queue = ns.Data:GetCharacterQueue()
         print("|cffc8aa64KazCraft:|r +Queue: added", qty, "x recipeID:", selectedRecipeID, "— queue now has", #queue, "entries. ProfUI shown:", ns.ProfessionUI and ns.ProfessionUI:IsShown() or false)
         if ns.ProfessionUI then

@@ -315,14 +315,18 @@ function Data:GetCharacterQueue(charKey)
 end
 
 -- Add a recipe to the queue
-function Data:AddToQueue(recipeID, quantity, charKey)
+function Data:AddToQueue(recipeID, quantity, charKey, reagents)
     charKey = charKey or ns.charKey
     local queue = self:GetCharacterQueue(charKey)
 
-    -- Check if already queued
+    -- Check if already queued with same reagent allocation
     for _, entry in ipairs(queue) do
         if entry.recipeID == recipeID then
             entry.quantity = entry.quantity + (quantity or 1)
+            -- Update reagent allocation if provided (newer allocation wins)
+            if reagents then
+                entry.reagents = reagents
+            end
             return
         end
     end
@@ -330,12 +334,13 @@ function Data:AddToQueue(recipeID, quantity, charKey)
     table.insert(queue, {
         recipeID = recipeID,
         quantity = quantity or 1,
+        reagents = reagents,  -- { {itemID=N, quantity=N}, ... } or nil for default
     })
 end
 
 -- Queue a recipe and auto-queue any craftable sub-recipes for shortfall
 -- Sub-recipes are placed before their parent in the queue (craft order)
-function Data:QueueWithSubRecipes(recipeID, qty, _visited)
+function Data:QueueWithSubRecipes(recipeID, qty, _visited, reagents)
     _visited = _visited or {}
     if _visited[recipeID] then return end -- prevent infinite loops
     _visited[recipeID] = true
@@ -345,8 +350,8 @@ function Data:QueueWithSubRecipes(recipeID, qty, _visited)
         self:CacheSchematic(recipeID, ns.currentProfName, ns.charKey)
     end
 
-    -- Queue the main recipe first (needed for demand calculation)
-    self:AddToQueue(recipeID, qty)
+    -- Queue the main recipe (with reagent allocation if provided)
+    self:AddToQueue(recipeID, qty, nil, reagents)
 
     -- Always rebuild index fresh — CacheAllRecipes may have added new entries
     self:BuildItemToRecipeIndex()
@@ -545,9 +550,15 @@ function Data:GetMaterialList(charKey)
     -- KazCraft's own queue
     for _, queue in pairs(queues) do
         for _, entry in ipairs(queue) do
-            local cached = KazCraftDB.recipeCache[entry.recipeID]
-            if cached then
-                for _, reagent in ipairs(cached.reagents) do
+            -- Use tier-specific reagents from queue entry if available (from Optimize > Apply > +Queue)
+            -- Otherwise fall back to base reagents from recipe cache
+            local reagentList = entry.reagents
+            if not reagentList then
+                local cached = KazCraftDB.recipeCache[entry.recipeID]
+                reagentList = cached and cached.reagents
+            end
+            if reagentList then
+                for _, reagent in ipairs(reagentList) do
                     if not materials[reagent.itemID] then
                         materials[reagent.itemID] = { itemID = reagent.itemID, need = 0 }
                     end

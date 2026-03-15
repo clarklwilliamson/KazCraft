@@ -136,6 +136,9 @@ function Data:ScanKnownRecipes()
 
     local tagged = 0
     local skillsCaptured = 0
+    local dsRecipesTotal = 0
+    local dsRecipesLearned = 0
+    local dsRecipesMatched = 0
     for account in pairs(DataStore:GetAccounts()) do
         for realm in pairs(DataStore:GetRealms(account)) do
             for charName, dsKey in pairs(DataStore:GetCharacters(realm, account)) do
@@ -168,13 +171,18 @@ function Data:ScanKnownRecipes()
                     if prof and cache and next(cache) then
                         DataStore:IterateRecipes(prof, 0, 0, function(recipeData)
                             if recipeData then
+                                dsRecipesTotal = dsRecipesTotal + 1
                                 local _, recipeID, isLearned = DataStore:GetRecipeInfo(recipeData)
-                                if isLearned and recipeID and cache[recipeID] then
-                                    local entry = cache[recipeID]
-                                    entry.knownBy = entry.knownBy or {}
-                                    if not entry.knownBy[kazKey] then
-                                        entry.knownBy[kazKey] = true
-                                        tagged = tagged + 1
+                                if isLearned then
+                                    dsRecipesLearned = dsRecipesLearned + 1
+                                    if recipeID and cache[recipeID] then
+                                        dsRecipesMatched = dsRecipesMatched + 1
+                                        local entry = cache[recipeID]
+                                        entry.knownBy = entry.knownBy or {}
+                                        if not entry.knownBy[kazKey] then
+                                            entry.knownBy[kazKey] = true
+                                            tagged = tagged + 1
+                                        end
                                     end
                                 end
                             end
@@ -185,8 +193,9 @@ function Data:ScanKnownRecipes()
         end
     end
 
-    ns.DebugLog("ScanKnownRecipes: tagged " .. tagged .. " recipe-character pairs, " ..
-        skillsCaptured .. " skill levels from DataStore")
+    ns.Print("ScanKnownRecipes: DS has " .. dsRecipesTotal .. " recipes, " ..
+        dsRecipesLearned .. " learned, " .. dsRecipesMatched .. " match our cache, " ..
+        tagged .. " newly tagged, " .. skillsCaptured .. " skills")
 end
 
 -- Cache current character's profession skill level (expansion-specific)

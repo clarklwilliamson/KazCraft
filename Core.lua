@@ -36,11 +36,8 @@ function handlers.ADDON_LOADED(addon)
     -- Build reverse index immediately (doesn't need DataStore)
     ns.Data:BuildItemToRecipeIndex()
 
-    -- Load DataStore_Crafts (LoadOnDemand) so we can read recipe data at login
+    -- Scan known recipes from DataStore (handles LoadOnDemand internally)
     C_Timer.After(3, function()
-        if not DataStore or not DataStore.GetProfession1 then
-            C_AddOns.LoadAddOn("DataStore_Crafts")
-        end
         ns.Data:ScanKnownRecipes()
         if ns.Wishlist then
             ns.Wishlist:AnnounceOnLogin()

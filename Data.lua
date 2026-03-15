@@ -134,9 +134,9 @@ function Data:ScanKnownRecipes()
         log("ScanKnownRecipes: DataStore not loaded")
         return
     end
-    if not DataStore.GetProfession1 then
-        log("ScanKnownRecipes: DataStore_Crafts not ready (GetProfession1 missing)")
-        return
+    -- Load DataStore_Crafts if not already loaded (it's LoadOnDemand)
+    if C_AddOns and C_AddOns.LoadAddOn then
+        C_AddOns.LoadAddOn("DataStore_Crafts")
     end
     local cache = KazCraftDB.recipeCache
     KazCraftDB.professionSkills = KazCraftDB.professionSkills or {}
@@ -151,19 +151,28 @@ function Data:ScanKnownRecipes()
             for charName, dsKey in pairs(DataStore:GetCharacters(realm, account)) do
                 local kazKey = charName .. "-" .. realm
 
-                -- Get both primary professions
+                -- Get both primary professions using safe pcall (metatable methods)
                 for i = 1, 2 do
                     local prof, profName, rank
-                    if i == 1 then
-                        rank, _, _, profName = DataStore:GetProfession1(dsKey)
-                        if profName then
-                            prof = DataStore:GetProfession(dsKey, profName)
+                    local ok1, pName = pcall(function()
+                        if i == 1 then
+                            return DataStore:GetProfession1Name(dsKey)
+                        else
+                            return DataStore:GetProfession2Name(dsKey)
                         end
-                    else
-                        rank, _, _, profName = DataStore:GetProfession2(dsKey)
-                        if profName then
-                            prof = DataStore:GetProfession(dsKey, profName)
-                        end
+                    end)
+                    if ok1 and pName then
+                        profName = pName
+                        local ok2, r, _ = pcall(function()
+                            if i == 1 then
+                                return DataStore:GetProfession1Rank(dsKey)
+                            else
+                                return DataStore:GetProfession2Rank(dsKey)
+                            end
+                        end)
+                        if ok2 then rank = r end
+                        local ok3, p = pcall(DataStore.GetProfession, DataStore, dsKey, profName)
+                        if ok3 then prof = p end
                     end
 
                     -- Cache skill level from DataStore (only if we don't have live data)
@@ -176,7 +185,7 @@ function Data:ScanKnownRecipes()
                     end
 
                     if prof and cache and next(cache) then
-                        DataStore:IterateRecipes(prof, 0, 0, function(recipeData)
+                        pcall(DataStore.IterateRecipes, DataStore, prof, 0, 0, function(recipeData)
                             if recipeData then
                                 dsRecipesTotal = dsRecipesTotal + 1
                                 local _, recipeID, isLearned = DataStore:GetRecipeInfo(recipeData)
@@ -193,7 +202,7 @@ function Data:ScanKnownRecipes()
                                     end
                                 end
                             end
-                        end)
+                        end)  -- end pcall(IterateRecipes)
                     end
                 end
             end

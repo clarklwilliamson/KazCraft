@@ -309,7 +309,7 @@ function WishlistUI:Refresh()
             local descParts = { entry.profession .. " " .. entry.slotName }
             if cq > 0 and entry.currentItemName then
                 local qColor = ns.Wishlist:GetQualityColor(cq)
-                descParts[#descParts + 1] = " [" .. qColor .. entry.currentItemName .. "|r]"
+                descParts[#descParts + 1] = " " .. qColor .. entry.currentItemName .. "|r"
             end
             row.descText:SetText(table.concat(descParts))
 

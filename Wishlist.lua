@@ -946,6 +946,23 @@ function Wishlist:QueueCraftable()
     local gearNeeds = self:ScanProfessionGear()
     self:EnrichNeedsWithCrafters(gearNeeds)
 
+    -- Debug: show what we found
+    local craftableCount = 0
+    local uncraftableKeys = {}
+    for _, need in ipairs(gearNeeds) do
+        if need.craftable then
+            craftableCount = craftableCount + 1
+        else
+            local isTool = TOOL_SLOTS[need.slotID]
+            local key = need.profession .. ":" .. (isTool and "tool" or "acc")
+            uncraftableKeys[key] = (uncraftableKeys[key] or 0) + 1
+        end
+    end
+    WishDebug("QueueCraftable:", #gearNeeds, "needs,", craftableCount, "craftable")
+    for key, count in pairs(uncraftableKeys) do
+        WishDebug("  No recipe for:", key, "(" .. count .. " slots)")
+    end
+
     -- Group by best crafter + recipeID to batch
     local gearBatch = {}  -- { [crafterKey..recipeID] = { recipeID, crafter, count, recipeName, profession, slotType } }
     for _, need in ipairs(gearNeeds) do

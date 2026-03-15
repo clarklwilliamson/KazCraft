@@ -292,7 +292,8 @@ function WishlistUI:Refresh()
             row.iconBtn.itemID = nil
             row.iconBtn.itemLink = entry.currentItemLink or nil
             row.iconBtn.tooltipText = entry.profession .. " " .. entry.slotName
-            row.iconBtn.tooltipSub = entry.currentItemName and ("Equipped: " .. entry.currentItemName) or "Empty slot"
+            local cleanEquipName = entry.currentItemName and entry.currentItemName:gsub("^%[", ""):gsub("%]$", "")
+            row.iconBtn.tooltipSub = cleanEquipName and ("Equipped: " .. cleanEquipName) or "Empty slot"
             if entry.currentItemLink then
                 local icon = C_Item.GetItemIconByID(entry.currentItemLink)
                 row.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_Gear_01")
@@ -309,7 +310,8 @@ function WishlistUI:Refresh()
             local descParts = { entry.profession .. " " .. entry.slotName }
             if cq > 0 and entry.currentItemName then
                 local qColor = ns.Wishlist:GetQualityColor(cq)
-                descParts[#descParts + 1] = " " .. qColor .. entry.currentItemName .. "|r"
+                local cleanName = entry.currentItemName:gsub("^%[", ""):gsub("%]$", "")
+                descParts[#descParts + 1] = " " .. qColor .. cleanName .. "|r"
             end
             row.descText:SetText(table.concat(descParts))
 

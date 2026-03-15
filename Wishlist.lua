@@ -608,6 +608,43 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
     end
 
     WishDebug("EnrichNeedsWithCrafters:", totalRecipes, "total recipes,", profGearRecipes, "profession gear,", gearRecipeCount, "with knownBy")
+
+    -- If zero crafters tagged, force a DataStore rescan
+    if gearRecipeCount == 0 and profGearRecipes > 0 then
+        WishDebug("All profession gear recipes have empty knownBy — forcing ScanKnownRecipes")
+        ns.Data:ScanKnownRecipes()
+        -- Rebuild after rescan
+        gearRecipeCount = 0
+        for key in pairs(gearRecipes) do gearRecipes[key] = nil end
+        for recipeID, cached in pairs(KazCraftDB.recipeCache or {}) do
+            if cached.outputItemID then
+                local _, _, _, equipSlot, _, classID, subclassID = C_Item.GetItemInfoInstant(cached.outputItemID)
+                if classID == Enum.ItemClass.Profession and subclassID then
+                    local targetProf = subclassToProf[subclassID]
+                    if targetProf then
+                        local isTool = (equipSlot == "INVTYPE_PROFESSION_TOOL")
+                        local isAcc = (equipSlot == "INVTYPE_PROFESSION_GEAR" or equipSlot == "INVTYPE_PROFESSION_ACCESSORY")
+                        if isTool or isAcc then
+                            local hasKnownBy = cached.knownBy and next(cached.knownBy)
+                            if hasKnownBy then
+                                local key = targetProf .. ":" .. (isTool and "tool" or "acc")
+                                if not gearRecipes[key] then gearRecipes[key] = {} end
+                                gearRecipes[key][#gearRecipes[key] + 1] = {
+                                    recipeID = recipeID,
+                                    recipeName = cached.recipeName,
+                                    knownBy = cached.knownBy,
+                                    crafterProf = cached.professionName or "",
+                                }
+                                gearRecipeCount = gearRecipeCount + 1
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        WishDebug("After rescan:", gearRecipeCount, "recipes with knownBy")
+    end
+
     for key, recipes in pairs(gearRecipes) do
         local crafterCount = 0
         for _, r in ipairs(recipes) do
@@ -1021,23 +1058,32 @@ function Wishlist:QueueCraftable()
 
     if queued == 0 then
         -- Diagnostic: show what couldn't be matched
-        local unmatchedSlots = {}
+        local noRecipe = {}
+        local noCrafter = {}
         for _, need in ipairs(gearNeeds) do
+            local isTool = TOOL_SLOTS[need.slotID]
+            local key = need.profession .. " " .. (isTool and "Tool" or "Acc")
             if not need.craftable then
-                local isTool = TOOL_SLOTS[need.slotID]
-                local key = need.profession .. " " .. (isTool and "Tool" or "Acc")
-                unmatchedSlots[key] = true
+                noRecipe[key] = true
+            elseif not need.bestCrafter then
+                noCrafter[key] = true
             end
         end
-        local unmatchedList = {}
-        for key in pairs(unmatchedSlots) do
-            unmatchedList[#unmatchedList + 1] = key
-        end
-        if #unmatchedList > 0 then
-            print("|cffc8aa64KazWish:|r No recipes cached for: " .. table.concat(unmatchedList, ", "))
+        local noRecipeList = {}
+        for key in pairs(noRecipe) do noRecipeList[#noRecipeList + 1] = key end
+        local noCrafterList = {}
+        for key in pairs(noCrafter) do noCrafterList[#noCrafterList + 1] = key end
+
+        if #noRecipeList > 0 then
+            print("|cffc8aa64KazWish:|r No recipes cached for: " .. table.concat(noRecipeList, ", "))
             print("|cffc8aa64KazWish:|r Open each crafter's profession to populate the cache.")
-        else
-            print("|cffc8aa64KazWish:|r Nothing to queue.")
+        end
+        if #noCrafterList > 0 then
+            print("|cffc8aa64KazWish:|r Recipes found but no crafter tagged for: " .. table.concat(noCrafterList, ", "))
+            print("|cffc8aa64KazWish:|r Log into each crafter and open their profession once.")
+        end
+        if #noRecipeList == 0 and #noCrafterList == 0 and #gearNeeds == 0 then
+            print("|cffc8aa64KazWish:|r Nothing to queue — all slots at target quality.")
         end
     else
         print(string.format("|cffc8aa64KazWish:|r Queued %d items into KazCraft.", queued))

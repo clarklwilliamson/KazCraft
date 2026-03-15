@@ -653,6 +653,30 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
         WishDebug("  ", key, ":", #recipes, "recipes,", crafterCount, "crafter entries")
     end
 
+    -- Build profession → character lookup from DataStore (fallback when knownBy is empty)
+    local profCrafters = {}  -- { ["Engineering"] = { "Shuwa-Blackrock", ... } }
+    if DataStore and DataStore.GetProfession1 then
+        for account in pairs(DataStore:GetAccounts() or {}) do
+            for realm in pairs(DataStore:GetRealms(account) or {}) do
+                for charName, dsKey in pairs(DataStore:GetCharacters(realm, account) or {}) do
+                    local kazKey = charName .. "-" .. realm
+                    for i = 1, 2 do
+                        local _, _, _, profName
+                        if i == 1 then
+                            _, _, _, profName = DataStore:GetProfession1(dsKey)
+                        else
+                            _, _, _, profName = DataStore:GetProfession2(dsKey)
+                        end
+                        if profName then
+                            if not profCrafters[profName] then profCrafters[profName] = {} end
+                            profCrafters[profName][#profCrafters[profName] + 1] = kazKey
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     -- Enrich each need
     local skills = KazCraftDB.professionSkills or {}
     for _, need in ipairs(needs) do
@@ -661,7 +685,7 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
         local recipes = gearRecipes[key]
 
         if recipes then
-            -- Collect all unique crafters across matching recipes
+            -- Collect crafters: prefer knownBy, fall back to profession lookup
             local crafterSet = {}
             local crafterProfName = recipes[1].crafterProf
             for _, recipe in ipairs(recipes) do
@@ -670,8 +694,14 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
                 end
             end
 
+            -- Fallback: if knownBy is empty, find anyone with the crafter profession
+            if not next(crafterSet) and crafterProfName and profCrafters[crafterProfName] then
+                for _, charKey in ipairs(profCrafters[crafterProfName]) do
+                    crafterSet[charKey] = true
+                end
+            end
+
             -- Find best crafter — use the CRAFTER'S profession skill, not the target profession
-            -- e.g., for Mining gear, the crafter is an Engineer — check Engineering skill
             local bestCrafter = nil
             local bestSkill = -1
             local crafterNames = {}

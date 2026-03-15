@@ -326,7 +326,7 @@ function Data:QueueWithSubRecipes(recipeID, qty, _visited)
 
     -- Ensure cached
     if not KazCraftDB.recipeCache[recipeID] then
-        self:CacheSchematic(recipeID, ns.currentProfName)
+        self:CacheSchematic(recipeID, ns.currentProfName, ns.charKey)
     end
 
     -- Queue the main recipe first (needed for demand calculation)
@@ -349,7 +349,7 @@ function Data:QueueWithSubRecipes(recipeID, qty, _visited)
                 for _, rid in ipairs(allRecipeIDs) do
                     -- Cache and check output
                     if not KazCraftDB.recipeCache[rid] then
-                        self:CacheSchematic(rid, ns.currentProfName)
+                        self:CacheSchematic(rid, ns.currentProfName, ns.charKey)
                     end
                     local sub = KazCraftDB.recipeCache[rid]
                     if sub then

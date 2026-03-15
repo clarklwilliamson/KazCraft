@@ -443,7 +443,7 @@ end
 function ProfUI:SetSelectedRecipe(recipeID)
     selectedRecipeID = recipeID
     if recipeID and not KazCraftDB.recipeCache[recipeID] then
-        ns.Data:CacheSchematic(recipeID, ns.currentProfName)
+        ns.Data:CacheSchematic(recipeID, ns.currentProfName, ns.charKey)
     end
 end
 
@@ -455,6 +455,6 @@ EventRegistry:RegisterCallback("ProfessionsRecipeListMixin.Event.OnRecipeSelecte
 
     -- Pre-cache schematic
     if selectedRecipeID and not KazCraftDB.recipeCache[selectedRecipeID] then
-        ns.Data:CacheSchematic(selectedRecipeID, ns.currentProfName)
+        ns.Data:CacheSchematic(selectedRecipeID, ns.currentProfName, ns.charKey)
     end
 end, "KazCraft")

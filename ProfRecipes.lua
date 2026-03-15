@@ -1951,7 +1951,7 @@ local function CreateRightPanel(parent)
         if qty < 1 then qty = 1 end
 
         if not KazCraftDB.recipeCache[selectedRecipeID] then
-            ns.Data:CacheSchematic(selectedRecipeID, ns.currentProfName)
+            ns.Data:CacheSchematic(selectedRecipeID, ns.currentProfName, ns.charKey)
         end
 
         ns.Data:QueueWithSubRecipes(selectedRecipeID, qty)

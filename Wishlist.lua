@@ -608,6 +608,27 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
     end
 
     WishDebug("EnrichNeedsWithCrafters:", totalRecipes, "total recipes,", profGearRecipes, "profession gear,", gearRecipeCount, "with knownBy")
+    -- Sample one recipe to check knownBy state
+    for recipeID, cached in pairs(KazCraftDB.recipeCache or {}) do
+        if cached.outputItemID then
+            local _, _, _, _, _, classID = C_Item.GetItemInfoInstant(cached.outputItemID)
+            if classID == Enum.ItemClass.Profession then
+                local kb = cached.knownBy
+                local kbType = type(kb)
+                local kbCount = 0
+                if kbType == "table" then
+                    for _ in pairs(kb) do kbCount = kbCount + 1 end
+                end
+                WishDebug("  Sample recipe", recipeID, cached.recipeName, "knownBy type:", kbType, "count:", kbCount)
+                if kbType == "table" then
+                    for k, v in pairs(kb) do
+                        WishDebug("    ", tostring(k), "=", tostring(v))
+                    end
+                end
+                break
+            end
+        end
+    end
 
     -- If zero crafters tagged, force a DataStore rescan
     if gearRecipeCount == 0 and profGearRecipes > 0 then

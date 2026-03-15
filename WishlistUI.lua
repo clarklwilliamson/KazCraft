@@ -164,7 +164,7 @@ end
 local function BuildDisplayData()
     wipe(displayData)
 
-    -- Section 1: Profession Gear (ALL characters, ALL professions — enriched with crafter info)
+    -- Section 1: Profession Gear (ALL characters, ALL professions -- enriched with crafter info)
     local gearNeeds = ns.Wishlist:ScanProfessionGear()
     ns.Wishlist:EnrichNeedsWithCrafters(gearNeeds)
 
@@ -204,7 +204,7 @@ local function BuildDisplayData()
         local targetQ = ns.Wishlist:GetTargetQuality()
         displayData[#displayData + 1] = {
             type = "header",
-            text = "Profession Gear → " .. ns.Wishlist:GetQualityColor(targetQ) .. ns.Wishlist:GetQualityName(targetQ) .. "|r",
+            text = "Profession Gear > " .. ns.Wishlist:GetQualityColor(targetQ) .. ns.Wishlist:GetQualityName(targetQ) .. "|r",
             count = table.concat(countParts, ", "),
         }
         for _, charName in ipairs(charOrder) do
@@ -316,7 +316,7 @@ function WishlistUI:Refresh()
             -- Status: quality state + crafter
             local crafterSuffix = ""
             if entry.craftable and entry.bestCrafter then
-                crafterSuffix = " → " .. (entry.bestCrafter:match("^(.-)%-") or entry.bestCrafter)
+                crafterSuffix = " > " .. (entry.bestCrafter:match("^(.-)%-") or entry.bestCrafter)
             end
 
             if cq == 0 then

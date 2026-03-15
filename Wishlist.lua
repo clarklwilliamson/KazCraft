@@ -22,7 +22,7 @@ end
 --------------------------------------------------------------------
 -- Profession slot mapping
 --------------------------------------------------------------------
--- Prof index → { tool slot, accessory slots... }
+-- Prof index > { tool slot, accessory slots... }
 local PROF_SLOTS = {
     [1] = { 20, 21, 22 },   -- Primary 1: tool + 2 accessories
     [2] = { 23, 24, 25 },   -- Primary 2: tool + 2 accessories
@@ -240,7 +240,7 @@ function Wishlist:EvaluateGearPlanState(charKey, slotID)
             end
         end
         if stillQueued then return STATE_QUEUED end
-        -- Queue entry gone — re-evaluate
+        -- Queue entry gone -- re-evaluate
         plan.queuedTo = nil
         plan.queuedRecipeID = nil
     end
@@ -543,7 +543,7 @@ end
 local TOOL_SLOTS = { [20] = true, [23] = true, [26] = true, [28] = true }
 -- Accessories = everything else (21, 22, 24, 25, 27)
 
--- Map profession name → subclassID for ItemClass.Profession (19)
+-- Map profession name > subclassID for ItemClass.Profession (19)
 local PROF_SUBCLASS = {}
 
 local function GetProfSubclass()
@@ -566,7 +566,7 @@ end
 
 --------------------------------------------------------------------
 -- Enrich gear needs with crafter info from recipeCache
--- Works offline — no profession window required
+-- Works offline -- no profession window required
 --------------------------------------------------------------------
 function Wishlist:EnrichNeedsWithCrafters(needs)
     local profSubclasses = GetProfSubclass()
@@ -628,7 +628,7 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
             if not samplePopulated then
                 local names = {}
                 for k in pairs(cached.knownBy) do names[#names+1] = k end
-                samplePopulated = recipeID .. " " .. (cached.recipeName or "?") .. " → " .. table.concat(names, ", ")
+                samplePopulated = recipeID .. " " .. (cached.recipeName or "?") .. " > " .. table.concat(names, ", ")
             end
         end
     end
@@ -639,7 +639,7 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
 
     -- If zero crafters tagged, force a DataStore rescan
     if gearRecipeCount == 0 and profGearRecipes > 0 then
-        WishDebug("All profession gear recipes have empty knownBy — forcing ScanKnownRecipes")
+        WishDebug("All profession gear recipes have empty knownBy -- forcing ScanKnownRecipes")
         ns.Data:ScanKnownRecipes()
         -- Rebuild after rescan
         gearRecipeCount = 0
@@ -673,8 +673,8 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
         WishDebug("After rescan:", gearRecipeCount, "recipes with knownBy")
     end
 
-    -- Build profession → character lookup from our own professionSkills cache
-    -- This is populated whenever ANY character opens their profession — no DataStore dependency
+    -- Build profession > character lookup from our own professionSkills cache
+    -- This is populated whenever ANY character opens their profession -- no DataStore dependency
     local profCrafters = {}  -- { ["Engineering"] = { "Shuwa-Blackrock", ... } }
     for charKey, charSkills in pairs(KazCraftDB.professionSkills or {}) do
         for profName in pairs(charSkills) do
@@ -734,7 +734,7 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
                 end
             end
 
-            -- Find best crafter — use the CRAFTER'S profession skill, not the target profession
+            -- Find best crafter -- use the CRAFTER'S profession skill, not the target profession
             local bestCrafter = nil
             local bestSkill = -1
             local crafterNames = {}
@@ -859,7 +859,7 @@ function Wishlist:GetCraftableGearSlots()
         subclassToProf[subID] = profName
     end
 
-    -- Filter to current expansion — require valid profession data
+    -- Filter to current expansion -- require valid profession data
     local childProfInfo = C_TradeSkillUI.GetChildProfessionInfo()
     local childProfID = childProfInfo and childProfInfo.professionID
     if not childProfID or childProfID == 0 then
@@ -1059,7 +1059,7 @@ end
 function Wishlist:QueueCraftable()
     local queued = 0
 
-    -- Gear wishes — enriched with crafter info from cache (no profession window needed)
+    -- Gear wishes -- enriched with crafter info from cache (no profession window needed)
     local gearNeeds = self:ScanProfessionGear()
     self:EnrichNeedsWithCrafters(gearNeeds)
 
@@ -1109,7 +1109,7 @@ function Wishlist:QueueCraftable()
         if charSkills and charSkills[batch.profession] then
             skillStr = " (" .. charSkills[batch.profession] .. ")"
         end
-        print(string.format("|cffc8aa64KazWish:|r Queued %s x%d → %s%s (%s %s)",
+        print(string.format("|cffc8aa64KazWish:|r Queued %s x%d > %s%s (%s %s)",
             batch.recipeName, batch.count, crafterName, skillStr,
             batch.profession, batch.slotType))
         queued = queued + batch.count
@@ -1127,7 +1127,7 @@ function Wishlist:QueueCraftable()
                     if crafter then
                         ns.Data:AddToQueue(recipeID, wish.need, crafter)
                         local crafterName = crafter:match("^(.-)%-") or crafter
-                        print(string.format("|cffc8aa64KazWish:|r Queued %s x%d → %s",
+                        print(string.format("|cffc8aa64KazWish:|r Queued %s x%d > %s",
                             wish.itemName, wish.need, crafterName))
                         queued = queued + wish.need
                     end
@@ -1163,7 +1163,7 @@ function Wishlist:QueueCraftable()
             print("|cffc8aa64KazWish:|r Log into each crafter and open their profession once.")
         end
         if #noRecipeList == 0 and #noCrafterList == 0 and #gearNeeds == 0 then
-            print("|cffc8aa64KazWish:|r Nothing to queue — all slots at target quality.")
+            print("|cffc8aa64KazWish:|r Nothing to queue -- all slots at target quality.")
         end
     else
         print(string.format("|cffc8aa64KazWish:|r Queued %d items into KazCraft.", queued))
@@ -1272,7 +1272,7 @@ function Wishlist:HandleSlashCommand(msg)
                 local cq = need.currentQuality or 0
                 local status = cq == 0 and "|cffff6666Empty|r"
                     or (QUALITY_COLORS[cq] .. QUALITY_NAMES[cq] .. "|r")
-                print(string.format("  %s%s|r — %s %s [%s]",
+                print(string.format("  %s%s|r -- %s %s [%s]",
                     color, need.charName, need.profession, need.slotName, status))
             end
         end
@@ -1285,7 +1285,7 @@ function Wishlist:HandleSlashCommand(msg)
                     print("|cffc8aa64KazWish:|r Consumables below target:")
                     anyNeeded = true
                 end
-                print(string.format("  %s — have %d / %d (need %d)",
+                print(string.format("  %s -- have %d / %d (need %d)",
                     c.itemName, c.have, c.target, c.need))
             end
         end
@@ -1332,9 +1332,9 @@ function Wishlist:HandleSlashCommand(msg)
                 local qName = QUALITY_NAMES[p.targetQuality] or "R" .. p.targetQuality
                 local extra = ""
                 if p.state == STATE_QUEUED and p.queuedTo then
-                    extra = " → " .. p.queuedTo
+                    extra = " > " .. p.queuedTo
                 end
-                print(string.format("  %s%s|r %s — %s%s|r [%s%s|r]%s",
+                print(string.format("  %s%s|r %s -- %s%s|r [%s%s|r]%s",
                     color, p.charName, p.slotName,
                     qColor, qName,
                     p.stateColor, p.stateLabel, extra))
@@ -1351,7 +1351,7 @@ function Wishlist:HandleSlashCommand(msg)
             local targetQuality = tonumber(qualStr) or QUALITY_EPIC
             self:SetGearPlan(charKey, slotID, targetItemID, targetQuality)
             local itemName = C_Item.GetItemNameByID(targetItemID) or ("Item " .. targetItemID)
-            print(string.format("|cffc8aa64KazWish:|r Set plan: %s slot %d → %s R%d",
+            print(string.format("|cffc8aa64KazWish:|r Set plan: %s slot %d > %s R%d",
                 charKey, slotID, itemName, targetQuality))
         else
             print("|cffc8aa64KazWish:|r Usage: /kaz wish plan Char-Realm slotID itemID [quality]")
@@ -1386,15 +1386,15 @@ function Wishlist:HandleSlashCommand(msg)
 
     elseif msg == "help" then
         print("|cffc8aa64KazWish:|r Commands:")
-        print("  /kaz wish — open wishlist window")
-        print("  /kaz wish scan — print needs to chat")
-        print("  /kaz wish plans — show gear plans with states")
-        print("  /kaz wish plan [char] [slot] [itemID] [quality] — set gear plan")
-        print("  /kaz wish queue — queue craftable items into KazCraft")
-        print("  /kaz wish who [link] — show who can craft an item (with skill)")
-        print("  /kaz wish best [link] — show best crafter for an item")
-        print("  /kaz wish add [link] [qty] — add consumable")
-        print("  /kaz wish remove [itemID] — remove consumable")
+        print("  /kaz wish -- open wishlist window")
+        print("  /kaz wish scan -- print needs to chat")
+        print("  /kaz wish plans -- show gear plans with states")
+        print("  /kaz wish plan [char] [slot] [itemID] [quality] -- set gear plan")
+        print("  /kaz wish queue -- queue craftable items into KazCraft")
+        print("  /kaz wish who [link] -- show who can craft an item (with skill)")
+        print("  /kaz wish best [link] -- show best crafter for an item")
+        print("  /kaz wish add [link] [qty] -- add consumable")
+        print("  /kaz wish remove [itemID] -- remove consumable")
 
     else
         print("|cffc8aa64KazWish:|r Unknown command. /kaz wish help")

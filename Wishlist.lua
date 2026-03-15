@@ -575,28 +575,45 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
         subclassToProf[subID] = profName
     end
 
-    -- Build gear recipe lookup: { ["Engineering:tool"] = { {recipeID, recipeName, knownBy}, ... } }
+    -- Build gear recipe lookup: { ["Mining:tool"] = { {recipeID, recipeName, knownBy, crafterProf}, ... } }
+    -- Key is the TARGET profession (what the gear is FOR), not the crafter's profession
     local gearRecipes = {}
+    local gearRecipeCount = 0
+    local totalRecipes = 0
+    local profGearRecipes = 0
     for recipeID, cached in pairs(KazCraftDB.recipeCache or {}) do
-        if cached.outputItemID and cached.knownBy and next(cached.knownBy) then
+        totalRecipes = totalRecipes + 1
+        if cached.outputItemID then
             local _, _, _, equipSlot, _, classID, subclassID = C_Item.GetItemInfoInstant(cached.outputItemID)
             if classID == Enum.ItemClass.Profession and subclassID then
-                local profName = subclassToProf[subclassID]
-                if profName then
+                profGearRecipes = profGearRecipes + 1
+                local targetProf = subclassToProf[subclassID]
+                if targetProf then
                     local isTool = (equipSlot == "INVTYPE_PROFESSION_TOOL")
                     local isAcc = (equipSlot == "INVTYPE_PROFESSION_GEAR" or equipSlot == "INVTYPE_PROFESSION_ACCESSORY")
                     if isTool or isAcc then
-                        local key = profName .. ":" .. (isTool and "tool" or "acc")
+                        local key = targetProf .. ":" .. (isTool and "tool" or "acc")
                         if not gearRecipes[key] then gearRecipes[key] = {} end
                         gearRecipes[key][#gearRecipes[key] + 1] = {
                             recipeID = recipeID,
                             recipeName = cached.recipeName,
-                            knownBy = cached.knownBy,
+                            knownBy = cached.knownBy or {},
+                            crafterProf = cached.professionName or "",
                         }
+                        gearRecipeCount = gearRecipeCount + 1
                     end
                 end
             end
         end
+    end
+
+    WishDebug("EnrichNeedsWithCrafters:", totalRecipes, "total recipes,", profGearRecipes, "profession gear,", gearRecipeCount, "with knownBy")
+    for key, recipes in pairs(gearRecipes) do
+        local crafterCount = 0
+        for _, r in ipairs(recipes) do
+            for _ in pairs(r.knownBy) do crafterCount = crafterCount + 1 end
+        end
+        WishDebug("  ", key, ":", #recipes, "recipes,", crafterCount, "crafter entries")
     end
 
     -- Enrich each need
@@ -609,20 +626,22 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
         if recipes then
             -- Collect all unique crafters across matching recipes
             local crafterSet = {}
+            local crafterProfName = recipes[1].crafterProf
             for _, recipe in ipairs(recipes) do
                 for charKey in pairs(recipe.knownBy) do
                     crafterSet[charKey] = true
                 end
             end
 
-            -- Find best crafter (highest profession skill)
+            -- Find best crafter — use the CRAFTER'S profession skill, not the target profession
+            -- e.g., for Mining gear, the crafter is an Engineer — check Engineering skill
             local bestCrafter = nil
             local bestSkill = -1
             local crafterNames = {}
             for charKey in pairs(crafterSet) do
                 local cName = charKey:match("^(.-)%-") or charKey
                 local charSkills = skills[charKey]
-                local skill = charSkills and charSkills[need.profession] or 0
+                local skill = charSkills and charSkills[crafterProfName] or 0
                 crafterNames[#crafterNames + 1] = cName .. (skill > 0 and (" (" .. skill .. ")") or "")
                 if skill > bestSkill then
                     bestSkill = skill
@@ -984,7 +1003,25 @@ function Wishlist:QueueCraftable()
     end
 
     if queued == 0 then
-        print("|cffc8aa64KazWish:|r Nothing to queue — no known crafters in recipe cache.")
+        -- Diagnostic: show what couldn't be matched
+        local unmatchedSlots = {}
+        for _, need in ipairs(gearNeeds) do
+            if not need.craftable then
+                local isTool = TOOL_SLOTS[need.slotID]
+                local key = need.profession .. " " .. (isTool and "Tool" or "Acc")
+                unmatchedSlots[key] = true
+            end
+        end
+        local unmatchedList = {}
+        for key in pairs(unmatchedSlots) do
+            unmatchedList[#unmatchedList + 1] = key
+        end
+        if #unmatchedList > 0 then
+            print("|cffc8aa64KazWish:|r No recipes cached for: " .. table.concat(unmatchedList, ", "))
+            print("|cffc8aa64KazWish:|r Open each crafter's profession to populate the cache.")
+        else
+            print("|cffc8aa64KazWish:|r Nothing to queue.")
+        end
     else
         print(string.format("|cffc8aa64KazWish:|r Queued %d items into KazCraft.", queued))
         if ns.ProfessionUI and ns.ProfessionUI.RefreshQueue then

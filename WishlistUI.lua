@@ -294,11 +294,13 @@ function WishlistUI:Refresh()
             row.iconBtn.tooltipText = entry.profession .. " " .. entry.slotName
             local cleanEquipName = entry.currentItemName and entry.currentItemName:gsub("^%[", ""):gsub("%]$", "")
             row.iconBtn.tooltipSub = cleanEquipName and ("Equipped: " .. cleanEquipName) or "Empty slot"
+            local isTool = (entry.slotName == "Tool")
+            local fallbackIcon = isTool and 133468 or 136243
             if entry.currentItemLink then
                 local icon = C_Item.GetItemIconByID(entry.currentItemLink)
-                row.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_Gear_01")
+                row.icon:SetTexture(icon or fallbackIcon)
             else
-                row.icon:SetTexture("Interface\\Icons\\INV_Misc_Gear_01")
+                row.icon:SetTexture(fallbackIcon)
             end
             row.iconBtn:Show()
 

@@ -1018,8 +1018,8 @@ function Wishlist:FindGearRecipes(gearNeeds)
             local aDist = (a.outputQuality <= targetQ) and (targetQ - a.outputQuality) or 100
             local bDist = (b.outputQuality <= targetQ) and (targetQ - b.outputQuality) or 100
             if aDist ~= bDist then return aDist < bDist end
-            -- Fallback: prefer lower quality (cheaper)
-            return a.outputQuality < b.outputQuality
+            if a.outputQuality ~= b.outputQuality then return a.outputQuality < b.outputQuality end
+            return a.recipeID > b.recipeID  -- newer expansion = higher recipeID wins
         end)
         local best = cands[1]
         WishDebug("KazWish pick:", key, "->", best.recipeName,

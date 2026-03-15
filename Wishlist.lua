@@ -653,23 +653,36 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
         WishDebug("  ", key, ":", #recipes, "recipes,", crafterCount, "crafter entries")
     end
 
-    -- Build profession → character lookup from DataStore (fallback when knownBy is empty)
+    -- Build profession → character lookup from our own professionSkills cache
+    -- This is populated whenever ANY character opens their profession — no DataStore dependency
     local profCrafters = {}  -- { ["Engineering"] = { "Shuwa-Blackrock", ... } }
+    for charKey, charSkills in pairs(KazCraftDB.professionSkills or {}) do
+        for profName in pairs(charSkills) do
+            if not profCrafters[profName] then profCrafters[profName] = {} end
+            profCrafters[profName][#profCrafters[profName] + 1] = charKey
+        end
+    end
+
+    -- Also add DataStore professions as fallback (covers characters that haven't opened profs in KC)
     if DataStore and DataStore.GetProfession1 then
+        local seen = {}
+        for charKey in pairs(KazCraftDB.professionSkills or {}) do seen[charKey] = true end
         for account in pairs(DataStore:GetAccounts() or {}) do
             for realm in pairs(DataStore:GetRealms(account) or {}) do
                 for charName, dsKey in pairs(DataStore:GetCharacters(realm, account) or {}) do
                     local kazKey = charName .. "-" .. realm
-                    for i = 1, 2 do
-                        local _, _, _, profName
-                        if i == 1 then
-                            _, _, _, profName = DataStore:GetProfession1(dsKey)
-                        else
-                            _, _, _, profName = DataStore:GetProfession2(dsKey)
-                        end
-                        if profName then
-                            if not profCrafters[profName] then profCrafters[profName] = {} end
-                            profCrafters[profName][#profCrafters[profName] + 1] = kazKey
+                    if not seen[kazKey] then
+                        for i = 1, 2 do
+                            local _, _, _, profName
+                            if i == 1 then
+                                _, _, _, profName = DataStore:GetProfession1(dsKey)
+                            else
+                                _, _, _, profName = DataStore:GetProfession2(dsKey)
+                            end
+                            if profName then
+                                if not profCrafters[profName] then profCrafters[profName] = {} end
+                                profCrafters[profName][#profCrafters[profName] + 1] = kazKey
+                            end
                         end
                     end
                 end

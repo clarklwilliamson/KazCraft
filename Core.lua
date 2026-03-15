@@ -33,15 +33,25 @@ function handlers.ADDON_LOADED(addon)
     UIParent:UnregisterEvent("TRADE_SKILL_SHOW")
     frame:UnregisterEvent("ADDON_LOADED")
 
-    -- Delayed login scan (DataStore needs time to load)
-    C_Timer.After(5, function()
-        -- Tag knownBy on cached recipes from all alts via DataStore
-        ns.Data:ScanKnownRecipes()
-        -- Build reverse index (itemID → recipeID) from any previously cached recipes
-        ns.Data:BuildItemToRecipeIndex()
+    -- Build reverse index immediately (doesn't need DataStore)
+    ns.Data:BuildItemToRecipeIndex()
 
-        if ns.Wishlist then
-            ns.Wishlist:AnnounceOnLogin()
+    -- Wait for DataStore_Crafts to be ready, then scan known recipes
+    local retries = 0
+    C_Timer.NewTicker(2, function(ticker)
+        retries = retries + 1
+        if DataStore and DataStore.GetProfession1 then
+            ticker:Cancel()
+            ns.Data:ScanKnownRecipes()
+            if ns.Wishlist then
+                ns.Wishlist:AnnounceOnLogin()
+            end
+        elseif retries >= 15 then
+            ticker:Cancel()
+            ns.DebugLog("ScanKnownRecipes: gave up after 30s — DataStore_Crafts never loaded")
+            if ns.Wishlist then
+                ns.Wishlist:AnnounceOnLogin()
+            end
         end
     end)
 end

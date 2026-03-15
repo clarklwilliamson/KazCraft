@@ -541,7 +541,15 @@ end
 -- Slot type mapping for profession gear matching
 --------------------------------------------------------------------
 local TOOL_SLOTS = { [20] = true, [23] = true, [26] = true, [28] = true }
--- Accessories = everything else (21, 22, 24, 25, 27)
+
+-- Map slotID to equipSlot type for matching recipes to specific slots
+-- Slot 21/24 = INVTYPE_PROFESSION_GEAR, Slot 22/25 = INVTYPE_PROFESSION_ACCESSORY
+local SLOT_EQUIP_TYPE = {
+    [20] = "INVTYPE_PROFESSION_TOOL", [21] = "INVTYPE_PROFESSION_GEAR", [22] = "INVTYPE_PROFESSION_ACCESSORY",
+    [23] = "INVTYPE_PROFESSION_TOOL", [24] = "INVTYPE_PROFESSION_GEAR", [25] = "INVTYPE_PROFESSION_ACCESSORY",
+    [26] = "INVTYPE_PROFESSION_TOOL", [27] = "INVTYPE_PROFESSION_GEAR",
+    [28] = "INVTYPE_PROFESSION_TOOL",
+}
 
 -- Map profession name > subclassID for ItemClass.Profession (19)
 local PROF_SUBCLASS = {}
@@ -589,10 +597,12 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
                 profGearRecipes = profGearRecipes + 1
                 local targetProf = subclassToProf[subclassID]
                 if targetProf then
-                    local isTool = (equipSlot == "INVTYPE_PROFESSION_TOOL")
-                    local isAcc = (equipSlot == "INVTYPE_PROFESSION_GEAR" or equipSlot == "INVTYPE_PROFESSION_ACCESSORY")
-                    if isTool or isAcc then
-                        local key = targetProf .. ":" .. (isTool and "tool" or "acc")
+                    local isProf = (equipSlot == "INVTYPE_PROFESSION_TOOL"
+                        or equipSlot == "INVTYPE_PROFESSION_GEAR"
+                        or equipSlot == "INVTYPE_PROFESSION_ACCESSORY")
+                    if isProf then
+                        -- Key by exact equipSlot so tool/gear/accessory match distinct slots
+                        local key = targetProf .. ":" .. equipSlot
                         if not gearRecipes[key] then gearRecipes[key] = {} end
                         -- Get output quality from first quality variant or base item
                         local outQuality = 0
@@ -677,8 +687,8 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
     local skills = KazCraftDB.professionSkills or {}
     local targetQ = self:GetTargetQuality()
     for _, need in ipairs(needs) do
-        local isTool = TOOL_SLOTS[need.slotID]
-        local key = need.profession .. ":" .. (isTool and "tool" or "acc")
+        local slotEquipType = SLOT_EQUIP_TYPE[need.slotID] or "INVTYPE_PROFESSION_TOOL"
+        local key = need.profession .. ":" .. slotEquipType
         local recipes = gearRecipes[key]
 
         if recipes then
@@ -885,8 +895,8 @@ function Wishlist:ScanCraftableGearNeeds()
 
     local filtered = {}
     for _, need in ipairs(allNeeds) do
-        local isTool = TOOL_SLOTS[need.slotID]
-        local key = need.profession .. ":" .. (isTool and "tool" or "acc")
+        local seType = SLOT_EQUIP_TYPE[need.slotID] or "INVTYPE_PROFESSION_TOOL"
+        local key = need.profession .. ":" .. seType
         if craftable[key] then
             filtered[#filtered + 1] = need
         end
@@ -903,8 +913,8 @@ function Wishlist:FindGearRecipes(gearNeeds)
     -- Build index of what's needed: { [profession..slotType] = { need1, need2, ... } }
     local needed = {}
     for _, need in ipairs(gearNeeds) do
-        local isTool = TOOL_SLOTS[need.slotID]
-        local key = need.profession .. (isTool and ":tool" or ":acc")
+        local seType = SLOT_EQUIP_TYPE[need.slotID] or "INVTYPE_PROFESSION_TOOL"
+        local key = need.profession .. ":" .. seType
         if not needed[key] then needed[key] = {} end
         needed[key][#needed[key] + 1] = need
     end
@@ -1031,8 +1041,8 @@ function Wishlist:QueueCraftable()
         if need.craftable then
             craftableCount = craftableCount + 1
         else
-            local isTool = TOOL_SLOTS[need.slotID]
-            local key = need.profession .. ":" .. (isTool and "tool" or "acc")
+            local seType = SLOT_EQUIP_TYPE[need.slotID] or "INVTYPE_PROFESSION_TOOL"
+            local key = need.profession .. ":" .. seType
             uncraftableKeys[key] = (uncraftableKeys[key] or 0) + 1
         end
     end
@@ -1047,14 +1057,13 @@ function Wishlist:QueueCraftable()
         if need.craftable and need.recipeID and need.bestCrafter then
             local batchKey = need.bestCrafter .. ":" .. need.recipeID
             if not gearBatch[batchKey] then
-                local isTool = TOOL_SLOTS[need.slotID]
                 gearBatch[batchKey] = {
                     recipeID = need.recipeID,
                     crafter = need.bestCrafter,
                     count = 0,
                     recipeName = need.recipeName or ("Recipe " .. need.recipeID),
                     profession = need.profession,
-                    slotType = isTool and "Tool" or "Accessory",
+                    slotType = need.slotName or "Gear",
                 }
             end
             gearBatch[batchKey].count = gearBatch[batchKey].count + 1

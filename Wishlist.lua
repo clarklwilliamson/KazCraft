@@ -677,6 +677,11 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
         end
     end
 
+    -- Debug: show what DataStore found
+    for profName, chars in pairs(profCrafters) do
+        WishDebug("  DS crafters for", profName, ":", table.concat(chars, ", "))
+    end
+
     -- Enrich each need
     local skills = KazCraftDB.professionSkills or {}
     for _, need in ipairs(needs) do
@@ -695,9 +700,14 @@ function Wishlist:EnrichNeedsWithCrafters(needs)
             end
 
             -- Fallback: if knownBy is empty, find anyone with the crafter profession
-            if not next(crafterSet) and crafterProfName and profCrafters[crafterProfName] then
-                for _, charKey in ipairs(profCrafters[crafterProfName]) do
-                    crafterSet[charKey] = true
+            if not next(crafterSet) then
+                if crafterProfName and profCrafters[crafterProfName] then
+                    for _, charKey in ipairs(profCrafters[crafterProfName]) do
+                        crafterSet[charKey] = true
+                    end
+                    WishDebug("  Fallback for", key, "— crafterProf:", crafterProfName, "found", #profCrafters[crafterProfName], "chars")
+                else
+                    WishDebug("  Fallback MISS for", key, "— crafterProf:", tostring(crafterProfName), "in DS:", profCrafters[crafterProfName] and "yes" or "no")
                 end
             end
 

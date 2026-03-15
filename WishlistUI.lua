@@ -322,7 +322,7 @@ function WishlistUI:Refresh()
             if cq == 0 then
                 row.statusText:SetText("|cffff6666Empty|r" .. crafterSuffix)
             elseif entry.outdated then
-                row.statusText:SetText("|cffff9900TWW|r" .. crafterSuffix)
+                row.statusText:SetText("|cffffffffTWW|r" .. crafterSuffix)
             else
                 local qColor = ns.Wishlist:GetQualityColor(cq)
                 local qName = ns.Wishlist:GetQualityName(cq)

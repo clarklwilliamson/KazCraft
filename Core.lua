@@ -167,7 +167,18 @@ function handlers.BAG_UPDATE_DELAYED()
     end
 end
 
-function handlers.TRADE_SKILL_ITEM_CRAFTED_RESULT()
+function handlers.TRADE_SKILL_ITEM_CRAFTED_RESULT(resultData)
+    -- Log the craft result
+    if resultData then
+        local itemLink = resultData.itemLink
+        local quality = resultData.craftingQuality
+        local isCrit = resultData.isCrit
+        local itemName = itemLink and itemLink:match("%[(.-)%]") or "?"
+        local qualityStr = quality and (" R" .. quality) or ""
+        local critStr = isCrit and " (Multicraft)" or ""
+        ns.DebugLog("Crafted:", itemName .. qualityStr .. critStr)
+    end
+
     -- Decrement the queued recipe we initiated via [Craft Queue]
     if ns.lastCraftedRecipeID then
         local craftedID = ns.lastCraftedRecipeID

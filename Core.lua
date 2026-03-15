@@ -36,22 +36,14 @@ function handlers.ADDON_LOADED(addon)
     -- Build reverse index immediately (doesn't need DataStore)
     ns.Data:BuildItemToRecipeIndex()
 
-    -- Wait for DataStore_Crafts to be ready, then scan known recipes
-    local retries = 0
-    C_Timer.NewTicker(2, function(ticker)
-        retries = retries + 1
-        if DataStore and DataStore.GetProfession1 then
-            ticker:Cancel()
-            ns.Data:ScanKnownRecipes()
-            if ns.Wishlist then
-                ns.Wishlist:AnnounceOnLogin()
-            end
-        elseif retries >= 15 then
-            ticker:Cancel()
-            ns.DebugLog("ScanKnownRecipes: gave up after 30s — DataStore_Crafts never loaded")
-            if ns.Wishlist then
-                ns.Wishlist:AnnounceOnLogin()
-            end
+    -- Load DataStore_Crafts (LoadOnDemand) so we can read recipe data at login
+    C_Timer.After(3, function()
+        if not DataStore or not DataStore.GetProfession1 then
+            C_AddOns.LoadAddOn("DataStore_Crafts")
+        end
+        ns.Data:ScanKnownRecipes()
+        if ns.Wishlist then
+            ns.Wishlist:AnnounceOnLogin()
         end
     end)
 end

@@ -1641,9 +1641,9 @@ local function CreateRightPanel(parent)
             return
         end
 
-        -- Ranks differ — check if all-best achieves higher rank without concentration
-        -- For personal crafting: if best mats = higher rank, always use best mats
-        -- (small cost increase beats spending concentration)
+        -- Ranks differ (bestRank > cheapRank guaranteed after early return above).
+        -- Fill all-best reagents — Blizzard API knows skill, so this is always correct.
+        -- Then show status text reflecting whether concentration adds value.
         local bestNoConc = 0
         local ok2, err2 = pcall(function()
             local bestReagents2 = BuildReagentInfoForTier(true)
@@ -1654,65 +1654,54 @@ local function CreateRightPanel(parent)
             ns.DebugLog("SIM Optimize bestNoConc ERROR:", tostring(err2))
         end
 
-        ns.DebugLog("SIM Optimize: bestNoConc:", bestNoConc, "vs cheapRank:", cheapRank)
-        if bestNoConc > cheapRank then
-            ns.DebugLog("SIM Optimize: best mats win — filling all-best")
-            -- All-best achieves higher rank without concentration — use it
-            for i = 1, MAX_SIM_REAGENT_ROWS do
-                local row = simReagentRows[i]
-                if not row:IsShown() then break end
-                local slot = row.slotData
-                if slot then
-                    local needed = slot.quantityRequired or 0
-                    local numQualities = slot.reagents and #slot.reagents or 1
-                    for t = 1, 3 do
-                        if row.edits[t]:IsShown() then
-                            if t == numQualities then
-                                row.edits[t]:SetText(tostring(needed))
-                            else
-                                row.edits[t]:SetText("0")
-                            end
-                        end
-                    end
-                end
-            end
-            local cheapPip = ns.GetQualityMarkup(cheapRank, selectedRecipeID)
-            local bestPip = ns.GetQualityMarkup(bestNoConc, selectedRecipeID)
-            detail.simStatusText:SetText("Best mats " .. bestPip .. " — zero conc")
-            detail.simStatusText:SetTextColor(0.3, 1, 0.3)
-        else
-            -- Best mats don't improve rank — fall through to CraftSim optimizer
-            -- (useful when concentration is needed and CraftSim can optimize cost)
-            local ok, result = pcall(function()
-                return CraftSimLib.REAGENT_OPTIMIZATION:OptimizeReagentAllocation(simRecipeData)
-            end)
-            if ok and result and result.reagents then
-                local rowIdx = 0
-                for _, reagent in pairs(result.reagents) do
-                    if reagent.hasQuality then
-                        rowIdx = rowIdx + 1
-                        local row = simReagentRows[rowIdx]
-                        if row and row:IsShown() then
-                            for t = 1, 3 do
-                                local qty = 0
-                                if reagent.items and reagent.items[t] then
-                                    qty = reagent.items[t].quantity or 0
-                                end
-                                row.edits[t]:SetText(tostring(qty))
-                            end
-                        end
-                    end
-                end
-            end
+        ns.DebugLog("SIM Optimize: bestNoConc:", bestNoConc, "bestRank:", bestRank,
+            "cheapRank:", cheapRank, "applyConc:", tostring(applyConc))
 
-            -- Show rank improvement info
-            if cheapRank > 0 and bestRank > 0 then
-                local cheapPip = ns.GetQualityMarkup(cheapRank, selectedRecipeID)
-                local bestPip = ns.GetQualityMarkup(bestRank, selectedRecipeID)
-                detail.simStatusText:SetText("R1 mats " .. cheapPip .. " - best " .. bestPip)
-                detail.simStatusText:SetTextColor(0.3, 1, 0.3)
+        -- Fill all-best reagent allocations
+        for i = 1, MAX_SIM_REAGENT_ROWS do
+            local row = simReagentRows[i]
+            if not row:IsShown() then break end
+            local slot = row.slotData
+            if slot then
+                local needed = slot.quantityRequired or 0
+                local numQualities = slot.reagents and #slot.reagents or 1
+                for t = 1, 3 do
+                    if row.edits[t]:IsShown() then
+                        if t == numQualities then
+                            row.edits[t]:SetText(tostring(needed))
+                        else
+                            row.edits[t]:SetText("0")
+                        end
+                    end
+                end
             end
         end
+
+        -- Status text — tell the user what matters
+        local bestPip = ns.GetQualityMarkup(bestRank, selectedRecipeID)
+        if bestNoConc >= bestRank then
+            -- Best mats alone hit max — no concentration needed
+            local noConcPip = ns.GetQualityMarkup(bestNoConc, selectedRecipeID)
+            detail.simStatusText:SetText("Best mats " .. noConcPip .. " -- zero conc")
+            ns.DebugLog("SIM Optimize: best mats alone =", bestNoConc, "— zero conc")
+        elseif applyConc and bestRank > bestNoConc then
+            -- Concentration pushes quality higher on top of best mats
+            if bestNoConc > cheapRank then
+                -- Mats help, conc helps MORE
+                local noConcPip = ns.GetQualityMarkup(bestNoConc, selectedRecipeID)
+                detail.simStatusText:SetText("Best mats " .. noConcPip .. " + conc " .. bestPip)
+            else
+                -- Mats alone = same as cheap — only helps WITH concentration
+                detail.simStatusText:SetText("Best mats + conc " .. bestPip)
+            end
+            ns.DebugLog("SIM Optimize: best mats + conc =", bestRank)
+        else
+            -- No conc checked — show what best mats achieve alone
+            local noConcPip = ns.GetQualityMarkup(bestNoConc, selectedRecipeID)
+            detail.simStatusText:SetText("Best mats " .. noConcPip)
+            ns.DebugLog("SIM Optimize: best mats (no conc) =", bestNoConc)
+        end
+        detail.simStatusText:SetTextColor(0.3, 1, 0.3)
 
         -- Phase 2: Optimize finishing reagents (async — uses CraftSim's profit-based picker)
         local hasFinishing = simRecipeData.reagentData and simRecipeData.reagentData.finishingReagentSlots

@@ -533,15 +533,18 @@ local function RebuildSidebar()
         local capturedNode = node
         btn:SetScript("OnClick", function()
             if selectedCatNode == capturedNode then
-                -- Click selected category: deselect + collapse + search (full results)
+                -- Click selected category: deselect + collapse
+                ns.DebugLog("AHBrowse: category deselected:", capturedNode.label)
                 selectedCatNode = nil
                 if hasChildren then capturedNode._expanded = false end
             else
-                -- Click new category: select + expand + search
+                -- Click new category: select + expand
+                ns.DebugLog("AHBrowse: category selected:", capturedNode.label)
                 selectedCatNode = capturedNode
                 if hasChildren then capturedNode._expanded = true end
             end
             RebuildSidebar()
+            AHBrowse:DoSearch()
         end)
 
         btn:Show()
@@ -1114,6 +1117,7 @@ function AHBrowse:Init(contentFrame)
     end)
     searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     searchBox:SetScript("OnEnterPressed", function(self)
+        ns.DebugLog("AHBrowse: search box Enter pressed, text:", self:GetText())
         self:ClearFocus()
         AHBrowse:DoSearch()
     end)
@@ -1147,6 +1151,7 @@ function AHBrowse:Init(contentFrame)
     local searchBtn = ns.CreateButton(container, "Search", 66, 24)
     searchBtn:SetPoint("TOPRIGHT", container, "TOPRIGHT", -4, -4)
     searchBtn:SetScript("OnClick", function()
+        ns.DebugLog("AHBrowse: Search button clicked")
         searchBox:ClearFocus()
         if filterPanel then filterPanel:Hide() end
         AHBrowse:DoSearch()
@@ -1314,8 +1319,13 @@ end
 -- Search (fires on button click / Enter only)
 --------------------------------------------------------------------
 function AHBrowse:DoSearch()
-    if not ns.AHUI or not ns.AHUI:IsAHOpen() then return end
+    ns.DebugLog("AHBrowse:DoSearch called")
+    if not ns.AHUI or not ns.AHUI:IsAHOpen() then
+        ns.DebugLog("AHBrowse:DoSearch — AH not open, aborting")
+        return
+    end
     if not C_AuctionHouse.IsThrottledMessageSystemReady() then
+        ns.DebugLog("AHBrowse:DoSearch — throttled, queuing retry")
         self:SetStatus("Throttled — queued...")
         -- Retry when throttle clears
         self._pendingSearch = true
@@ -1325,13 +1335,18 @@ function AHBrowse:DoSearch()
 
     local text = searchBox and strtrim(searchBox:GetText()) or ""
     local catNode = selectedCatNode
+    ns.DebugLog("AHBrowse:DoSearch — text:", text == "" and "(empty)" or text,
+        "catNode:", catNode and catNode.label or "nil")
 
     -- For re-sort: if no current input but we have a previous search, reuse it
     if text == "" and not catNode then
         if lastSearchText or lastSearchCatNode then
             text = lastSearchText or ""
             catNode = lastSearchCatNode
+            ns.DebugLog("AHBrowse:DoSearch — reusing last search:", text,
+                catNode and catNode.label or "nil")
         else
+            ns.DebugLog("AHBrowse:DoSearch — no text, no category, no previous search — aborting")
             return
         end
     end
@@ -1358,10 +1373,11 @@ function AHBrowse:DoSearch()
     end
     local secondarySort = { sortOrder = secondaryOrder, reverseSort = false }
 
+    local filters = BuildFiltersArray()
     local query = {
         searchString = text,
         sorts = { primarySort, secondarySort },
-        filters = BuildFiltersArray(),
+        filters = filters,
         itemClassFilters = {},
     }
 
@@ -1373,6 +1389,10 @@ function AHBrowse:DoSearch()
             table.insert(query.itemClassFilters, f)
         end
     end
+
+    ns.DebugLog("AHBrowse:DoSearch — sending query: text='" .. query.searchString .. "'",
+        "#filters=" .. #filters, "#classFilters=" .. #query.itemClassFilters,
+        "minLevel=" .. tostring(query.minLevel), "maxLevel=" .. tostring(query.maxLevel))
 
     C_AuctionHouse.SendBrowseQuery(query)
     self:SetStatus("Searching...")
@@ -1432,6 +1452,7 @@ end
 
 function AHBrowse:OnBrowseResultsUpdated()
     browseResults = C_AuctionHouse.GetBrowseResults()
+    ns.DebugLog("AHBrowse:OnBrowseResultsUpdated — got", #browseResults, "results")
     self:RefreshRows()
     self:UpdateResultStatus()
 end
@@ -1441,8 +1462,10 @@ function AHBrowse:OnBrowseResultsAdded(addedResults)
         for _, r in ipairs(addedResults) do
             table.insert(browseResults, r)
         end
+        ns.DebugLog("AHBrowse:OnBrowseResultsAdded — added", #addedResults, "total now", #browseResults)
     else
         browseResults = C_AuctionHouse.GetBrowseResults()
+        ns.DebugLog("AHBrowse:OnBrowseResultsAdded — full refresh, got", #browseResults, "results")
     end
     self:RefreshRows()
     self:UpdateResultStatus()
@@ -1454,9 +1477,13 @@ end
 local pendingItemRequests = {}
 
 function AHBrowse:RefreshRows()
-    if not resultContent then return end
+    if not resultContent then
+        ns.DebugLog("AHBrowse:RefreshRows — resultContent is nil, aborting")
+        return
+    end
     local displayResults = FilterBrowseResults()
     local count = #displayResults
+    ns.DebugLog("AHBrowse:RefreshRows — displaying", count, "results")
 
     resultContent:SetHeight(math.max(1, count * ROW_HEIGHT))
     selectedRowIndex = nil

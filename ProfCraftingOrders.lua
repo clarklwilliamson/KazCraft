@@ -1993,6 +1993,7 @@ function ProfOrders:Show()
     mainPanel:Show()
 
     professionEnum = GetProfessionEnum()
+    ns.DebugLog("ProfOrders:Show — profEnum:", professionEnum)
 
     -- Check availability
     local available = IsAtCraftingTable()
@@ -2042,6 +2043,7 @@ end
 --------------------------------------------------------------------
 function ProfOrders:SelectOrderType(orderType)
     if activeOrderType == orderType then return end
+    ns.DebugLog("ProfOrders:SelectOrderType —", orderType)
     activeOrderType = orderType
     selectedOrder = nil
     selectedBucket = nil
@@ -2290,6 +2292,8 @@ end
 -- Select order (detail view)
 --------------------------------------------------------------------
 function ProfOrders:SelectOrder(orderInfo)
+    ns.DebugLog("ProfOrders:SelectOrder — orderID:", orderInfo and orderInfo.orderID or "nil",
+        "recipe:", orderInfo and orderInfo.spellID or "nil")
     selectedOrder = orderInfo
     self:RefreshList()
     self:RefreshDetail()
@@ -3254,6 +3258,7 @@ function ProfOrders:OnEvent(event, ...)
         end
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_ADDED" then
+        ns.DebugLog("EVENT: CLAIMED_ORDER_ADDED")
         -- Preserve claimed order as selected — server removes it from browse list
         local ok, claimed = pcall(C_CraftingOrders.GetClaimedOrder)
         if ok and claimed then
@@ -3264,6 +3269,7 @@ function ProfOrders:OnEvent(event, ...)
         self:RefreshDetail()
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_REMOVED" then
+        ns.DebugLog("EVENT: CLAIMED_ORDER_REMOVED")
         claimedOrder = nil
         selectedOrder = nil
         orderTransaction = nil
@@ -3276,6 +3282,7 @@ function ProfOrders:OnEvent(event, ...)
         self:RequestOrders(true)
 
     elseif event == "CRAFTINGORDERS_CLAIMED_ORDER_UPDATED" then
+        ns.DebugLog("EVENT: CLAIMED_ORDER_UPDATED")
         -- Order state changed (e.g., crafting done, now fulfillable)
         if claimedOrder then
             local ok, updated = pcall(C_CraftingOrders.GetClaimedOrder)
@@ -3339,6 +3346,7 @@ function ProfOrders:OnEvent(event, ...)
         -- User can switch tabs to refresh
 
     elseif event == "CRAFTINGORDERS_CAN_REQUEST" then
+        ns.DebugLog("EVENT: CAN_REQUEST — pending:", pendingInitialRequest, "loading:", isLoading)
         -- Server says we can request — fire initial or pending request
         if pendingInitialRequest or isLoading then
             pendingInitialRequest = false

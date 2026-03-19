@@ -657,6 +657,7 @@ local function UpdateRecipeRow(row, entry, index)
                 pcall(CloseProfessionsItemFlyout)
             end
             selectedRecipeID = entry.recipeID
+            ns.DebugLog("Recipe selected:", entry.recipeID, entry.name or "")
             if KazCraftDB and ns.currentProfName then
                 if type(KazCraftDB.lastRecipeID) ~= "table" then KazCraftDB.lastRecipeID = {} end
                 KazCraftDB.lastRecipeID[ns.currentProfName] = selectedRecipeID
@@ -1877,6 +1878,23 @@ local function CreateRightPanel(parent)
         if currentTransaction then
             currentTransaction:SetApplyConcentration(applyConc)
         end
+
+        -- Log the craft attempt (pcall-safe so logging can't block the craft)
+        pcall(function()
+            if currentTransaction then
+                local debugReagents = currentTransaction:CreateCraftingReagentInfoTbl() or {}
+                local parts = {}
+                for _, ri in ipairs(debugReagents) do
+                    local name = GetItemInfo(ri.itemID) or tostring(ri.itemID)
+                    parts[#parts + 1] = name .. "x" .. tostring(ri.quantity or "?")
+                end
+                ns.DebugLog("Craft:", selectedRecipeID, "qty:", qty, "conc:", applyConc,
+                    "reagents:", #debugReagents > 0 and table.concat(parts, ", ") or "(none)")
+            else
+                ns.DebugLog("Craft:", selectedRecipeID, "qty:", qty, "conc:", applyConc,
+                    "transaction: nil")
+            end
+        end)
         ns.lastCraftedRecipeID = nil -- don't decrement queue for manual crafts
         if currentTransaction and currentTransaction:IsRecipeType(Enum.TradeskillRecipeType.Salvage) then
             currentTransaction:CraftSalvage(qty)
@@ -1960,7 +1978,7 @@ local function CreateRightPanel(parent)
 
         ns.Data:QueueWithSubRecipes(selectedRecipeID, qty, nil, reagents)
         local queue = ns.Data:GetCharacterQueue()
-        print("|cffc8aa64KazCraft:|r +Queue: added", qty, "x recipeID:", selectedRecipeID, "— queue now has", #queue, "entries. ProfUI shown:", ns.ProfessionUI and ns.ProfessionUI:IsShown() or false)
+        ns.DebugLog("+Queue: added", qty, "x recipeID:", selectedRecipeID, "— queue now has", #queue, "entries")
         if ns.ProfessionUI then
             ns.ProfessionUI:RefreshAll()
         end
@@ -1974,24 +1992,14 @@ local function CreateRightPanel(parent)
                 table.insert(missing, mat)
             end
         end
+        local recipeName = KazCraftDB.recipeCache[selectedRecipeID] and KazCraftDB.recipeCache[selectedRecipeID].recipeName or "Recipe"
         if #missing > 0 then
-            local recipeName = KazCraftDB.recipeCache[selectedRecipeID] and KazCraftDB.recipeCache[selectedRecipeID].recipeName or "Recipe"
-            print("|cff00ccffKazCraft|r: Queued " .. qty .. "x " .. recipeName .. " — missing materials:")
-            local totalCost = 0
+            ns.DebugLog("Queued " .. qty .. "x " .. recipeName .. " — missing " .. #missing .. " materials")
             for _, mat in ipairs(missing) do
-                local priceStr = ""
-                if mat.price > 0 then
-                    priceStr = " (" .. C_CurrencyInfo.GetCoinTextureString(mat.short * mat.price) .. ")"
-                end
-                print("  |cffff6666Need " .. mat.short .. "x|r " .. mat.itemName .. priceStr)
-                totalCost = totalCost + (mat.short * mat.price)
-            end
-            if totalCost > 0 then
-                print("  |cffffd100Total cost:|r " .. C_CurrencyInfo.GetCoinTextureString(totalCost))
+                ns.DebugLog("  Need " .. mat.short .. "x " .. mat.itemName)
             end
         else
-            local recipeName = KazCraftDB.recipeCache[selectedRecipeID] and KazCraftDB.recipeCache[selectedRecipeID].recipeName or "Recipe"
-            print("|cff00ccffKazCraft|r: Queued " .. qty .. "x " .. recipeName .. " — all materials available!")
+            ns.DebugLog("Queued " .. qty .. "x " .. recipeName .. " — all materials available")
         end
     end)
 
@@ -3287,6 +3295,7 @@ function ProfRecipes:RefreshDetail()
 
     -- Enable/disable craft buttons + status text
     local disableCraft = isCrafting or craftable == 0
+    ns.DebugLog("RefreshDetail: craftable:", craftable, "isCrafting:", isCrafting, "disabled:", disableCraft)
     if disableCraft then
         detail.craftBtn:Disable()
         detail.craftAllBtn:Disable()
@@ -3854,7 +3863,7 @@ function ProfRecipes:ApplySimToTransaction()
 
     -- Refresh detail to show updated allocation
     ProfRecipes:RefreshDetail()
-    print("|cff00ccffKazCraft|r: Sim allocation applied")
+    ns.DebugLog("Sim allocation applied")
 end
 
 --------------------------------------------------------------------
@@ -3952,13 +3961,18 @@ function ProfRecipes:SetCrafting(crafting)
 end
 
 function ProfRecipes:ShowCraftFailed()
+    self:ShowCraftStatus("Craft failed")
+end
+
+function ProfRecipes:ShowCraftStatus(msg)
     if not detail.craftStatus then return end
-    detail.craftStatus:SetText("Craft failed")
+    detail.craftStatus:SetText(msg)
     detail.craftStatus:SetTextColor(1, 0.3, 0.3)
     detail.craftStatus:Show()
-    -- Auto-hide after 3 seconds
-    C_Timer.After(3, function()
-        if detail.craftStatus and detail.craftStatus:GetText() == "Craft failed" then
+    -- Auto-hide after 4 seconds
+    local savedMsg = msg
+    C_Timer.After(4, function()
+        if detail.craftStatus and detail.craftStatus:GetText() == savedMsg then
             detail.craftStatus:Hide()
         end
     end)

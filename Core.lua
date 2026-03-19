@@ -45,8 +45,11 @@ function handlers.ADDON_LOADED(addon)
     end)
 end
 
--- KazUtil printer: ns.Print (always), ns.DebugLog (only when /kaz dbg kazcraft)
-ns.Print, ns.DebugLog = KazUtil.CreatePrinter("KazCraft")
+-- KazUtil printer: ns.Print (always to chat), ns.DebugLog (buffer only, view with /kaz log)
+ns.Print = KazUtil.CreatePrinter("KazCraft")
+function ns.DebugLog(...)
+    KazUtil.DebugLog("KazCraft", ...)
+end
 ns.KazUtil = KazUtil
 
 function handlers.TRADE_SKILL_SHOW()
@@ -113,6 +116,7 @@ function handlers.TRADE_SKILL_CRAFT_BEGIN()
 end
 
 function handlers.UPDATE_TRADESKILL_CAST_STOPPED()
+    ns.DebugLog("EVENT: UPDATE_TRADESKILL_CAST_STOPPED")
     if ns.ProfFrame then
         ns.ProfFrame:OnCraftStopped()
     end
@@ -122,6 +126,7 @@ end
 function handlers.UNIT_SPELLCAST_INTERRUPTED(unit)
     if unit ~= "player" then return end
     if ns.ProfRecipes and ns.ProfRecipes:IsCrafting() then
+        ns.DebugLog("EVENT: UNIT_SPELLCAST_INTERRUPTED (while crafting)")
         ns.ProfFrame:OnCraftStopped()
     end
 end
@@ -129,6 +134,7 @@ end
 function handlers.UNIT_SPELLCAST_FAILED(unit)
     if unit ~= "player" then return end
     if ns.ProfRecipes and ns.ProfRecipes:IsCrafting() then
+        ns.DebugLog("EVENT: UNIT_SPELLCAST_FAILED (while crafting)")
         ns.ProfFrame:OnCraftStopped()
     end
 end
@@ -232,10 +238,12 @@ end
 
 -- Browse results → AHBrowse
 function handlers.AUCTION_HOUSE_BROWSE_RESULTS_UPDATED()
+    ns.DebugLog("EVENT: AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
     if ns.AHBrowse then ns.AHBrowse:OnBrowseResultsUpdated() end
 end
 
 function handlers.AUCTION_HOUSE_BROWSE_RESULTS_ADDED(addedResults)
+    ns.DebugLog("EVENT: AUCTION_HOUSE_BROWSE_RESULTS_ADDED, hasData:", addedResults and #addedResults or "nil")
     if ns.AHBrowse then ns.AHBrowse:OnBrowseResultsAdded(addedResults) end
 end
 
@@ -310,10 +318,13 @@ end
 
 -- Throttle ready → AHShop search queue + AHBrowse retry
 function handlers.AUCTION_HOUSE_THROTTLED_SYSTEM_READY()
-    if ns.AHShop then ns.AHShop:OnThrottleReady() end
+    -- Browse queries (user action) take priority over background price scans
     if ns.AHBrowse and ns.AHBrowse._pendingSearch then
+        ns.DebugLog("AHBrowse: retrying pending search after throttle")
         ns.AHBrowse:DoSearch()
+        return
     end
+    if ns.AHShop then ns.AHShop:OnThrottleReady() end
 end
 
 -- Gold update

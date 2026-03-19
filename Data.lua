@@ -432,7 +432,7 @@ function Data:QueueWithSubRecipes(recipeID, qty, _visited, reagents)
             if short > 0 then
                 local subCached = KazCraftDB.recipeCache[subRecipeID]
                 local subName = subCached and subCached.recipeName or ("Recipe " .. subRecipeID)
-                print("|cff00ccff[KazCraft]|r Auto-queued " .. short .. "x " .. subName)
+                ns.DebugLog("Auto-queued " .. short .. "x " .. subName)
                 self:QueueWithSubRecipes(subRecipeID, short, _visited)
 
                 -- Move sub-recipe before parent in queue for correct craft order

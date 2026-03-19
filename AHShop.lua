@@ -629,7 +629,7 @@ local pendingUserSearch = nil
 
 function AHShop:SearchAndShowListings(itemID)
     if not ns.AHUI or not ns.AHUI:IsAHOpen() then
-        print("|cffc8aa64KazCraft:|r Auction House is not open.")
+        ns.Print("Auction House is not open.")
         return
     end
 
@@ -767,6 +767,8 @@ function AHShop:ScanCurrent()
         self:RecalcTotal()
         return
     end
+    -- Yield to Browse if it has a pending search — we'll resume on next throttle ready
+    if ns.AHBrowse and ns.AHBrowse._pendingSearch then return end
     local itemID = scanQueue[scanIdx]
     if C_AuctionHouse.IsThrottledMessageSystemReady() then
         local itemKey = C_AuctionHouse.MakeItemKey(itemID)

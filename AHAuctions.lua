@@ -401,13 +401,13 @@ end
 --------------------------------------------------------------------
 function AHAuctions:CancelSelected()
     if not selectedAuctionID then
-        print("|cffc8aa64KazCraft:|r Select an auction first.")
+        ns.Print("Select an auction first.")
         return
     end
     if not ns.AHUI or not ns.AHUI:IsAHOpen() then return end
 
     if not C_AuctionHouse.CanCancelAuction(selectedAuctionID) then
-        print("|cffc8aa64KazCraft:|r Cannot cancel this auction.")
+        ns.Print("Cannot cancel this auction.")
         return
     end
 

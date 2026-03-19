@@ -257,7 +257,7 @@ local function CreateMainFrame()
     craftBtn:SetScript("OnClick", function()
         local queue = ns.Data:GetCharacterQueue()
         if #queue == 0 then
-            print("|cff00ccffKazCraft|r: Queue is empty.")
+            ns.DebugLog("Craft Queue: queue is empty")
             return
         end
         -- Skip uncached
@@ -265,12 +265,12 @@ local function CreateMainFrame()
             local entry = queue[1]
             local cached = KazCraftDB.recipeCache[entry.recipeID]
             if cached then break end
-            print("|cff00ccffKazCraft|r: Recipe " .. entry.recipeID .. " not cached, skipping.")
+            ns.DebugLog("Craft Queue: recipe " .. entry.recipeID .. " not cached, skipping")
             ns.Data:RemoveFromQueue(1)
             queue = ns.Data:GetCharacterQueue()
         end
         if #queue == 0 then
-            print("|cff00ccffKazCraft|r: Queue is empty.")
+            ns.DebugLog("Craft Queue: queue is empty after skipping uncached")
             ProfUI:RefreshAll()
             return
         end
@@ -281,7 +281,7 @@ local function CreateMainFrame()
         ns.lastCraftedRecipeID = entry.recipeID
         local applyConc = ns.ProfRecipes and ns.ProfRecipes.GetConcentrationChecked and ns.ProfRecipes.GetConcentrationChecked() or false
 
-        print("|cff00ccffKazCraft|r: Crafting " .. qty .. "x " .. (cached.recipeName or "?") .. "...")
+        ns.DebugLog("Crafting " .. qty .. "x " .. (cached.recipeName or "?"))
         C_TradeSkillUI.CraftRecipe(entry.recipeID, qty, {}, nil, nil, applyConc)
     end)
 

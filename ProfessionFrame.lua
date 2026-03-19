@@ -220,13 +220,13 @@ local function CreateFooter(parent)
     footer.craftBtn:SetScript("OnClick", function()
         local queue = ns.Data:GetCharacterQueue()
         if #queue == 0 then
-            print("|cffc8aa64KazCraft:|r Queue is empty.")
+            ns.Print("Queue is empty.")
             return
         end
         local entry = queue[1]
         local cached = KazCraftDB.recipeCache[entry.recipeID]
         if not cached then
-            print("|cffc8aa64KazCraft:|r Recipe not cached. Open the profession again.")
+            ns.Print("Recipe not cached. Open the profession again.")
             return
         end
         ns.lastCraftedRecipeID = entry.recipeID
@@ -534,6 +534,7 @@ end
 -- Tab selection
 --------------------------------------------------------------------
 function ProfFrame:SelectTab(key)
+    ns.DebugLog("ProfFrame:SelectTab —", key)
     activeTab = key
 
     -- Hide all tab modules
@@ -873,12 +874,14 @@ function ProfFrame:OnTradeSkillDataSourceChanged()
 end
 
 function ProfFrame:OnCraftBegin()
+    ns.DebugLog("ProfFrame:OnCraftBegin")
     if ns.ProfRecipes then
         ns.ProfRecipes:SetCrafting(true)
     end
 end
 
 function ProfFrame:OnCraftComplete()
+    ns.DebugLog("ProfFrame:OnCraftComplete")
     if ns.ProfRecipes then
         ns.ProfRecipes:SetCrafting(false)
         ns.ProfRecipes:RefreshDetail()
@@ -888,6 +891,7 @@ function ProfFrame:OnCraftComplete()
 end
 
 function ProfFrame:OnCraftStopped()
+    ns.DebugLog("ProfFrame:OnCraftStopped")
     if ns.ProfRecipes then
         local wasCrafting = ns.ProfRecipes:IsCrafting()
         ns.ProfRecipes:SetCrafting(false)

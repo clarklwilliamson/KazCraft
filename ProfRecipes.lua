@@ -3294,8 +3294,11 @@ function ProfRecipes:RefreshDetail()
     end
 
     -- Enable/disable craft buttons + status text
-    local disableCraft = isCrafting or craftable == 0
-    ns.DebugLog("RefreshDetail: craftable:", craftable, "isCrafting:", isCrafting, "disabled:", disableCraft)
+    -- For recrafts, GetCraftableCount returns 0 — check transaction instead
+    local isRecraft = currentTransaction and currentTransaction:IsRecraft() or false
+    local disableCraft = isCrafting or (craftable == 0 and not isRecraft)
+    ns.DebugLog("RefreshDetail: craftable:", craftable, "isCrafting:", isCrafting,
+        "isRecraft:", isRecraft, "disabled:", disableCraft)
     if disableCraft then
         detail.craftBtn:Disable()
         detail.craftAllBtn:Disable()

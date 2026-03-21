@@ -769,8 +769,16 @@ function AHShop:ScanCurrent()
         self:RecalcTotal()
         return
     end
-    -- Yield to Browse if it has a pending search — we'll resume on next throttle ready
+    -- Yield to Browse if it has a pending search
     if ns.AHBrowse and ns.AHBrowse._pendingSearch then return end
+    -- Yield to Auctionator full scan if in progress
+    if Auctionator and Auctionator.State then
+        local incRef = Auctionator.State.IncrementalScanFrameRef
+        local fullRef = Auctionator.State.FullScanFrameRef
+        if (incRef and incRef.doingFullScan) or (fullRef and fullRef.inProgress) then
+            return
+        end
+    end
     local itemID = scanQueue[scanIdx]
     if C_AuctionHouse.IsThrottledMessageSystemReady() then
         local itemKey = C_AuctionHouse.MakeItemKey(itemID)

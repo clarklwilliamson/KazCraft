@@ -388,6 +388,8 @@ function AHShop:Show()
     if not container then return end
     wipe(livePrices)
     selectedItemID = nil
+    -- Default to current character's queue (not all)
+    activeFilter = ns.charKey or activeFilter
     self:Refresh()
     self:ClearListings()
     container:Show()

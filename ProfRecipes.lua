@@ -1984,6 +1984,11 @@ local function CreateRightPanel(parent)
         end
         if ns.ProfFrame then ns.ProfFrame:UpdateFooter() end
 
+        -- Refresh AH Shop if visible (shows updated material needs)
+        if ns.AHShop and ns.AHShop:IsShown() then
+            ns.AHShop:Refresh()
+        end
+
         -- Report missing materials
         local mats = ns.Data:GetMaterialList(ns.charKey)
         local missing = {}
